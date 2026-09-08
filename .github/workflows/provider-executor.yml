@@ -73,13 +73,21 @@ jobs:
         if: always()
         shell: bash
         env:
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome || steps.railway.outcome || steps.modal.outcome }}
+          CLOUDFLARE_OUTCOME: ${{ steps.deploy.outcome }}
+          RAILWAY_OUTCOME: ${{ steps.railway.outcome }}
+          MODAL_OUTCOME: ${{ steps.modal.outcome }}
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
           PROVIDER: ${{ inputs.provider }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
+          case "$PROVIDER" in
+            cloudflare) DEPLOY_OUTCOME="$CLOUDFLARE_OUTCOME" ;;
+            railway) DEPLOY_OUTCOME="$RAILWAY_OUTCOME" ;;
+            modal) DEPLOY_OUTCOME="$MODAL_OUTCOME" ;;
+            *) DEPLOY_OUTCOME=failure ;;
+          esac
           status=failure
           if [[ "$DEPLOY_OUTCOME" == success ]]; then status=success; fi
           # Terraform is the sole Cloudflare deployment authority. This wrapper

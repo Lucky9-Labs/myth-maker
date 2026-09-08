@@ -84,6 +84,12 @@ managed; disabled resources are null or empty. Modal CLI output is not assumed
 to be JSON, so its receipt must mark a deployment ID unavailable until a
 parseable CLI/API seam is added—never invent an ID.
 
+Current release status is intentionally conservative: the Terraform foundation
+may create non-version Cloudflare identity/state, but Worker version promotion
+is blocked until the Railway dispatcher exposes a verified `x-work-id`
+acknowledgement adapter. Railway is likewise an unsupported/failure receipt,
+not a successful deployment, until that adapter and its source exist.
+
 ## Receipts and build-room consumption
 
 Every provider execution writes and uploads

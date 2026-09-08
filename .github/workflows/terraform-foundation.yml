@@ -43,7 +43,10 @@ jobs:
           TF_VAR_work_dispatch_url: ${{ vars.WORK_DISPATCH_URL }}
           TF_VAR_railway_workspace_id: ${{ vars.RAILWAY_WORKSPACE_ID }}
           TF_VAR_manage_cloudflare: ${{ vars.MANAGE_CLOUDFLARE }}
-          TF_VAR_manage_cloudflare_worker_versions: ${{ vars.MANAGE_CLOUDFLARE_WORKER_VERSIONS }}
+          # Worker version promotion is blocked until Railway's dispatcher
+          # acknowledgement adapter exists; Terraform may only establish the
+          # non-version foundation in this release phase.
+          TF_VAR_manage_cloudflare_worker_versions: "false"
           TF_VAR_manage_railway: ${{ vars.MANAGE_RAILWAY }}
           TF_VAR_manage_railway_dispatcher_configuration: ${{ vars.MANAGE_RAILWAY_DISPATCHER_CONFIGURATION }}
           TF_VAR_environment: ${{ inputs.environment }}
@@ -53,7 +56,7 @@ jobs:
           set -euo pipefail
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           test -n "$TF_BACKEND_CONFIG"
-          for required in TF_VAR_manage_cloudflare TF_VAR_manage_cloudflare_worker_versions TF_VAR_manage_railway TF_VAR_manage_railway_dispatcher_configuration; do
+          for required in TF_VAR_manage_cloudflare TF_VAR_manage_railway TF_VAR_manage_railway_dispatcher_configuration; do
             test -n "${!required}" || { echo "missing required GitHub Environment variable: $required" >&2; exit 1; }
           done
           if [[ "$TF_VAR_manage_cloudflare" == true ]]; then

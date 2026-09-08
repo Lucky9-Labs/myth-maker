@@ -45,6 +45,12 @@ export function deploymentConcurrencyGroup(provider, environment) {
   return `myth-maker-deploy-${provider}-${environment}`;
 }
 
+export function selectProviderOutcome(provider, outcomes) {
+  assertProvider(provider);
+  const outcome = outcomes?.[provider];
+  return typeof outcome === "string" && outcome.length ? outcome : "failure";
+}
+
 export function validateProviderRequest({ eventName, mode, provider, environment }) {
   assertProvider(provider);
   assertEnvironment(environment);
@@ -129,11 +135,10 @@ export function providerReceiptMetadata(provider, environment, sourceSha) {
   }
   if (provider === "railway") {
     return {
-      artifactIds: [buildVersion, `service:myth-maker-${environment}-dispatcher`],
+      artifactIds: [buildVersion],
       details: {
-        target: "Railway dispatcher",
-        required_variable_names: ["WORK_DISPATCH_TOKEN"],
-        acknowledgement_header: "x-work-id",
+        evidence_status: "unavailable",
+        reason: "dispatcher acknowledgement adapter is not implemented",
       },
     };
   }
