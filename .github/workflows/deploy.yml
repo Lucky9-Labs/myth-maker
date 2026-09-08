@@ -3,13 +3,6 @@ name: Reviewed deployment
 on:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/**"
-      - "scripts/deployment/**"
-      - "src/**"
-      - "modal/**"
-      - "infra/terraform/**"
-      - "wrangler.jsonc"
   workflow_dispatch:
     inputs:
       environment:

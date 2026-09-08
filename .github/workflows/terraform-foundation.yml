@@ -65,21 +65,23 @@ jobs:
           printf 'plan_digest=%s\n' "$actual_digest" >> "$GITHUB_OUTPUT"
           printf 'completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - name: Write non-secret Terraform foundation receipt
-        if: success()
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p receipts
           node -e '
             const fs = require("node:fs");
-            const facts = JSON.parse(fs.readFileSync(process.env.FACTS, "utf8"));
+            const facts = fs.existsSync(process.env.FACTS)
+              ? JSON.parse(fs.readFileSync(process.env.FACTS, "utf8"))
+              : {};
             fs.writeFileSync(process.env.OUTPUT, JSON.stringify({
               format: "myth-maker.deployment-receipt/v1",
               provider: "terraform-foundation",
               environment: process.env.ENVIRONMENT,
               source_sha: process.env.SOURCE_SHA,
               artifact_version_ids: ["git:" + process.env.SOURCE_SHA, "terraform-plan:" + process.env.PLAN_DIGEST],
-              status: "success",
+              status: process.env.OUTCOME === "success" ? "success" : "failure",
               started_at: process.env.STARTED_AT,
               completed_at: process.env.COMPLETED_AT,
               verification: {remote_backend_reconfigured: true, reviewed_plan_applied: true},
@@ -94,8 +96,9 @@ jobs:
           PLAN_DIGEST: ${{ steps.foundation.outputs.plan_digest }}
           STARTED_AT: ${{ steps.foundation.outputs.started_at }}
           COMPLETED_AT: ${{ steps.foundation.outputs.completed_at }}
+          OUTCOME: ${{ steps.foundation.outcome }}
       - name: Upload non-secret Terraform foundation receipt
-        if: success()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deployment-receipt-terraform-foundation-${{ inputs.environment }}-${{ inputs.source_sha }}

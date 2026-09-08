@@ -38,23 +38,36 @@ jobs:
           git diff --exit-code
           git diff --cached --exit-code
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - name: Deploy through the provider adapter
+      - name: Deploy Cloudflare through the provider adapter
         id: deploy
+        if: inputs.provider == 'cloudflare'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
           TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
+        run: node scripts/deployment/controller.mjs deploy --event '${{ github.event_name }}' --provider cloudflare --environment '${{ inputs.environment }}'
+      - name: Verify Railway foundation through the provider adapter
+        id: railway
+        if: inputs.provider == 'railway'
+        env:
           TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
           WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: node scripts/deployment/controller.mjs deploy --event '${{ github.event_name }}' --provider railway --environment '${{ inputs.environment }}'
+      - name: Deploy Modal through the provider adapter
+        id: modal
+        if: inputs.provider == 'modal'
+        env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: node scripts/deployment/controller.mjs deploy --event '${{ github.event_name }}' --provider '${{ inputs.provider }}' --environment '${{ inputs.environment }}'
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: node scripts/deployment/controller.mjs deploy --event '${{ github.event_name }}' --provider modal --environment '${{ inputs.environment }}'
       - name: Write machine-readable receipt
         if: always()
         shell: bash
         env:
-          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome || steps.railway.outcome || steps.modal.outcome }}
         run: |
           set -euo pipefail
           status=failure

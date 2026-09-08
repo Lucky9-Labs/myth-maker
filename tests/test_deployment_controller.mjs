@@ -79,6 +79,10 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /assert-deployment-input/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
+  assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
+  assert.match(executor, /if: inputs\.provider == 'railway'/);
+  assert.match(executor, /if: inputs\.provider == 'modal'/);
+  assert.doesNotMatch(executor, /CLOUDFLARE_API_TOKEN:[\s\S]{0,400}MODAL_TOKEN_SECRET:/);
   assert.match(terraformFoundation, /init -reconfigure/);
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
