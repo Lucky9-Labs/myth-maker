@@ -216,9 +216,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(executor, /cancel-in-progress: false/);
   assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
-  assert.match(executor, /if: inputs\.provider == 'modal'/);
-  assert.match(executor, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
-  assert.match(executor, /modal==1\.4\.0/);
+  assert.doesNotMatch(executor, /MODAL_TOKEN|OPENAI_API_KEY|provider == 'modal'/);
   assert.match(executor, /assert-github-deployment/);
   assert.match(executor, /id-token: write/);
   assert.doesNotMatch(executor, /controller\.mjs deploy --event/);
@@ -291,20 +289,22 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("Modal activation consumes environment secrets in its direct executor, not a nested reusable workflow", () => {
+test("Modal activation reads environment secrets only in the top-level caller job", async () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
-    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-modal.yml"],
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
     { encoding: "utf8" },
   ));
-  const direct = workflow.jobs.activate;
+  const direct = workflow.jobs.modal;
   const steps = direct.steps;
   const modal = steps.find((step) => step.id === "modal").env;
   const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt")).env;
-  assert.equal(direct.environment.name, "${{ inputs.environment }}");
-  assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment }}");
+  assert.equal(direct.uses, undefined, "an environment secret cannot cross a reusable-workflow call");
+  assert.equal(direct.environment.name, "${{ inputs.environment || 'dev' }}");
+  assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment || 'dev' }}");
   assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
   assert.doesNotMatch(JSON.stringify(receipt), /TOKEN|OPENAI/);
   assert.deepEqual(Object.keys(receipt).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
+  assert.doesNotMatch(await readFile(new URL("../.github/workflows/provider-executor.yml", import.meta.url), "utf8"), /MODAL_TOKEN|OPENAI_API_KEY/);
 });

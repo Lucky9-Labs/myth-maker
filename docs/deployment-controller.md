@@ -12,11 +12,13 @@ trusted GitHub Actions main event -> explicit environment bootstrap gate
   -> one JSON receipt artifact per provider, never a fabricated success
 ```
 
-The reusable workflows in `.github/workflows/provider-*.yml` each call the
-shared executor with one provider identifier. `scripts/deployment/controller.mjs`
-is the extensible provider interface: adding a provider requires a definition
-with its pinned tool command, required local files, secret names, and receipt
-metadata, plus a thin provider workflow. It executes argument arrays rather
+The credential-free Cloudflare and Railway reusable workflows call the shared
+executor with one provider identifier. Modal is deliberately different:
+its credential-bearing job lives directly in the top-level deployment caller,
+because GitHub Environment secrets do not cross reusable-workflow boundaries.
+`scripts/deployment/controller.mjs` is the extensible provider interface: adding
+a provider requires a definition with its pinned tool command, required local
+files, secret names, and receipt metadata. It executes argument arrays rather
 than shell strings and never prints environment values.
 
 ## Required repository configuration
@@ -32,14 +34,14 @@ Store only the indicated CLI credentials in the environment that needs them:
 | --- | --- |
 | Cloudflare adapter | None while Terraform remains the sole Worker/binding authority |
 | Railway adapter | None while no verified Railway deploy/acknowledgement command exists |
-| Modal adapter | None until a documented machine-readable deploy/health query seam exists |
+| Modal activation | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `OPENAI_API_KEY` only in the direct `deploy.yml` environment job |
 
-The environment boundary lives in the shared executor, before any credential is
-passed to a command. Runtime secrets stay in their owning Terraform or provider
-seam and are never copied into an unrelated/no-op adapter. Do not use
-`secrets: inherit` in the dispatcher workflow. The Terraform foundation job
-additionally needs `TF_BACKEND_CONFIG` for the approved remote backend and
-the non-secret GitHub Environment variables described by
+The environment boundary lives in the direct Modal job and the credential-free
+shared executor, before any credential is passed to a command. Runtime secrets
+stay in their owning Terraform or provider seam and are never copied into an
+unrelated/no-op adapter. Do not use `secrets: inherit` in the dispatcher
+workflow. The Terraform foundation job additionally needs `TF_BACKEND_CONFIG`
+for the approved remote backend and the non-secret GitHub Environment variables described by
 `infra/terraform/variables.tf` (account/workspace IDs, dispatcher URL, and
 explicit `MANAGE_*` flags).
 
@@ -81,10 +83,9 @@ to local state or synthesizes backend credentials.
 The additive `deployment_receipt_facts` Terraform output supplies Cloudflare
 worker/version/deployment IDs, Railway project/environment/service IDs, module
 SHA-256s, and configured non-secret variable names when those resources are
-managed; disabled resources are null or empty. Modal has no documented
-machine-readable deploy/health query seam in this controller, so it is skipped.
-If enabled later, success must require parsed deployment ID, version ID, named
-resources, and healthy status—never a command exit code alone.
+managed; disabled resources are null or empty. Modal activation succeeds only
+with parsed deployment and version IDs, named resources, healthy status, and a
+completed provider-issued remote probe receipt—never a command exit code alone.
 
 Current release status is intentionally conservative. The merged
 `src/railway-dispatcher.js` supplies an in-repository work-graph dispatcher, but
