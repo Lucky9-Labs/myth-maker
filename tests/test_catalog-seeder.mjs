@@ -70,6 +70,7 @@ test("the manifest preview deterministically derives IDs and distinguishes decla
 
   const observed = inspectCatalogSeedManifest(candidate, { providedFiles: new Map([["fixture://host/scout.mesh", sourceBytes]]) });
   assert.equal(observed.preview[0].evidence_tier, "source_observed");
+  assert.ok(deriveCatalogStableId("animation", "a".repeat(64)).length <= 64);
 });
 
 test("the importer only reads explicitly supplied source bytes, preserves immutable revisions, and exposes an honest inventory projection", () => {
@@ -130,6 +131,29 @@ test("validation failures are returned before writes and unsupported evidence up
   playerClaim.items[0].runtime = { format: "unity-assetbundle", format_state: "accepted", artifact: { locator: "fixture://host/scout.bundle", sha256: sha256("bundle"), media_type: "application/octet-stream" } };
   playerClaim.items[0].evidence = { tier: "player_proven" };
   assert.equal(inspectCatalogSeedManifest(playerClaim, { providedFiles: new Map([["fixture://host/scout.mesh", sourceBytes], ["fixture://host/scout.bundle", Buffer.from("bundle")]]) }).valid, false);
+
+  const acceptedWithoutBytes = manifest();
+  acceptedWithoutBytes.items[0].runtime = { format: "unity-assetbundle", format_state: "accepted", artifact: { locator: "fixture://host/scout.bundle", sha256: sha256("bundle"), media_type: "application/octet-stream" }, acceptance: { accepted_by: "host-import", accepted_at: "2026-09-08T13:00:00.000Z", host_build: "host-1" } };
+  assert.equal(inspectCatalogSeedManifest(acceptedWithoutBytes).valid, false);
+
+  const contradictoryEvidence = manifest();
+  contradictoryEvidence.items[0].evidence = { tier: "source_declared", player_evidence: { observer: "test", observed_at: "2026-09-08T13:00:00.000Z", session_locator: "fixture://player/session", assertion_sha256: "c".repeat(64) } };
+  const contradiction = inspectCatalogSeedManifest(contradictoryEvidence);
+  assert.equal(contradiction.valid, false);
+  assert.match(contradiction.failures.at(-1).message, /only for player_proven/);
+  catalog.close();
+});
+
+test("the importer preflights every catalog revision and leaves no partial manifest write", () => {
+  const catalog = createSqliteCatalog();
+  importCatalogSeedManifest({ catalog, manifest: manifest(), providedFiles: new Map([["fixture://host/scout.mesh", sourceBytes]]) });
+  const mixed = manifest({ revision: 2 });
+  mixed.items[0].catalog_revision = 2;
+  mixed.items[0].source.sha256 = sha256("updated source");
+  mixed.items.push({ ...structuredClone(mixed.items[0]), stable_key: "invalid-new-item", catalog_revision: 2 });
+  assert.throws(() => importCatalogSeedManifest({ catalog, manifest: mixed, providedFiles: new Map([["fixture://host/scout.mesh", Buffer.from("updated source")]]) }), /catalog_revision must be 1/);
+  assert.equal(catalog.getAsset(deriveCatalogStableId("asset", "host-scout-mesh")).revision, 1);
+  assert.equal(catalog.getAsset(deriveCatalogStableId("asset", "invalid-new-item")), undefined);
   catalog.close();
 });
 

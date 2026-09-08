@@ -18,9 +18,11 @@ export class CatalogSeedValidationError extends Error {
 /** A deterministic, opaque ID that does not expose a filesystem path. */
 export function deriveCatalogStableId(domain, stableKey) {
   if (!DOMAIN.has(domain) || typeof stableKey !== "string" || !stableKey.trim()) throw new TypeError("domain and stableKey are required");
-  const slug = stableKey.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "item";
   const suffix = sha256(`${domain}\u0000${stableKey}`).slice(0, 12);
-  return `catalog-${domain}-${slug}-${suffix}`;
+  const prefix = `catalog-${domain}-`;
+  const maxSlugLength = 64 - prefix.length - suffix.length - 1;
+  const slug = stableKey.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, maxSlugLength) || "item";
+  return `${prefix}${slug}-${suffix}`;
 }
 
 /**
@@ -58,19 +60,21 @@ export function inspectCatalogSeedManifest(manifest, { providedFiles = undefined
  * upload, or host-runtime conversion occurs here.
  */
 export function importCatalogSeedManifest({ catalog, manifest, providedFiles = undefined } = {}) {
-  if (!catalog || typeof catalog.getAsset !== "function" || typeof catalog.seedAssetRevision !== "function" || typeof catalog.seedAnimationRevision !== "function") {
+  if (!catalog || typeof catalog.getAsset !== "function" || typeof catalog.seedRevisions !== "function") {
     throw new TypeError("catalog must implement the catalog seeding port");
   }
   const inspection = inspectCatalogSeedManifest(manifest, { providedFiles });
   if (!inspection.valid) throw new CatalogSeedValidationError(inspection.failures);
   const files = normaliseProvidedFiles(providedFiles, []);
   const manifestSha256 = sha256(canonical(manifest));
-  const imported = [];
-  for (const item of [...manifest.items].sort((a, b) => deriveCatalogStableId(a.domain, a.stable_key).localeCompare(deriveCatalogStableId(b.domain, b.stable_key)))) {
+  const items = [...manifest.items].sort((a, b) => deriveCatalogStableId(a.domain, a.stable_key).localeCompare(deriveCatalogStableId(b.domain, b.stable_key)));
+  const existing = new Map();
+  const pending = [];
+  for (const item of items) {
     const stableId = deriveCatalogStableId(item.domain, item.stable_key);
     const current = item.domain === "asset" ? catalog.getAsset(stableId) : catalog.getAnimation(stableId);
     if (current?.seedMetadata?.manifestSha256 === manifestSha256) {
-      imported.push(current);
+      existing.set(stableId, current);
       continue;
     }
     const expectedRevision = current ? current.revision + 1 : 1;
@@ -79,8 +83,14 @@ export function importCatalogSeedManifest({ catalog, manifest, providedFiles = u
     }
     const evidenceTier = actualEvidenceTier(item, files);
     const record = toCatalogRecord({ manifest, manifestSha256, item, stableId, current, evidenceTier });
-    imported.push(item.domain === "asset" ? catalog.seedAssetRevision(record) : catalog.seedAnimationRevision(record));
+    pending.push({ domain: item.domain, stableId, record });
   }
+  const appended = catalog.seedRevisions(pending.map(({ domain, record }) => ({ domain, record })));
+  const appendedByStableId = new Map(pending.map(({ stableId }, index) => [stableId, appended[index]]));
+  const imported = items.map((item) => {
+    const stableId = deriveCatalogStableId(item.domain, item.stable_key);
+    return existing.get(stableId) || appendedByStableId.get(stableId);
+  });
   return { manifest_id: manifest.manifest_id, manifest_sha256: manifestSha256, imported, preview: inspection.preview };
 }
 
@@ -169,8 +179,10 @@ function validateItem(item, path, files, failures, preview) {
   else if (item.animation !== undefined) failures.push(failure(`${path}.animation`, "asset entries cannot declare animation"));
   const requested = item.evidence?.tier;
   if (item.evidence !== undefined && (!isObject(item.evidence) || Object.keys(item.evidence).some((key) => !["tier", "player_evidence"].includes(key)) || !EVIDENCE_TIER.has(requested))) failures.push(failure(`${path}.evidence`, "evidence.tier is invalid"));
+  if (requested !== "player_proven" && item.evidence?.player_evidence !== undefined) failures.push(failure(`${path}.evidence.player_evidence`, "player_evidence is allowed only for player_proven evidence"));
   const observedSource = hasMatchingFile(files, item?.source?.locator, item?.source?.sha256);
   const observedRuntime = hasMatchingFile(files, item?.runtime?.artifact?.locator, item?.runtime?.artifact?.sha256);
+  if (item?.runtime?.format_state === "accepted" && !observedRuntime) failures.push(failure(`${path}.runtime`, "accepted runtime requires a matching explicit provided runtime file"));
   if (["source_observed", "accepted_runtime", "player_proven"].includes(requested) && !observedSource) failures.push(failure(`${path}.evidence`, "this evidence tier requires a matching explicit provided file for source"));
   if (["accepted_runtime", "player_proven"].includes(requested) && !observedRuntime) failures.push(failure(`${path}.evidence`, "this evidence tier requires a matching explicit provided file for runtime artifact"));
   if (requested === "player_proven") validatePlayerEvidence(item.evidence?.player_evidence, `${path}.evidence.player_evidence`, failures);

@@ -51,6 +51,15 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     seedAnimationRevision(record) {
       return transaction(() => seedRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation));
     },
+    /** Atomically appends a manifest's independently validated seed records. */
+    seedRevisions(records) {
+      if (!Array.isArray(records)) throw new TypeError("seed records must be an array");
+      return transaction(() => records.map(({ domain, record }) => {
+        if (domain === "asset") return seedRevision("asset_revisions", "asset_id", "assetId", "asset", normalizeAsset(record), insertAsset);
+        if (domain === "animation") return seedRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation);
+        throw new TypeError("seed record domain must be asset or animation");
+      }));
+    },
     getSemanticEntity(entityId, revision = undefined) {
       return getRecord("semantic_entity_revisions", "entity_id", "entityId", entityId, revision);
     },
