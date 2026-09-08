@@ -1,0 +1,75 @@
+{
+  "schema_version": "1",
+  "encounter_intent": {
+    "intent_id": "outpost-pressure",
+    "revision": 3,
+    "content_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "player_facing_beat": "The player takes cover, reads a new threat, and creates a safe opening.",
+    "constraints": ["Preserve a clear route to the extraction marker."]
+  },
+  "art_direction_revision": {
+    "art_direction_id": "outpost-direction",
+    "revision": 4,
+    "content_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "encounter_intent": { "id": "outpost-pressure", "revision": 3, "content_sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+    "player_facing_beat": "Threat recognition precedes the attack window.",
+    "silhouette": "A broad, low profile with a distinct forward gesture.",
+    "scale": "Readable at the arena's longest combat distance.",
+    "palette_material_cues": "Matte primary surfaces with a small high-contrast reactive element.",
+    "arena_relationship": "Frames but does not block the extraction route.",
+    "animation_combat_beats": ["Wind up before the committed strike.", "Recover long enough for a counterattack."],
+    "constraints": ["No visual state may obscure the critical interaction marker."]
+  },
+  "concept_reference_revision": {
+    "concept_reference_id": "outpost-concept",
+    "revision": 2,
+    "content_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "mode": "generated",
+    "art_direction_revision": { "id": "outpost-direction", "revision": 4, "content_sha256": "2222222222222222222222222222222222222222222222222222222222222222" },
+    "artifact": { "uri": "https://assets.example.test/concepts/outpost-v2.png", "sha256": "4444444444444444444444444444444444444444444444444444444444444444", "media_type": "image/png" },
+    "interpretation_constraints": ["Keep the forward gesture visible from the approach route."]
+  },
+  "worker_brief": {
+    "brief_id": "outpost-model-brief",
+    "revision": 1,
+    "content_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+    "asset_type": "model",
+    "lineage": {
+      "kind": "concept_lineage",
+      "encounter_intent": { "id": "outpost-pressure", "revision": 3, "content_sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+      "art_direction_revision": { "id": "outpost-direction", "revision": 4, "content_sha256": "2222222222222222222222222222222222222222222222222222222222222222" },
+      "concept_reference_revision": { "id": "outpost-concept", "revision": 2, "content_sha256": "3333333333333333333333333333333333333333333333333333333333333333" }
+    },
+    "acceptance_constraints": ["Validate bounds against the declared arena route.", "Reject if the reactive element cannot be read at target distance."]
+  },
+  "asset_revision": {
+    "asset_id": "outpost-model",
+    "revision": 1,
+    "content_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "asset_type": "model",
+    "artifact": { "uri": "https://assets.example.test/models/outpost-v1.glb", "sha256": "5555555555555555555555555555555555555555555555555555555555555555", "media_type": "model/gltf-binary" },
+    "worker_brief": { "id": "outpost-model-brief", "revision": 1, "content_sha256": "6666666666666666666666666666666666666666666666666666666666666666" },
+    "lineage": {
+      "kind": "concept_lineage",
+      "encounter_intent": { "id": "outpost-pressure", "revision": 3, "content_sha256": "1111111111111111111111111111111111111111111111111111111111111111" },
+      "art_direction_revision": { "id": "outpost-direction", "revision": 4, "content_sha256": "2222222222222222222222222222222222222222222222222222222222222222" },
+      "concept_reference_revision": { "id": "outpost-concept", "revision": 2, "content_sha256": "3333333333333333333333333333333333333333333333333333333333333333" }
+    },
+    "interpretation_constraints": ["Keep the forward gesture visible from the approach route."],
+    "provenance": {
+      "producer": "asset-worker",
+      "created_at": "2026-09-08T12:00:00Z",
+      "source_artifacts": [{ "uri": "https://assets.example.test/models/outpost-v1.glb", "sha256": "7777777777777777777777777777777777777777777777777777777777777777", "media_type": "model/gltf-binary" }]
+    },
+    "source_acceptance": { "status": "accepted", "reason": "Source hashes and declared provenance match." },
+    "runtime_acceptance": { "status": "pending", "reason": "The host has not yet loaded this candidate." }
+  },
+  "assembly_receipt": {
+    "package": { "id": "outpost-package", "revision": 6, "content_sha256": "8888888888888888888888888888888888888888888888888888888888888888" },
+    "asset_revision": { "id": "outpost-model", "revision": 1, "content_sha256": "5555555555555555555555555555555555555555555555555555555555555555" },
+    "lineage_compatibility": "compatible",
+    "decision": "selected",
+    "reasons": ["Candidate preserves all pinned concept lineage and package constraints."],
+    "recorded_at": "2026-09-08T12:05:00Z"
+  }
+}
