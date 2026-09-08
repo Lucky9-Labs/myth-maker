@@ -1,3 +1,5 @@
+import { EventDeliveryError, InvalidWorkerEventsError } from "./encounter-dispatcher.js";
+
 /**
  * HTTP adapter for the Railway control-plane service.
  *
@@ -32,9 +34,11 @@ export function createRailwayDispatchHandler({ dispatcher, dispatchToken, eventS
       // The coordinator's event IDs are idempotent. Replaying a stored receipt
       // after an interrupted callback is therefore safe, and posting serially
       // preserves the per-worker sequence required by its state machine.
-      for (const event of dispatched.receipt.events) await eventSink.append(workOrder.work_id, event);
+      await dispatcher.flush(workOrder.work_id, eventSink);
       return response(dispatched, dispatched.deduplicated ? 200 : 202);
     } catch (error) {
+      if (error instanceof EventDeliveryError) return response({ error: "worker_event_delivery_failed" }, 502);
+      if (error instanceof InvalidWorkerEventsError) return response({ error: "invalid_worker_events" }, 422);
       return response({ error: "invalid_work_order", detail: error.message }, 400);
     }
   };

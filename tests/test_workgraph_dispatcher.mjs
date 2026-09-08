@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { planEncounterWork } from "../src/workgraph-planner.js";
-import { EncounterDispatcher, InMemoryReceiptStore } from "../src/encounter-dispatcher.js";
+import { EncounterDispatcher, InMemoryReceiptStore, JsonReceiptStore } from "../src/encounter-dispatcher.js";
 import { LocalWorkerBackend } from "../src/local-worker-backend.js";
 import { createRailwayDispatchHandler } from "../src/railway-dispatcher.js";
 
@@ -176,4 +178,28 @@ test("an atomic receipt claim prevents duplicate launches across dispatcher inst
   assert.equal(launches, 1);
   assert.equal(first.receipt.work_id, duplicate.receipt.work_id);
   assert.equal(first.deduplicated || duplicate.deduplicated, true);
+});
+
+test("restartable receipt outbox resumes only undelivered events after a callback failure", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "myth-maker-outbox-"));
+  try {
+    const order = planEncounterWork(fixture).work_orders[0];
+    const first = new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }), receiptStore: new JsonReceiptStore(path.join(directory, "receipts.json")) });
+    const dispatched = await first.dispatchWorkOrder(order);
+    const attempted = [];
+    await assert.rejects(first.flush(order.work_id, { append: async (_id, event) => {
+      attempted.push(event.sequence);
+      if (event.sequence === 1) throw new Error("temporary callback outage");
+    } }), /delivery failed/);
+    assert.deepEqual(attempted, [0, 1]);
+
+    const resumed = new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }), receiptStore: new JsonReceiptStore(path.join(directory, "receipts.json")) });
+    const delivered = [];
+    await resumed.recoverDeliveries({ append: async (_id, event) => delivered.push(event.sequence) });
+    assert.deepEqual(delivered, [1, 2]);
+    assert.equal((await resumed.lookup(order.work_id)).status, "completed");
+    assert.equal(dispatched.receipt.events.length, 3);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
