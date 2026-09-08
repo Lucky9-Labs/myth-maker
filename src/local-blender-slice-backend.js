@@ -22,7 +22,7 @@ export class LocalBlenderSliceBackend {
 
   resultFor(workId) { return structuredClone(this.results.get(workId)); }
 
-  async launch(order, { onEvent } = {}) {
+  async launch(order, { onEvent, revision = 1 } = {}) {
     const workerId = `blender-cli-${createHash("sha256").update(order.work_id).digest("hex").slice(0, 32)}`;
     const events = [];
     const emit = (sequence, kind, details = {}) => {
@@ -45,10 +45,10 @@ export class LocalBlenderSliceBackend {
     try {
       await mkdir(this.outputDir, { recursive: true });
       const manifest = await invoke(this.python, [script, "--output-dir", this.outputDir, "--encounter-id", order.encounter_id,
-        "--work-id", order.work_id, "--worker-id", workerId, "--seed", String(this.seedFor(order))]);
-      validateManifest(manifest, order, workerId);
+        "--work-id", order.work_id, "--worker-id", workerId, "--seed", String(this.seedFor(order)), "--revision", String(revision)]);
+      validateManifest(manifest, order, workerId, revision);
       this.results.set(order.work_id, manifest);
-      emit(2, "candidate_produced", { module: manifest.module, message: `Local Blender CLI produced immutable .blend ${manifest.source.artifact.sha256} and checked GLB ${manifest.runtime.sha256}.` });
+      emit(2, "candidate_produced", { module: manifest.module, message: `Local Blender CLI produced immutable body revision ${revision}: .blend ${manifest.source.artifact.sha256} and checked GLB ${manifest.runtime.sha256}.` });
       emit(3, "completed", { message: "Local Blender CLI conversion completed; runtime candidate remains unaccepted by a host game." });
       return { worker_id: workerId, events };
     } catch (error) {
@@ -73,12 +73,13 @@ function invoke(program, args) {
   });
 }
 
-function validateManifest(manifest, order, workerId) {
+function validateManifest(manifest, order, workerId, revision) {
   if (!manifest || manifest.schema_version !== "1" || manifest.kind !== "local_blender_generated_asset"
     || manifest.evidence_scope !== "local_blender_cli_only" || manifest.work_id !== order.work_id
-    || manifest.encounter_id !== order.encounter_id || manifest.worker_id !== workerId
+    || manifest.encounter_id !== order.encounter_id || manifest.worker_id !== workerId || manifest.revision !== revision
     || !manifest.source?.artifact?.sha256 || !manifest.runtime?.sha256 || !manifest.visual?.sha256
-    || !manifest.module || !manifest.loader_profile || !manifest.worker_receipt?.commands?.length) {
+    || !manifest.module || manifest.module.revision !== revision || !manifest.loader_profile || !manifest.worker_receipt?.commands?.length
+    || (revision >= 2 && (manifest.source_inspection?.body_shape !== "curved-tapered-tentacles-v2" || manifest.source_inspection?.tentacle_count < 1))) {
     throw new Error("local Blender slice returned an incomplete manifest");
   }
 }

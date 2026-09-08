@@ -191,6 +191,7 @@ function normalizeAsset(input) {
   validateProvenance(record.provenance); validateCompatibility(record.compatibility);
   validateSource(record);
   validateRuntimeArtifact(record);
+  if (record.visualArtifact !== undefined) validateVisualArtifact(record.visualArtifact);
   return finalize(record);
 }
 
@@ -247,6 +248,7 @@ function validateSource(record) {
 }
 function validateReceipt(value) { if (!value || typeof value !== "object") throw new TypeError("sourceReceipt is required"); nonEmpty(value.receiptId, "sourceReceipt.receiptId"); nonEmpty(value.uri, "sourceReceipt.uri"); assertHash(value.sha256, "sourceReceipt.sha256"); assertTimestamp(value.receivedAt, "sourceReceipt.receivedAt"); }
 function validateArtifact(value) { if (!value || typeof value !== "object") throw new TypeError("runtimeArtifact is required"); nonEmpty(value.uri, "runtimeArtifact.uri"); assertHash(value.sha256, "runtimeArtifact.sha256"); nonEmpty(value.mediaType, "runtimeArtifact.mediaType"); }
+function validateVisualArtifact(value) { validateArtifact(value); if (value.mediaType !== "image/png") throw new TypeError("visualArtifact must be image/png"); }
 function validateRuntimeArtifact(record) {
   if (!RUNTIME_STATES.has(record.runtimeAcceptanceState)) throw new TypeError("invalid runtimeAcceptanceState");
   if (record.runtimeAcceptanceState === "accepted") validateArtifact(record.runtimeArtifact);
