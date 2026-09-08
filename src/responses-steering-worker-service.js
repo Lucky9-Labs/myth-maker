@@ -28,6 +28,7 @@ export async function createResponsesSteeringWorkerService({ coordinatorUrl, com
     },
     async markPersistedAttemptsUncertain() { return worker.gateway.markPersistedLanesUncertain(); },
     async handle(request, body) {
+      if (body.length > 65536) return new Response(JSON.stringify({ error: "payload_too_large" }), { status: 413 });
       if (request.method === "POST" && request.url === "/v1/steering/attempts") {
         if (request.headers.authorization !== `Bearer ${commandToken}`) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
         try { const value = JSON.parse(body.toString("utf8")); return new Response(JSON.stringify({ attempt: await this.startAttempt(value.attempt, value.initial_response) }), { status: 201 }); } catch (error) { return new Response(JSON.stringify({ error: error.message }), { status: 409 }); }
