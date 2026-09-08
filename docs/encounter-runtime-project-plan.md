@@ -10,13 +10,49 @@ has not completed never prevents the encounter from loading.
 This is a general encounter system. A giant creature is a possible demo
 blueprint, not a special type in the schema, endpoint, catalog, or runtime.
 
-## Architecture board
+## Authoritative direction and architecture board
+
+This Markdown plan is the authoritative implementation and project direction.
+The Miro board is diagrams-only: it may illustrate an approved direction, but
+it does not add, reorder, or satisfy milestones.
 
 The living visual companion to this plan is the [Miro encounter architecture
 board](https://miro.com/app/board/uXjVHpB5q5w=/). It preserves the original
 collector, asset-swarm, catalog, worker-observation, and worker-steering ideas,
 and now carries the encounter-generic draft-by-deadline flow and checkpoint
 summary below.
+
+## D0 — Core demo target
+
+D0 is the non-negotiable proof that this repository can produce one real,
+generic encounter upgrade. The tentacled creature is only the first demo
+blueprint; no D0 interface, catalog type, or runtime rule is creature-specific.
+
+The following observable chain is the exact D0 acceptance chain, in order:
+
+1. A **Build Room** request creates a generic component work order.
+2. That order produces actual local Blender artifacts: a generated `.blend`, a
+   PNG render, and a GLB.
+3. The artifacts are hash-addressed and the GLB passes strict validation.
+4. Acceptance creates a newly produced immutable catalog revision—not a
+   fixture—and records its provenance.
+5. The assembler composes the revision and emits an `AssemblyReceipt`.
+6. Build Room shows an actual render and the selected package for that request.
+7. At least one later worker revision upgrades that same encounter; the
+   assembler selects the compatible successor and produces a new receipt.
+8. In the host demo, simple runtime combat proves that both player and
+   encounter can damage one another.
+
+"Actual" in D0 means locally produced during the demonstrated request. A
+synthetic catalog entry, pre-existing file, receipt-shaped event, static image,
+or simulated fixture cannot substitute for any link in the chain. The render
+and selected package must be tied to the same request, catalog revision, and
+assembly receipt by stable IDs and hashes.
+
+Until D0 is demonstrated end to end, unrelated speculative expansion—including
+production-infrastructure polish, broad taxonomy work, and advanced
+steering—does not count as milestone progress and must not displace fixing D0.
+The broader C0–C5 plan remains in force after D0.
 
 ## Demo definition of playable
 
@@ -114,6 +150,9 @@ bindings, and current runtime compatibility must be checked in the active Unity
 checkout before an entry is accepted.
 
 ## Checkpoints
+
+The checkpoints below are deliberately preserved as the post-D0 expansion
+path. They may support D0 only when they directly repair a missing D0 link.
 
 ### C0 — Catalog seed and contracts
 

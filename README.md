@@ -14,9 +14,21 @@ validates its contract and explicitly accepts it.
 
 [`docs/encounter-runtime-project-plan.md`](docs/encounter-runtime-project-plan.md)
 defines the draft-by-deadline encounter model, concrete checkpoints, and work
-that can proceed in parallel. It also records the demo bootstrap: selected
-Mech-project assets and animation clips will seed the encounter catalogs, while
-the design itself remains generic.
+that can proceed in parallel. Its immediate, authoritative target is **D0**:
+one generic component work order from Build Room must produce a local
+Blender-generated `.blend`, PNG render, and GLB; pass hash and strict GLB
+validation; create a newly produced immutable catalog revision; compose into an
+`AssemblyReceipt`; visibly render and select the package in Build Room; accept
+a later compatible worker revision for the same encounter; and reach simple
+host runtime combat where player and encounter can damage one another. The
+tentacled creature is only the first demo blueprint, not a special encounter
+type. Until that chain is demonstrated, infrastructure polish, broad taxonomy,
+and advanced steering are not milestone progress. Markdown is authoritative
+implementation direction; Miro remains diagrams only.
+
+The plan also records the demo bootstrap: selected Mech-project assets and
+animation clips will seed the encounter catalogs, while the design itself
+remains generic.
 
 The first stable machine-readable interchange boundary is in
 [`contracts/`](contracts/). It covers host capabilities, encounter requests,
