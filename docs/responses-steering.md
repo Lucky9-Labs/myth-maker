@@ -61,7 +61,8 @@ the receipt. An incomplete response whose reason is `steered` remains `pending`.
 `response.steer.pending` may carry its root `reason` and `required_input`
 stubs. Those stubs become `required_input`; the worker validates the protocol's
 discriminated result union (function/custom/computer/shell/apply-patch/tool-search
-call outputs by `call_id`, and MCP approval responses by `approval_request_id`).
+call outputs by `call_id`). MCP approval requests fail closed because this path
+has no approval gate.
 It sends exactly one explicit
 `response.create` continuation per parent, without rerunning a tool or
 resending the steer. A completed response uses the same explicit continuation

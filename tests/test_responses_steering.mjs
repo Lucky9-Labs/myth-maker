@@ -51,11 +51,10 @@ test("pre-allocation failures require one exact parent and input hash", async ()
 test("required input uses its discriminated output union", async () => {
   const lane = new Lane(); const gateway = new ResponsesSteeringGateway(); await gateway.recordAttempt(attempt(), lane); await gateway.requestSteer("attempt-alpha", request());
   await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", steer: { id: "server-1", previous_response_id: "resp-original" } });
-  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ type: "shell_call", call_id: "shell-1" }, { type: "mcp_approval_request", approval_request_id: "approval-1" }] });
+  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ type: "shell_call", call_id: "shell-1" }] });
   await assert.rejects(gateway.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "shell-1", output: "wrong discriminator" }), /scope/);
   await gateway.saveRequiredInputResult("attempt-alpha", { type: "shell_call_output", call_id: "shell-1", output: "ok" });
-  await gateway.saveRequiredInputResult("attempt-alpha", { type: "mcp_approval_response", approval_request_id: "approval-1", approved: true });
-  await gateway.resolveRequiredInput("attempt-alpha"); assert.deepEqual(lane.frames.at(-1).input.map((item) => item.type), ["shell_call_output", "mcp_approval_response"]);
+  await gateway.resolveRequiredInput("attempt-alpha"); assert.deepEqual(lane.frames.at(-1).input.map((item) => item.type), ["shell_call_output"]);
 });
 
 test("worker lane listeners report message and disconnect receipts without a coordinator socket", async () => {

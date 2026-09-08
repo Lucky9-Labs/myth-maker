@@ -6,8 +6,11 @@ function asRequest(request, body) { return new Request(`http://steering-worker${
 async function readBody(request) { const chunks = []; for await (const chunk of request) chunks.push(chunk); return Buffer.concat(chunks); }
 function waitForCreated(socket, initialResponse) {
   return new Promise((resolve, reject) => {
-    const onMessage = (message) => { try { const event = JSON.parse(message.data); if (event.type === "response.created" && typeof event.response?.id === "string") resolve(event.response.id); } catch {} };
-    socket.addEventListener("message", onMessage); try { socket.send(JSON.stringify({ type: "response.create", ...initialResponse })); } catch (error) { reject(error); }
+    let timer;
+    const finish = (value, error) => { clearTimeout(timer); socket.removeEventListener?.("message", onMessage); socket.removeEventListener?.("close", onClose); socket.removeEventListener?.("error", onError); error ? reject(error) : resolve(value); };
+    const onMessage = (message) => { try { const event = JSON.parse(message.data); if (event.type === "response.created" && typeof event.response?.id === "string") finish(event.response.id); } catch {} };
+    const onClose = () => finish(null, new Error("responses_socket_closed_before_created")); const onError = () => finish(null, new Error("responses_socket_error_before_created"));
+    socket.addEventListener("message", onMessage); socket.addEventListener("close", onClose); socket.addEventListener("error", onError); timer = setTimeout(() => finish(null, new Error("responses_created_timeout")), 10000); timer.unref?.(); try { socket.send(JSON.stringify({ type: "response.create", ...initialResponse })); } catch (error) { finish(null, error); }
   });
 }
 

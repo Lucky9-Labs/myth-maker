@@ -217,7 +217,7 @@ class DurableObjectSteeringStore {
       if (current) return current;
       const ids = (await storage.get(steeringAllAttemptsKey)) || [];
       const attempts = await Promise.all(ids.map((id) => storage.get(steeringAttemptKey(id))));
-      if (attempts.some((item) => item && item.lane_id === attempt.lane_id && item.response_id === attempt.response_id && !["completed", "connection_lost"].includes(item.response_status))) throw new Error("steering_parent_already_owned");
+      if (attempts.some((item) => item && item.response_id === attempt.response_id && !["completed", "connection_lost"].includes(item.response_status))) throw new Error("steering_parent_already_owned");
       await storage.put(steeringAttemptKey(attempt.attempt_id), attempt);
       if (!ids.includes(attempt.attempt_id)) await storage.put(steeringAllAttemptsKey, [...ids, attempt.attempt_id]);
       return attempt;
