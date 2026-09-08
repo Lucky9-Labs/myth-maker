@@ -64,6 +64,7 @@ export class ResponsesSteeringGateway {
     this.store = store;
     this.now = now;
     this.lanes = new Map();
+    this.boundLanes = new WeakSet();
   }
 
   async recordAttempt(attempt, lane) {
@@ -78,13 +79,24 @@ export class ResponsesSteeringGateway {
       return existing;
     }
     await this.store.putAttempt(record);
-    if (lane) this.lanes.set(record.lane_id, lane);
+    if (lane) this.attachLane(record.lane_id, lane);
     return record;
   }
 
   attachLane(laneId, lane) {
     if (!ID.test(laneId) || !lane || typeof lane.send !== "function") throw new Error("invalid_responses_websocket_lane");
     this.lanes.set(laneId, lane);
+    if (typeof lane.addEventListener !== "function" || this.boundLanes.has(lane)) return;
+    this.boundLanes.add(lane);
+    lane.addEventListener("message", (message) => {
+      const data = typeof message.data === "string" ? message.data : null;
+      if (!data) return;
+      let event;
+      try { event = JSON.parse(data); } catch { return; }
+      void this.handleServerEvent(laneId, event).catch(() => this.handleDisconnect(laneId));
+    });
+    lane.addEventListener("close", () => { void this.handleDisconnect(laneId); });
+    lane.addEventListener("error", () => { void this.handleDisconnect(laneId); });
   }
 
   async requestSteer(attemptId, request) {

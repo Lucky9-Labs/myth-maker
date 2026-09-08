@@ -3,9 +3,13 @@ import test from "node:test";
 import { ResponsesSteeringGateway } from "../src/responses-steering.js";
 
 class FakeWebSocketLane {
-  constructor() { this.frames = []; }
+  constructor() { this.frames = []; this.listeners = new Map(); }
   send(frame) { this.frames.push(JSON.parse(frame)); }
+  addEventListener(type, listener) { this.listeners.set(type, [...(this.listeners.get(type) || []), listener]); }
+  emit(type, data) { for (const listener of this.listeners.get(type) || []) listener(type === "message" ? { data } : {}); }
 }
+
+async function drainEvents() { await new Promise((resolve) => setImmediate(resolve)); }
 
 test("a single-agent attempt queues a user steer and commits only at its successor response", async () => {
   const lane = new FakeWebSocketLane();
@@ -36,19 +40,35 @@ test("a single-agent attempt queues a user steer and commits only at its success
     input: [{ role: "user", content: [{ type: "input_text", text: "Prefer a flooded courtyard." }] }],
   });
 
-  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", previous_response_id: "resp-original" });
+  lane.emit("message", JSON.stringify({ type: "response.steer.accepted", previous_response_id: "resp-original" }));
+  await drainEvents();
   assert.equal((await gateway.getReceipt("steer-alpha")).status, "accepted");
-  await gateway.handleServerEvent("lane-alpha", { type: "response.created", response: { id: "resp-successor", previous_response_id: "resp-original" } });
+  lane.emit("message", JSON.stringify({ type: "response.created", response: { id: "resp-successor", previous_response_id: "resp-original" } }));
+  await drainEvents();
   const committed = await gateway.getReceipt("steer-alpha");
   assert.equal(committed.status, "committed");
   assert.equal(committed.successor_response_id, "resp-successor");
-  await gateway.handleServerEvent("lane-alpha", { type: "response.completed", response: { id: "resp-successor" } });
+  lane.emit("message", JSON.stringify({ type: "response.completed", response: { id: "resp-successor" } }));
+  await drainEvents();
   await gateway.requestSteer("attempt-alpha", {
     client_steering_id: "steer-after-complete",
     input: [{ role: "user", content: [{ type: "input_text", text: "Keep the flooded courtyard." }] }],
   });
   assert.equal(lane.frames[1].type, "response.create");
   assert.equal(lane.frames[1].previous_response_id, "resp-successor");
+});
+
+test("a closed Responses lane fails the queued receipt without replaying its frame", async () => {
+  const lane = new FakeWebSocketLane();
+  const gateway = new ResponsesSteeringGateway();
+  await gateway.recordAttempt({ attempt_id: "attempt-close", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", lane_id: "lane-close", response_id: "resp-close", mode: "single_agent", model_supports_steering: true }, lane);
+  await gateway.requestSteer("attempt-close", { client_steering_id: "steer-close", input: [{ role: "user", content: [{ type: "input_text", text: "Stay readable." }] }] });
+  lane.emit("close");
+  await drainEvents();
+  const receipt = await gateway.getReceipt("steer-close");
+  assert.equal(receipt.status, "failed");
+  assert.equal(receipt.error_code, "steering_transport_reconnect_uncertain");
+  assert.equal(lane.frames.length, 1);
 });
 
 test("completed attempts use an explicit continuation while unsupported and pending modes never rerun tools", async () => {

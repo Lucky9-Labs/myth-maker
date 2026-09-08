@@ -506,6 +506,7 @@ export class EncounterCoordinator {
     const fields = new Set(["client_steering_id", "directive", "work_submissions"]);
     if (!isObject(value) || !hasOnly(value, fields) || !ID.test(value.client_steering_id || "") || typeof value.directive !== "string" || value.directive.length < 1 || value.directive.length > 12000 || !Array.isArray(value.work_submissions) || value.work_submissions.length < 1 || value.work_submissions.length > 32 || !value.work_submissions.every(validSubmission)) return response({ error: "invalid_encounter_steer" }, 400);
     const requestFingerprint = await fingerprint(value);
+    const submissionFingerprints = await Promise.all(value.work_submissions.map(async (submission) => ({ submission, fingerprint: await fingerprint(submission.work_order) })));
     const recorded = await this.transaction(async (storage) => {
       const encounter = await storage.get("encounter");
       if (!encounter) return { error: { error: "encounter_not_found" }, status: 404 };
@@ -514,20 +515,31 @@ export class EncounterCoordinator {
       const directives = (await storage.get(plannerDirectivesKey)) || [];
       const prior = directives.find((directive) => directive.client_steering_id === value.client_steering_id);
       if (prior) return prior.request_fingerprint === requestFingerprint ? { directive: prior, replay: true } : { error: { error: "planner_steering_id_reused_with_different_request" }, status: 409 };
+      const workIds = submissionFingerprints.map(({ submission }) => submission.work_order.work_id);
+      const idempotencyKeys = submissionFingerprints.map(({ submission }) => submission.idempotency_key);
+      if (new Set(workIds).size !== workIds.length || new Set(idempotencyKeys).size !== idempotencyKeys.length) return { error: { error: "planner_work_attempt_not_unique" }, status: 409 };
+      for (const { submission } of submissionFingerprints) {
+        if (await storage.get(workKey(submission.work_order.work_id))) return { error: { error: "work_id_already_exists", work_id: submission.work_order.work_id }, status: 409 };
+        if (await storage.get(`idempotency:${submission.idempotency_key}`)) return { error: { error: "planner_work_idempotency_key_already_exists" }, status: 409 };
+      }
       const directive = { schema_version: "1", client_steering_id: value.client_steering_id, request_fingerprint: requestFingerprint, revision: directives.length + 1, directive: value.directive, requested_at: new Date().toISOString(), work_ids: value.work_submissions.map((submission) => submission.work_order.work_id) };
+      const now = new Date().toISOString();
+      const expandedEncounter = { ...encounter, work_ids: [...encounter.work_ids, ...workIds] };
+      for (const { submission, fingerprint: workFingerprint } of submissionFingerprints) {
+        const waiting = { work_order: submission.work_order, status: "waiting", event_count: 0, last_event_sequence: -1, created_at: now, updated_at: now, idempotency_key: `idempotency:${submission.idempotency_key}`, request_fingerprint: workFingerprint };
+        await storage.put(workKey(submission.work_order.work_id), waiting);
+        await storage.put(waiting.idempotency_key, { fingerprint: workFingerprint, work_id: submission.work_order.work_id, dispatch_pending: false, response: { work_item: workSummary(waiting) }, status: 202 });
+      }
       await storage.put(plannerDirectivesKey, [...directives, directive]);
-      return { directive };
+      await storage.put("encounter", expandedEncounter);
+      const scheduled = await this.promoteReadyWork(storage, expandedEncounter);
+      const work_items = await Promise.all(workIds.map(async (workId) => workSummary(await storage.get(workKey(workId)))));
+      return { directive, scheduled, work_items };
     });
     if (recorded.error) return response(recorded.error, recorded.status);
     if (recorded.replay) return response({ planner_directive: recorded.directive, idempotent_replay: true }, 200);
-    const work_items = [];
-    for (const submission of value.work_submissions) {
-      const submitted = await this.submit(submission);
-      const item = await submitted.json();
-      if (!submitted.ok) return response({ error: "planner_work_attempt_rejected", planner_directive: recorded.directive, work_result: item }, submitted.status);
-      work_items.push(item.work_item);
-    }
-    return response({ planner_directive: recorded.directive, work_items }, 202);
+    await Promise.all(recorded.scheduled.map((work) => this.dispatchWork(work, work.idempotency_key, work.request_fingerprint)));
+    return response({ planner_directive: recorded.directive, work_items: recorded.work_items }, 202);
   }
 
   async freeze(value) {
