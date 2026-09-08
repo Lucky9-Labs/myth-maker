@@ -27,7 +27,7 @@ const hostCapabilities = {
 };
 
 const fixture = {
-  schema_version: "1",
+  schema_version: "2",
   encounter_id: "tideglass-reef",
   seed: 17,
   deadline_at: "2026-09-09T12:00:00Z",
@@ -38,9 +38,58 @@ const fixture = {
     navigation_profiles: ["ground"],
   },
   desired_roles: ["pressure", "support"],
+  production_gate: conceptProductionGate(),
 };
 
-test("planner deterministically produces generic dependency-aware v1 lanes", () => {
+function conceptProductionGate() {
+  const intent = {
+    intent_id: "reef-survival-intent",
+    revision: 1,
+    content_sha256: "a".repeat(64),
+    player_facing_beat: "Survive the reef pressure without losing the escape route.",
+    constraints: ["Keep the route to extraction readable."],
+  };
+  const direction = {
+    art_direction_id: "reef-survival-direction",
+    revision: 2,
+    content_sha256: "b".repeat(64),
+    encounter_intent: refOf(intent, "intent_id"),
+    player_facing_beat: "The threat reads before its first committed action.",
+    silhouette: "A broad profile with a readable forward gesture.",
+    scale: "Readable across the declared arena envelope.",
+    palette_material_cues: "Matte surfaces with one high contrast response cue.",
+    arena_relationship: "Frames the encounter without blocking extraction.",
+    animation_combat_beats: ["Telegraph the committed action before impact."],
+    constraints: ["Do not obscure the extraction marker."],
+  };
+  const concept = {
+    concept_reference_id: "reef-survival-concept",
+    revision: 3,
+    content_sha256: "c".repeat(64),
+    mode: "generated",
+    art_direction_revision: refOf(direction, "art_direction_id"),
+    artifact: { uri: "https://assets.example.test/reef-concept.png", sha256: "d".repeat(64), media_type: "image/png" },
+    interpretation_constraints: ["Keep the forward gesture visible from the extraction route."],
+  };
+  return {
+    kind: "concept_lineage",
+    encounter_intent: intent,
+    art_direction_revision: direction,
+    concept_reference_revision: concept,
+    lineage: {
+      kind: "concept_lineage",
+      encounter_intent: refOf(intent, "intent_id"),
+      art_direction_revision: refOf(direction, "art_direction_id"),
+      concept_reference_revision: refOf(concept, "concept_reference_id"),
+    },
+  };
+}
+
+function refOf(record, idField) {
+  return { id: record[idField], revision: record.revision, content_sha256: record.content_sha256 };
+}
+
+test("planner deterministically produces generic dependency-aware v2 lanes", () => {
   const first = planEncounterWork(fixture);
   const second = planEncounterWork(structuredClone(fixture));
 
@@ -51,11 +100,90 @@ test("planner deterministically produces generic dependency-aware v1 lanes", () 
   assert.ok(first.work_orders.slice(0, 3).every((order) => order.depends_on_work_ids.length === 0));
   assert.deepEqual(first.work_orders.at(-1).depends_on_work_ids,
                    first.work_orders.slice(0, 3).map((order) => order.work_id));
-  assert.ok(first.work_orders.every((order) => order.schema_version === "1"));
+  assert.ok(first.work_orders.every((order) => order.schema_version === "2"));
+  assert.ok(first.work_orders.every((order) => order.production_gate.kind === "concept_lineage"));
+  assert.deepEqual(first.work_orders[0].production_gate, fixture.production_gate);
   const revised = structuredClone(fixture);
   revised.objective.parameters.seconds = 120;
   assert.notDeepEqual(planEncounterWork(revised).work_orders.map((order) => order.work_id),
                       first.work_orders.map((order) => order.work_id));
+});
+
+test("dispatcher blocks missing, mismatched, and expired production lineage before backend launch", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  let launches = 0;
+  const dispatcher = new EncounterDispatcher({ backend: { async launch() { launches += 1; } } });
+
+  const missing = structuredClone(order);
+  delete missing.production_gate;
+  await assert.rejects(dispatcher.dispatchWorkOrder(missing), /production gate/);
+
+  const mismatched = structuredClone(order);
+  mismatched.production_gate.lineage.concept_reference_revision.content_sha256 = "e".repeat(64);
+  await assert.rejects(dispatcher.dispatchWorkOrder(mismatched), /production gate/);
+
+  const expired = structuredClone(order);
+  expired.production_gate = {
+    kind: "bootstrap_waiver",
+    waiver: {
+      kind: "bootstrap_waiver",
+      bounded_reason: "Preserve only the pre-gate local proof while lineage adoption is pending.",
+      approver: "local-demo-owner",
+      approved_at: "2026-01-01T00:00:00Z",
+      expires_at: "2026-01-02T00:00:00Z",
+      requested_provides: [...order.requested_provides],
+      not_concept_compliant: true,
+    },
+  };
+  await assert.rejects(dispatcher.dispatchWorkOrder(expired), /production gate/);
+
+  const incoherent = structuredClone(expired);
+  incoherent.production_gate.waiver.approved_at = "2100-01-01T00:00:00Z";
+  incoherent.production_gate.waiver.expires_at = "2099-01-01T00:00:00Z";
+  await assert.rejects(dispatcher.dispatchWorkOrder(incoherent), /production gate/);
+  assert.equal(launches, 0);
+});
+
+test("dispatcher preserves accepted concept lineage and explicit bootstrap waivers in worker receipts", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  const dispatcher = new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }) });
+  const conceptResult = await dispatcher.dispatchWorkOrder(order);
+  assert.deepEqual(conceptResult.receipt.production_gate, order.production_gate);
+
+  const waived = structuredClone(order);
+  waived.work_id = "wg-bootstrap-waiver-proof";
+  waived.production_gate = {
+    kind: "bootstrap_waiver",
+    waiver: {
+      kind: "bootstrap_waiver",
+      bounded_reason: "Preserve only the pre-gate local proof while lineage adoption is pending.",
+      approver: "local-demo-owner",
+      approved_at: "2026-09-08T00:00:00Z",
+      expires_at: "2099-01-01T00:00:00Z",
+      requested_provides: [...order.requested_provides],
+      not_concept_compliant: true,
+    },
+  };
+  const waivedResult = await dispatcher.dispatchWorkOrder(waived);
+  assert.deepEqual(waivedResult.receipt.production_gate, waived.production_gate);
+  assert.equal(waivedResult.receipt.production_gate.waiver.not_concept_compliant, true);
+
+  const maintained = structuredClone(order);
+  maintained.work_id = "wg-maintenance-waiver-proof";
+  maintained.production_gate = {
+    kind: "reuse_maintenance_waiver",
+    requested_provides: [...order.requested_provides],
+    waiver: {
+      kind: "maintenance",
+      bounded_reason: "Repair the named existing asset without changing its established role.",
+      approver: "asset-owner",
+      approved_at: "2026-09-08T00:00:00Z",
+      expires_at: "2099-01-01T00:00:00Z",
+      asset_ids: ["reef-source-asset"],
+    },
+  };
+  const maintainedResult = await dispatcher.dispatchWorkOrder(maintained);
+  assert.deepEqual(maintainedResult.receipt.production_gate, maintained.production_gate);
 });
 
 test("dispatcher launches independent lanes in concurrent local processes and deduplicates receipts", async () => {

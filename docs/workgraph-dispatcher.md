@@ -1,6 +1,6 @@
 # Generic WorkGraph dispatcher
 
-`planEncounterWork(spec)` produces deterministic, published-v1
+`planEncounterWork(spec)` produces deterministic, published-v2
 `EncounterWorkOrder` records for four generic lanes: a source fragment, an
 animation recipe, a combat recipe, and a validation report. The first three
 have no dependencies and the validation order depends on all three. It uses
@@ -21,7 +21,7 @@ durable store with atomic `claim(workId)`, `get(workId)`, and
 before claiming recovery across a process restart or instance boundary.
 
 `createRailwayDispatchHandler({ dispatcher })` is the control-plane HTTP seam.
-It accepts the coordinator's raw v1 work order and verifies the same stable
+It accepts the coordinator's raw v2 work order and verifies the same stable
 `x-work-id` header and bearer token that `WorkDispatcherAdapter` sends in
 coordinator PR #6. It returns `202` for a new local launch and `200` with the
 stored receipt for a deduplicated retry. Its required event sink posts each
