@@ -216,6 +216,8 @@ class DurableObjectSteeringStore {
       const current = await storage.get(steeringAttemptKey(attempt.attempt_id));
       if (current) return current;
       const ids = (await storage.get(steeringAllAttemptsKey)) || [];
+      const attempts = await Promise.all(ids.map((id) => storage.get(steeringAttemptKey(id))));
+      if (attempts.some((item) => item && item.lane_id === attempt.lane_id && item.response_id === attempt.response_id && !["completed", "connection_lost"].includes(item.response_status))) throw new Error("steering_parent_already_owned");
       await storage.put(steeringAttemptKey(attempt.attempt_id), attempt);
       if (!ids.includes(attempt.attempt_id)) await storage.put(steeringAllAttemptsKey, [...ids, attempt.attempt_id]);
       return attempt;
@@ -250,7 +252,7 @@ class DurableObjectSteeringStore {
       if (existing) return { receipt: existing, created: false };
       const allIds = (await storage.get(steeringAllReceiptsKey)) || [];
       const all = await Promise.all(allIds.map((id) => storage.get(steeringReceiptKey(id))));
-      if (all.some((item) => item && item.attempt_id === receipt.attempt_id && item.response_id === receipt.response_id && ["queued", "accepted", "pending", "required_input"].includes(item.status))) throw new Error("steering_request_already_pending");
+      if (all.some((item) => item && item.lane_id === receipt.lane_id && item.response_id === receipt.response_id && ["queued", "accepted", "pending", "required_input"].includes(item.status))) throw new Error("steering_request_already_pending");
       const workIds = (await storage.get(steeringWorkIndexKey(receipt.work_id))) || [];
       await storage.put(steeringReceiptKey(receipt.client_steering_id), receipt);
       if (!workIds.includes(receipt.client_steering_id)) await storage.put(steeringWorkIndexKey(receipt.work_id), [...workIds, receipt.client_steering_id]);

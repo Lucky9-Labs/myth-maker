@@ -59,8 +59,10 @@ means the request is server-owned, not applied. It becomes `committed` only on
 the automatic successor `response.created` whose `previous_response_id` matches
 the receipt. An incomplete response whose reason is `steered` remains `pending`.
 `response.steer.pending` may carry its root `reason` and `required_input`
-stubs. Those stubs become `required_input`; the worker accepts only saved
-`function_call_output` values with the exact `call_id`. It sends exactly one explicit
+stubs. Those stubs become `required_input`; the worker validates the protocol's
+discriminated result union (function/custom/computer/shell/apply-patch/tool-search
+call outputs by `call_id`, and MCP approval responses by `approval_request_id`).
+It sends exactly one explicit
 `response.create` continuation per parent, without rerunning a tool or
 resending the steer. A completed response uses the same explicit continuation
 path.

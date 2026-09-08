@@ -12,7 +12,7 @@ export class JsonSteeringStore extends InMemorySteeringStore {
     try {
       const value = JSON.parse(await readFile(filePath, "utf8"));
       store.attempts = new Map(value.attempts || []); store.receipts = new Map(value.receipts || []);
-      store.events = new Map(value.events || []); store.results = new Map(value.results || []);
+      store.events = new Map(value.events || []); store.results = new Map(value.results || []); store.outbox = new Map(value.outbox || []);
     } catch (error) { if (error?.code !== "ENOENT") throw error; }
     return store;
   }
@@ -22,7 +22,7 @@ export class JsonSteeringStore extends InMemorySteeringStore {
       const result = await fn();
       await mkdir(dirname(this.filePath), { recursive: true });
       const temporary = `${this.filePath}.next`;
-      await writeFile(temporary, JSON.stringify({ attempts: [...this.attempts], receipts: [...this.receipts], events: [...this.events], results: [...this.results] }));
+      await writeFile(temporary, JSON.stringify({ attempts: [...this.attempts], receipts: [...this.receipts], events: [...this.events], results: [...this.results], outbox: [...this.outbox] }));
       await rename(temporary, this.filePath);
       return result;
     });

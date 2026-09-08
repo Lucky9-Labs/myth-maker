@@ -27,7 +27,7 @@ test("strict nested steer correlation commits only at a successor", async () => 
 test("pending carries official required-input fields and durable exact result matching", async () => {
   const lane = new Lane(); const store = new InMemorySteeringStore(); const gateway = new ResponsesSteeringGateway({ store }); await gateway.recordAttempt(attempt(), lane); await gateway.requestSteer("attempt-alpha", request());
   await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", steer: { id: "server-1", previous_response_id: "resp-original" } });
-  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ call_id: "call-1" }] });
+  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ type: "function_call", call_id: "call-1" }] });
   assert.equal((await gateway.getReceipt("steer-alpha")).status, "required_input");
   await assert.rejects(gateway.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "wrong", output: "no" }), /scope/);
   await gateway.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "call-1", output: "saved" });
@@ -40,6 +40,22 @@ test("claiming a receipt is atomic under competing user requests", async () => {
   const lane = new Lane(); const gateway = new ResponsesSteeringGateway(); await gateway.recordAttempt(attempt(), lane);
   const results = await Promise.allSettled([gateway.requestSteer("attempt-alpha", request("steer-one")), gateway.requestSteer("attempt-alpha", request("steer-two"))]);
   assert.equal(results.filter((item) => item.status === "fulfilled").length, 1); assert.equal((await gateway.listReceipts()).length, 1);
+});
+
+test("pre-allocation failures require one exact parent and input hash", async () => {
+  const lane = new Lane(); const gateway = new ResponsesSteeringGateway(); await gateway.recordAttempt(attempt(), lane); await gateway.requestSteer("attempt-alpha", request());
+  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.failed", previous_response_id: "resp-original", input: request().input, error: { code: "rejected" } });
+  assert.equal((await gateway.getReceipt("steer-alpha")).status, "failed");
+});
+
+test("required input uses its discriminated output union", async () => {
+  const lane = new Lane(); const gateway = new ResponsesSteeringGateway(); await gateway.recordAttempt(attempt(), lane); await gateway.requestSteer("attempt-alpha", request());
+  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", steer: { id: "server-1", previous_response_id: "resp-original" } });
+  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ type: "shell_call", call_id: "shell-1" }, { type: "mcp_approval_request", approval_request_id: "approval-1" }] });
+  await assert.rejects(gateway.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "shell-1", output: "wrong discriminator" }), /scope/);
+  await gateway.saveRequiredInputResult("attempt-alpha", { type: "shell_call_output", call_id: "shell-1", output: "ok" });
+  await gateway.saveRequiredInputResult("attempt-alpha", { type: "mcp_approval_response", approval_request_id: "approval-1", approved: true });
+  await gateway.resolveRequiredInput("attempt-alpha"); assert.deepEqual(lane.frames.at(-1).input.map((item) => item.type), ["shell_call_output", "mcp_approval_response"]);
 });
 
 test("worker lane listeners report message and disconnect receipts without a coordinator socket", async () => {
@@ -62,7 +78,7 @@ test("the worker-process JSON store survives restart with required-input results
   try {
     const first = new ResponsesSteeringGateway({ store: await JsonSteeringStore.open(stateFile) }); await first.recordAttempt(attempt(), lane); await first.requestSteer("attempt-alpha", request());
     await first.handleServerEvent("lane-alpha", { type: "response.steer.accepted", steer: { id: "server-1", previous_response_id: "resp-original" } });
-    await first.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ call_id: "call-1" }] });
+    await first.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ type: "function_call", call_id: "call-1" }] });
     await first.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "call-1", output: "persisted" });
     const restarted = new ResponsesSteeringGateway({ store: await JsonSteeringStore.open(stateFile) }); restarted.attachLane("lane-alpha", lane); await restarted.resolveRequiredInput("attempt-alpha");
     assert.equal(lane.frames.at(-1).input[0].output, "persisted");
@@ -71,9 +87,9 @@ test("the worker-process JSON store survives restart with required-input results
 
 test("the concrete worker service never substitutes a new socket for a persisted lane", async () => {
   const directory = await mkdtemp(join(tmpdir(), "myth-steering-service-")); const stateFile = join(directory, "state.json"); const opened = [];
-  const options = { coordinatorUrl: "https://coordinator", commandToken: "command-secret", reportToken: "report-secret", ownerId: "owner-one", stateFile, fetcher: async () => new Response("", { status: 202 }), openResponsesSocket: async () => { const lane = new Lane(); opened.push(lane); return lane; } };
+  const options = { coordinatorUrl: "https://coordinator", commandToken: "command-secret", reportToken: "report-secret", ownerId: "owner-one", stateFile, fetcher: async () => new Response("", { status: 202 }), openResponsesSocket: async () => { const lane = new Lane(); const send = lane.send.bind(lane); lane.send = (frame) => { send(frame); const value = JSON.parse(frame); if (value.type === "response.create") lane.emit("message", { type: "response.created", response: { id: "resp-original" } }); }; opened.push(lane); return lane; } };
   try {
-    const first = await createResponsesSteeringWorkerService(options); await first.registerAttempt(attempt());
+    const first = await createResponsesSteeringWorkerService(options); const draft = attempt(); delete draft.response_id; await first.startAttempt(draft, { input: request().input });
     const second = await createResponsesSteeringWorkerService(options);
     assert.equal(opened.length, 1); assert.equal(second.worker.gateway.lanes.has("lane-alpha"), false);
     const receipt = await second.worker.acceptCommand({ owner_id: "owner-one", attempt_id: "attempt-alpha", request: request() });
