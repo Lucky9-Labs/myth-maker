@@ -11,6 +11,7 @@ import {
   selectProviderOutcome,
   validateProviderRequest,
 } from "../scripts/deployment/controller.mjs";
+import { classifyPreviewPaths } from "../scripts/deployment/preview-scope.mjs";
 
 test("pull-request requests are validation-only and cannot deploy", () => {
   const result = validateProviderRequest({
@@ -96,6 +97,12 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   ]);
 
   assert.match(prWorkflow, /pull_request:/);
+  assert.doesNotMatch(prWorkflow, /pull_request:\n\s+paths:/);
+  assert.match(prWorkflow, /deployment-change-scope:/);
+  for (const provider of ["terraform", "cloudflare", "railway", "modal"]) {
+    assert.match(prWorkflow, new RegExp(`needs\\.deployment-change-scope\\.outputs\\.${provider} != 'true'`));
+    assert.match(prWorkflow, new RegExp(`needs\\.deployment-change-scope\\.outputs\\.${provider} == 'true'`));
+  }
   assert.match(prWorkflow, /controller\.mjs preview/);
   assert.doesNotMatch(prWorkflow, /secrets: inherit/);
   assert.match(deployWorkflow, /workflow_dispatch:/);
@@ -112,6 +119,62 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(terraformFoundation, /init -reconfigure/);
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
+
+  const preview = JSON.parse(execFileSync(
+    "ruby",
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deployment-preview.yml"],
+    { encoding: "utf8" },
+  ));
+  for (const job of [
+    "terraform-foundation-preview",
+    "cloudflare-preview",
+    "railway-preview",
+    "modal-preview",
+  ]) {
+    assert.equal(preview.jobs[job].if, undefined, `${job} must always emit its required context`);
+    assert.equal(preview.jobs[job].needs, "deployment-change-scope");
+  }
+});
+
+test("preview scope emits explicit no-op contexts for unrelated pull request files", () => {
+  assert.deepEqual(classifyPreviewPaths(["README.md", "docs/gameplay.md"]), {
+    terraform: false,
+    cloudflare: false,
+    railway: false,
+    modal: false,
+  });
+
+  assert.deepEqual(classifyPreviewPaths(["infra/terraform/main.tf"]), {
+    terraform: true,
+    cloudflare: false,
+    railway: false,
+    modal: false,
+  });
+  assert.deepEqual(classifyPreviewPaths(["src/railway-server.js", "railway.json"]), {
+    terraform: false,
+    cloudflare: false,
+    railway: true,
+    modal: false,
+  });
+  assert.deepEqual(classifyPreviewPaths(["modal/infrastructure.py"]), {
+    terraform: false,
+    cloudflare: false,
+    railway: false,
+    modal: true,
+  });
+  assert.deepEqual(classifyPreviewPaths(["scripts/deployment/controller.mjs"]), {
+    terraform: true,
+    cloudflare: true,
+    railway: true,
+    modal: true,
+  });
+});
+
+test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => {
+  const output = execFileSync(process.execPath, [
+    "scripts/deployment/preview-scope.mjs", "--base", "HEAD", "--head", "HEAD",
+  ], { encoding: "utf8" });
+  assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
 test("provider workflow preserves each step's common inputs and scoped secrets after YAML parsing", () => {
