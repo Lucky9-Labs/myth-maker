@@ -137,12 +137,14 @@ function assertReferences(values, idKey) {
 }
 
 function assertLocalUnityProfile(profile) {
-  if (!isObject(profile) || profile.schema_version !== "1" || profile.profile_id !== "unity-neutral-headless" || profile.profile_revision !== 1 || profile.runner_id !== "myth-maker-unity-encounter-runner" || profile.runtime_id !== "unity-6000.6.0f1" || profile.build_profile_id !== "editor-macos-mono-batch" || profile.evidence_tier !== "local_unity_runner" || profile.execution_mode !== "headless" || !isObject(profile.unity) || profile.unity.editor_version !== "6000.6.0f1" || profile.unity.scripting_backend !== "mono" || profile.unity.platform !== "macos") throw new TypeError("runner requires a closed local runtime profile");
-  assertRunner(profile);
+  assertExactKeys(profile, ["schema_version", "profile_id", "profile_revision", "runner_id", "runtime_id", "build_profile_id", "evidence_tier", "execution_mode", "unity"], "runner profile");
+  assertExactKeys(profile.unity, ["editor_version", "scripting_backend", "platform"], "runner Unity profile");
+  if (profile.schema_version !== "1" || profile.profile_id !== "unity-neutral-headless" || profile.profile_revision !== 1 || profile.runner_id !== "myth-maker-unity-encounter-runner" || profile.runtime_id !== "unity-6000.6.0f1" || profile.build_profile_id !== "editor-macos-mono-batch" || profile.evidence_tier !== "local_unity_runner" || profile.execution_mode !== "headless" || profile.unity.editor_version !== "6000.6.0f1" || profile.unity.scripting_backend !== "mono" || profile.unity.platform !== "macos") throw new TypeError("runner requires a closed local runtime profile");
 }
 
 function assertRunner(runner) {
-  if (!isObject(runner) || !ID.test(runner.runner_id || "") || !nonEmpty(runner.runtime_id) || !nonEmpty(runner.build_profile_id) || !ID.test(runner.profile_id || "") || !Number.isInteger(runner.profile_revision) || runner.profile_revision < 1) throw new TypeError("runner identity is invalid");
+  assertExactKeys(runner, ["runner_id", "runtime_id", "build_profile_id", "profile_id", "profile_revision"], "runner identity");
+  if (!ID.test(runner.runner_id || "") || !nonEmpty(runner.runtime_id) || !nonEmpty(runner.build_profile_id) || !ID.test(runner.profile_id || "") || !Number.isInteger(runner.profile_revision) || runner.profile_revision < 1) throw new TypeError("runner identity is invalid");
 }
 
 function assertProvenance(value) { if (!isObject(value) || Object.keys(value).some((key) => !["producer", "observed_at"].includes(key)) || !nonEmpty(value.producer) || !ISO.test(value.observed_at || "")) throw new TypeError("provenance requires producer and observed_at"); }

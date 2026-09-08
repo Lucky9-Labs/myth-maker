@@ -99,6 +99,8 @@ test("receipt validation rejects a tampered package and any undeclared nested da
   const receipt = runDeterministicEncounter({ assemblyReceipt: assembly, runtimeProfile: profile, seed: 41, script: [{ at_ms: 100, actor: "player", target: "encounter-target", damage: 9 }, { at_ms: 250, actor: "encounter-target", target: "player", damage: 4 }], startedAt: "2026-09-08T12:03:00.000Z" });
   assert.throws(() => validateSimulationReceipt({ ...receipt, evidence_tiers: { ...receipt.evidence_tiers, invented: true } }), /evidence tiers/);
   assert.throws(() => validateSimulationReceipt({ ...receipt, telemetry: { ...receipt.telemetry, hit_exchange: { verified: true, events: [] } } }), /hit events/);
+  assert.throws(() => validateSimulationReceipt({ ...receipt, runner: { ...receipt.runner, invented: true } }), /runner identity/);
+  assert.throws(() => runDeterministicEncounter({ assemblyReceipt: assembly, runtimeProfile: { ...profile, unity: { ...profile.unity, invented: true } }, seed: 41, script: [{ at_ms: 100, actor: "player", target: "encounter-target", damage: 9 }, { at_ms: 250, actor: "encounter-target", target: "player", damage: 4 }], startedAt: "2026-09-08T12:03:00.000Z" }), /runner Unity profile/);
 });
 
 function frozenNeutralPackage() {
