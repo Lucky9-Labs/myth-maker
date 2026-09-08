@@ -45,7 +45,7 @@ def ensure_environment(environment: str) -> None:
         raise RuntimeError(f"Modal environment {environment!r} was not observable after bootstrap")
 
 
-def ensure_named_resources(environment: str) -> dict[str, str]:
+def ensure_named_resources(environment: str) -> None:
     if not any(item.get("Name") == VOLUME_NAME for item in json_command("modal", "volume", "list", "--env", environment, "--json")):
         run("modal", "volume", "create", VOLUME_NAME, "--env", environment)
     # Modal Dict creation is already a documented no-op when it exists.
@@ -62,6 +62,8 @@ def ensure_named_resources(environment: str) -> dict[str, str]:
         finally:
             Path(secret_file).unlink(missing_ok=True)
 
+def observed_resource_ids(environment: str) -> dict[str, str]:
+    """Read public Modal object IDs after bootstrap; never handle secret values here."""
     import modal
 
     volume = next((item for item in modal.Volume.objects.list(environment_name=environment) if item.name == VOLUME_NAME), None)
@@ -124,7 +126,8 @@ def main() -> int:
     if any(not os.environ.get(key) for key in REQUIRED_CREDENTIALS):
         raise RuntimeError("Modal CI bootstrap requires Modal credentials and OPENAI_API_KEY after the environment gate")
     ensure_environment(args.environment)
-    resources = ensure_named_resources(args.environment)
+    ensure_named_resources(args.environment)
+    resources = observed_resource_ids(args.environment)
     print(json.dumps(deploy_and_observe(args.environment, resources), separators=(",", ":")))
     return 0
 
