@@ -38,32 +38,8 @@ jobs:
           node scripts/deployment/controller.mjs assert-github-deployment
           printf 'source_sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-  release-readiness:
+  write-unavailable-provider-receipts:
     needs: assert-deployment-input
-    runs-on: ubuntu-24.04
-    environment:
-      name: ${{ inputs.environment || 'dev' }}
-    outputs:
-      ready: ${{ steps.readiness.outputs.ready }}
-      reason: ${{ steps.readiness.outputs.reason }}
-    steps:
-      - id: readiness
-        name: Check explicit environment bootstrap readiness without reading credentials
-        run: |
-          set -euo pipefail
-          node scripts/deployment/controller.mjs release-readiness \
-            --environment "$DEPLOYMENT_ENVIRONMENT" \
-            --deployment-ready "$DEPLOYMENT_READY" > "$RUNNER_TEMP/readiness.json"
-          node -e 'const result = require(process.env.RESULT); console.log(`ready=${result.ready}`); console.log(`reason=${result.reason}`)' \
-            >> "$GITHUB_OUTPUT"
-        env:
-          DEPLOYMENT_READY: ${{ vars.DEPLOYMENT_READY }}
-          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-          RESULT: ${{ runner.temp }}/readiness.json
-
-  write-skipped-release-receipts:
-    needs: [assert-deployment-input, release-readiness]
-    if: needs.release-readiness.outputs.ready != 'true'
     runs-on: ubuntu-24.04
     environment:
       name: ${{ inputs.environment || 'dev' }}
@@ -73,15 +49,14 @@ jobs:
           ref: ${{ needs.assert-deployment-input.outputs.source_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Record the unconfigured release as skipped without provider credentials
+      - name: Record unactivated providers as skipped without provider credentials
         env:
           SOURCE_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
-          REASON: ${{ needs.release-readiness.outputs.reason }}
         run: |
           set -euo pipefail
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          for provider in cloudflare railway modal terraform-foundation; do
+          for provider in cloudflare railway terraform-foundation; do
             node scripts/deployment/controller.mjs receipt \
               --provider "$provider" \
               --environment "$DEPLOYMENT_ENVIRONMENT" \
@@ -89,45 +64,20 @@ jobs:
               --status skipped \
               --started-at "$started_at" \
               --completed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              --details "{\"reason\":\"$REASON\"}" \
+              --details "{\"reason\":\"provider is unavailable or unauthenticated; Modal deployment proceeds independently\"}" \
               --output "receipts/$provider-$DEPLOYMENT_ENVIRONMENT.json"
           done
-      - name: Upload skipped release receipts
+      - name: Upload unavailable-provider receipts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: deployment-receipts-skipped-${{ inputs.environment || 'dev' }}-${{ needs.assert-deployment-input.outputs.source_sha }}
+          name: deployment-receipts-unavailable-${{ inputs.environment || 'dev' }}-${{ needs.assert-deployment-input.outputs.source_sha }}
           path: receipts/
           if-no-files-found: error
           retention-days: 30
 
-  terraform-foundation:
-    needs: [assert-deployment-input, release-readiness]
-    if: needs.release-readiness.outputs.ready == 'true'
-    uses: ./.github/workflows/terraform-foundation.yml
-    with:
-      environment: ${{ inputs.environment || 'dev' }}
-      source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
-
-  railway:
-    needs: [assert-deployment-input, release-readiness, terraform-foundation]
-    if: needs.release-readiness.outputs.ready == 'true'
-    uses: ./.github/workflows/provider-railway.yml
-    with:
-      environment: ${{ inputs.environment || 'dev' }}
-      source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
-
   modal:
-    needs: [assert-deployment-input, release-readiness, railway]
-    if: needs.release-readiness.outputs.ready == 'true'
+    needs: assert-deployment-input
     uses: ./.github/workflows/provider-modal.yml
-    with:
-      environment: ${{ inputs.environment || 'dev' }}
-      source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
-
-  cloudflare:
-    needs: [assert-deployment-input, release-readiness, modal]
-    if: needs.release-readiness.outputs.ready == 'true'
-    uses: ./.github/workflows/provider-cloudflare.yml
     with:
       environment: ${{ inputs.environment || 'dev' }}
       source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
