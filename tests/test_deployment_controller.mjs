@@ -205,6 +205,9 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /github\.sha/);
   assert.match(deployWorkflow, /assert-deployment-input/);
   assert.match(deployWorkflow, /release-readiness/);
+  const readinessJob = deployWorkflow.slice(deployWorkflow.indexOf("  release-readiness:"), deployWorkflow.indexOf("  write-skipped-release-receipts:"));
+  assert.match(readinessJob, /uses: actions\/checkout@/);
+  assert.match(readinessJob, /ref: \$\{\{ needs\.assert-deployment-input\.outputs\.source_sha \}\}/);
   assert.match(deployWorkflow, /write-skipped-release-receipts/);
   assert.match(deployWorkflow, /DEPLOYMENT_READY/);
   assert.match(deployWorkflow, /id-token: write/);
