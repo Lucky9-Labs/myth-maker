@@ -10,6 +10,7 @@ ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "modal" / "infrastructure.py"
 TERRAFORM_MAIN = ROOT / "infra" / "terraform" / "main.tf"
 WORKER_SOURCE = ROOT / "src" / "worker.js"
+TERRAFORM_OUTPUTS = ROOT / "infra" / "terraform" / "outputs.tf"
 
 
 def configured_module_sources():
@@ -66,6 +67,15 @@ class InfrastructureContractTests(unittest.TestCase):
         self.assertEqual(runtime_bindings, {"WORK_DISPATCH_URL", "WORK_DISPATCH_TOKEN"})
         self.assertEqual(runtime_bindings, terraform_bindings)
         self.assertEqual(runtime_bindings, runtime_bindings & contract_bindings)
+
+    def test_ci_receipt_output_exposes_only_additive_nonsecret_provider_facts(self):
+        outputs = TERRAFORM_OUTPUTS.read_text()
+        self.assertIn('output "deployment_receipt_facts"', outputs)
+        receipt_output = outputs.split('output "deployment_receipt_facts"', 1)[1]
+        for identifier in ("worker_id", "worker_version_id", "deployment_id", "project_id", "environment_id", "service_id", "configured_variable_names"):
+            self.assertIn(identifier, receipt_output)
+        self.assertNotIn("agent_ingress_token", receipt_output)
+        self.assertNotIn("work_dispatch_token =", receipt_output)
 
     def test_environment_changes_only_environment_scoped_names(self):
         contract = self.render("staging")

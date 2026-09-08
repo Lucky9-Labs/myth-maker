@@ -89,3 +89,33 @@ output "resource_names" {
     railway_service   = local.railway_service_name
   }
 }
+
+# CI consumes this output as receipt facts after a reviewed apply. It is
+# intentionally additive: disabled resources produce null IDs, and no secret
+# value, endpoint, backend setting, or token is ever exposed.
+output "deployment_receipt_facts" {
+  description = "Non-secret provider identifiers and configured variable names for CI deployment receipts."
+  value = {
+    cloudflare = {
+      worker_id         = try(cloudflare_worker.coordinator[0].id, null)
+      worker_version_id = try(cloudflare_worker_version.coordinator[0].id, null)
+      deployment_id     = try(cloudflare_workers_deployment.coordinator[0].id, null)
+      worker_modules = [
+        {
+          name   = "worker.js"
+          sha256 = filesha256("${path.module}/../../src/worker.js")
+        },
+        {
+          name   = "encounter-package-assembler.js"
+          sha256 = filesha256("${path.module}/../../src/encounter-package-assembler.js")
+        },
+      ]
+    }
+    railway = {
+      project_id                = try(railway_project.control_plane[0].id, null)
+      environment_id            = try(railway_environment.control_plane[0].id, null)
+      service_id                = try(railway_service.dispatcher[0].id, null)
+      configured_variable_names = sort(keys(railway_variable.dispatcher_configuration))
+    }
+  }
+}
