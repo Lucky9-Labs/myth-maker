@@ -8,6 +8,7 @@ import {
   evidenceLabel,
 } from "../src/build-room.js";
 import { createBuildRoomServer } from "../src/build-room-server.js";
+import { createSqliteCatalog } from "../src/catalog-sqlite.js";
 
 test("a local submission creates distinct inspectable IDs and an honest local receipt", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
@@ -24,28 +25,49 @@ test("a local submission creates distinct inspectable IDs and an honest local re
   assert.equal(run.events.length, 1);
 });
 
-test("projection orders events by sequence, then receipt time, while retaining replay after reconnect", () => {
+test("projection orders cross-worker events by receipt time and stable cursor, while retaining replay after reconnect", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Observe ordering" });
   room.record(run.ids.encounterId, {
-    sequence: 3,
-    occurredAt: "2026-09-08T12:03:00.000Z",
-    kind: "completed",
-    message: "third",
+    workerId: "worker-a", sequence: 0,
+    occurredAt: "2026-09-08T12:01:00.000Z",
+    kind: "started",
+    message: "a started",
     evidence: { kind: "fixture" },
   });
   room.record(run.ids.encounterId, {
-    sequence: 2,
-    occurredAt: "2026-09-08T12:02:00.000Z",
-    kind: "progress",
-    message: "second",
+    workerId: "worker-b", sequence: 0,
+    occurredAt: "2026-09-08T12:01:00.100Z",
+    kind: "started",
+    message: "b started",
+    evidence: { kind: "fixture" },
+  });
+  room.record(run.ids.encounterId, {
+    workerId: "worker-a", sequence: 1,
+    occurredAt: "2026-09-08T12:01:00.200Z",
+    kind: "completed",
+    message: "a completed",
+    evidence: { kind: "fixture" },
+  });
+  room.record(run.ids.encounterId, {
+    workerId: "worker-b", sequence: 1,
+    occurredAt: "2026-09-08T12:01:00.300Z",
+    kind: "completed",
+    message: "b completed",
+    evidence: { kind: "fixture" },
+  });
+  room.record(run.ids.encounterId, {
+    workerId: "local-assembler", sequence: 0,
+    occurredAt: "2026-09-08T12:01:00.400Z",
+    kind: "completed",
+    message: "assembler completed after workers",
     evidence: { kind: "fixture" },
   });
 
   const snapshot = room.snapshot(run.ids.encounterId);
-  assert.deepEqual(snapshot.events.slice(-2).map((event) => event.message), ["second", "third"]);
+  assert.deepEqual(snapshot.events.slice(1).map((event) => event.message), ["a started", "b started", "a completed", "b completed", "assembler completed after workers"]);
   const cursor = snapshot.events.at(-2).cursor;
-  assert.deepEqual(room.replay(run.ids.encounterId, cursor).map((event) => event.message), ["third"]);
+  assert.deepEqual(room.replay(run.ids.encounterId, cursor).map((event) => event.message), ["assembler completed after workers"]);
 });
 
 test("adapter requires observed remote receipts and preserves artifact and package revisions", () => {
@@ -157,8 +179,10 @@ test("HTTP submission executes the local planner-dispatcher path and projects te
   }
 });
 
-test("the live builds index and request-keyed detail are projections, not a fixture list", async () => {
-  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+test("the live builds index and request-keyed detail project direct SQLite catalog counters", async () => {
+  const catalog = createSqliteCatalog();
+  catalog.bootstrapOceanEncounter();
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }), catalog });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -171,7 +195,10 @@ test("the live builds index and request-keyed detail are projections, not a fixt
     assert.equal(index.active[0].navigation_url, `/?build=${encodeURIComponent(run.ids.requestId)}`);
     const detail = await (await fetch(`${base}/api/builds/${run.ids.requestId}`)).json();
     assert.equal(detail.ids.encounterId, run.ids.encounterId);
-    assert.deepEqual(detail.topology.catalog.package_revisions, { count: 0, evidence: "reported" });
+    assert.deepEqual(detail.topology.catalog.semantic_entities, { count: 2, evidence: "local_sqlite_query" });
+    assert.deepEqual(detail.topology.catalog.assets, { count: 1, evidence: "local_sqlite_query" });
+    assert.deepEqual(detail.topology.catalog.asset_revisions, { count: 1, evidence: "local_sqlite_query" });
+    assert.deepEqual(detail.topology.catalog.package_revisions, { count: 0, evidence: "local_projection" });
   } finally {
     server.close();
   }
@@ -251,8 +278,13 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
 test("malformed adapter work metadata is rejected before it can poison the projection", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Closed work metadata" });
-  assert.throws(() => new CoordinatorEventAdapter(room).ingest({ encounter_id: run.ids.encounterId, work_id: {}, lane: "valid.lane", depends_on_work_ids: ["not-an-id!"], worker_id: run.ids.workerId, sequence: 2, kind: "progress" }), /invalid v1 work graph metadata/);
-  assert.deepEqual(room.snapshot(run.ids.encounterId).topology.work_graph, []);
+  const before = room.snapshot(run.ids.encounterId);
+  assert.throws(() => new CoordinatorEventAdapter(room).ingest({ encounter_id: run.ids.encounterId, work_id: {}, lane: "valid.lane", depends_on_work_ids: ["not-an-id!"], worker_id: run.ids.workerId, sequence: 2, kind: "candidate_produced", module: { module_id: "rejected-artifact", revision: 1 } }), /invalid v1 work graph metadata/);
+  const after = room.snapshot(run.ids.encounterId);
+  assert.deepEqual(after.events, before.events);
+  assert.deepEqual(after.artifacts, before.artifacts);
+  assert.deepEqual(after.packages, before.packages);
+  assert.deepEqual(after.topology.work_graph, before.topology.work_graph);
 });
 
 function sequenceIds() {

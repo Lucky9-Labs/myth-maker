@@ -14,11 +14,18 @@ const EVIDENCE_LABELS = {
  * narrow translation boundary for their events.
  */
 export class BuildRoom {
-  constructor({ now = () => new Date().toISOString(), id = randomStableId } = {}) {
+  constructor({ now = () => new Date().toISOString(), id = randomStableId, catalogProjection = undefined } = {}) {
     this.now = now;
     this.id = id;
     this.runs = new Map();
     this.listeners = new Set();
+    this.catalogProjection = catalogProjection;
+  }
+
+  setCatalogProjection(catalogProjection) {
+    if (catalogProjection !== undefined && typeof catalogProjection !== "function") throw new TypeError("catalogProjection must be a function");
+    this.catalogProjection = catalogProjection;
+    return this;
   }
 
   submit({ prompt }) {
@@ -50,7 +57,7 @@ export class BuildRoom {
       sequence: 0,
       occurredAt: submittedAt,
       kind: "accepted",
-      message: "The local build-room accepted this request. No coordinator was contacted.",
+      message: "The local build-room accepted this request. Cloudflare EncounterCoordinator was not contacted.",
       evidence: { kind: "local_process", receipt: { request_id: ids.requestId, observed_at: submittedAt } },
     });
     const snapshot = this.snapshot(ids.encounterId);
@@ -73,13 +80,7 @@ export class BuildRoom {
 
   upsertWork(encounterId, input, event) {
     if (!input?.work_id) return;
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.work_id)
-      || !/^[a-z][a-z0-9_.-]{0,95}$/.test(input.lane || input.work_order?.lane || "")
-      || !Array.isArray(input.depends_on_work_ids || input.work_order?.depends_on_work_ids || [])
-      || !(input.depends_on_work_ids || input.work_order?.depends_on_work_ids || []).every((id) => /^[a-z0-9][a-z0-9-]{0,63}$/.test(id))
-      || new Set(input.depends_on_work_ids || input.work_order?.depends_on_work_ids || []).size !== (input.depends_on_work_ids || input.work_order?.depends_on_work_ids || []).length) {
-      throw new TypeError("invalid v1 work graph metadata");
-    }
+    validateWorkMetadata(input);
     const run = this.requireRun(encounterId);
     const prior = run.workGraph.get(input.work_id) || {};
     run.workGraph.set(input.work_id, {
@@ -112,7 +113,7 @@ export class BuildRoom {
         blender: [...run.evidence.blender],
       },
       steering: [...run.steering],
-      topology: topology(run),
+      topology: topology(run, this.catalogProjection),
     };
   }
 
@@ -241,6 +242,7 @@ export class CoordinatorEventAdapter {
   }
 
   ingest(input, context = {}) {
+    if (input?.work_id) validateWorkMetadata(input);
     const evidence = evidenceFromAdapterInput(input, context, this.trustedObservation);
     const artifact = normaliseRevision(input.artifact, "artifact") || moduleRevision(input.module);
     const event = this.room.record(input.encounter_id, {
@@ -257,6 +259,15 @@ export class CoordinatorEventAdapter {
     this.room.upsertWork(input.encounter_id, input, event);
     return event;
   }
+}
+
+function validateWorkMetadata(input) {
+  const dependencies = input.depends_on_work_ids || input.work_order?.depends_on_work_ids || [];
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.work_id)
+    || !/^[a-z][a-z0-9_.-]{0,95}$/.test(input.lane || input.work_order?.lane || "")
+    || !Array.isArray(dependencies)
+    || !dependencies.every((id) => /^[a-z0-9][a-z0-9-]{0,63}$/.test(id))
+    || new Set(dependencies).size !== dependencies.length) throw new TypeError("invalid v1 work graph metadata");
 }
 
 export function evidenceLabel(evidence) {
@@ -336,12 +347,11 @@ function revisions(entries) {
 }
 
 function orderedEvents(events) {
-  return [...events].sort((a, b) => a.sequence - b.sequence
-    || a.occurredAt.localeCompare(b.occurredAt)
+  return [...events].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)
     || a.cursor.localeCompare(b.cursor));
 }
 
-function topology(run) {
+function topology(run, catalogProjection) {
   const events = orderedEvents(run.events);
   const workers = new Map();
   for (const event of events) {
@@ -360,14 +370,26 @@ function topology(run) {
         evidence_kind: last.evidence.kind,
       };
     }),
-    catalog: {
-      semantic_entities: { count: 0, evidence: "not_connected" },
-      assets: { count: run.artifacts.size, evidence: "reported" },
-      animations: { count: 0, evidence: "not_connected" },
-      artifact_revisions: { count: run.artifacts.size, evidence: "reported" },
-      package_revisions: { count: run.packages.size, evidence: "reported" },
-    },
+    catalog: catalogTopology(catalogProjection, run),
   };
+}
+
+function catalogTopology(catalogProjection, run) {
+  const unavailable = {
+    semantic_entities: { count: 0, evidence: "not_connected" },
+    assets: { count: 0, evidence: "not_connected" },
+    animations: { count: 0, evidence: "not_connected" },
+    semantic_entity_revisions: { count: 0, evidence: "not_connected" },
+    asset_revisions: { count: 0, evidence: "not_connected" },
+    animation_revisions: { count: 0, evidence: "not_connected" },
+  };
+  if (!catalogProjection) return { ...unavailable, package_revisions: { count: run.packages.size, evidence: "local_projection" } };
+  const summary = catalogProjection();
+  const projected = Object.fromEntries(Object.keys(unavailable).map((key) => [key, {
+    count: Number.isInteger(summary?.[key]) && summary[key] >= 0 ? summary[key] : 0,
+    evidence: "local_sqlite_query",
+  }]));
+  return { ...projected, package_revisions: { count: run.packages.size, evidence: "local_projection" } };
 }
 
 function workerStatus(kind) {
