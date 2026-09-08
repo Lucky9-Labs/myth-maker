@@ -10,13 +10,127 @@ has not completed never prevents the encounter from loading.
 This is a general encounter system. A giant creature is a possible demo
 blueprint, not a special type in the schema, endpoint, catalog, or runtime.
 
-## Architecture board
+## Authoritative direction and architecture board
+
+This Markdown plan is the authoritative implementation and project direction.
+The Miro board is diagrams-only: it may illustrate an approved direction, but
+it does not add, reorder, or satisfy milestones.
 
 The living visual companion to this plan is the [Miro encounter architecture
 board](https://miro.com/app/board/uXjVHpB5q5w=/). It preserves the original
 collector, asset-swarm, catalog, worker-observation, and worker-steering ideas,
 and now carries the encounter-generic draft-by-deadline flow and checkpoint
 summary below.
+
+## D0 — Core demo target
+
+D0 is the non-negotiable proof that this repository can produce one real,
+generic encounter upgrade. The tentacled creature is only the first demo
+blueprint; no D0 interface, catalog type, or runtime rule is creature-specific.
+
+The following observable chain is the exact D0 acceptance chain, in order:
+
+1. A **Build Room** request creates a generic component work order.
+2. That order produces actual local Blender artifacts: a generated `.blend`, a
+   PNG render, and a GLB.
+3. The artifacts are hash-addressed and the GLB passes strict validation.
+4. Acceptance creates a newly produced immutable catalog revision—not a
+   fixture—and records its provenance.
+5. The assembler composes the revision and emits an `AssemblyReceipt`.
+6. Build Room shows an actual render and the selected package for that request.
+7. At least one later worker revision upgrades that same encounter; the
+   assembler selects the compatible successor and produces a new receipt.
+8. In the host demo, simple runtime combat proves that both player and
+   encounter can damage one another.
+9. Build Room visibly reports the material and arena work orders, their worker
+   IDs, dependencies, receipts, artifacts, and revision counts; it also shows
+   the compatible selection, fallback, or rejection outcome for each. Its
+   evidence tier must remain honest about what was observed, reported, or only
+   simulated.
+
+"Actual" in D0 means locally produced during the demonstrated request. A
+synthetic catalog entry, pre-existing file, receipt-shaped event, static image,
+or simulated fixture cannot substitute for any link in the chain. The render
+and selected package must be tied to the same request, catalog revision, and
+assembly receipt by stable IDs and hashes.
+
+### Concept-first asset-production gate
+
+Every new production dispatch for every asset type—model, material/texture,
+animation, arena, audio, effects, and a future type—must be derived from one
+immutable `EncounterIntent`, one immutable `ArtDirectionRevision`, and one
+immutable `ConceptReferenceRevision`. The concept reference can be generated
+or selected, but it is always revisioned before production begins. This is an
+architecture invariant, not a preferred worker prompt.
+
+`ArtDirectionRevision` is a player-facing contract. It must state the intended
+player-facing beat, silhouette, scale, palette/material cues, arena
+relationship, animation/combat beats, and non-negotiable constraints. A worker
+brief cites the exact immutable intent, direction, and concept revisions plus
+its acceptance constraints; a worker may not replace those with an unpinned
+summary or a new styling decision.
+
+The only dispatch exception is an explicitly recorded `reuse` or `maintenance`
+waiver. It has a named asset scope, a bounded reason, an approver, and a
+time-bound expiry. It is not an informal route around the concept gate.
+
+Every immutable asset revision records its lineage or waiver, interpretation
+constraints, provenance, and independent source- and runtime-acceptance
+statuses. Before selection, the assembler verifies that the candidate carries
+compatible lineage. It rejects an absent or incompatible lineage rather than
+selecting the candidate, then records a selection, rejection, deviation, or
+fallback receipt against the package revision.
+
+Build Room is an inspection surface for this relationship, not evidence that a
+cloud worker ran: it must be able to show **visual concept → asset candidate →
+assembled package** and the supporting immutable receipts. Its labels continue
+to distinguish local observed evidence, remote observed evidence, translated
+reports, and simulation. The closed, type-neutral adoption schema is
+[`concept-first-asset-production-gate.schema.json`](../contracts/v1/concept-first-asset-production-gate.schema.json);
+it intentionally contains no genre, actor, or demo-specific fields.
+
+The current D0 body outputs predate this gate. They remain useful bootstrap
+evidence for a local Blender artifact path, but do **not** prove that the
+concept-first gate exists or is enforced. Adopting it requires a later,
+separately validated dispatcher/catalog/assembler implementation.
+
+### Follow-on material and arena workstreams
+
+These are explicit generic workstreams for the post-D0 path. They define
+ownership and acceptance only; neither worker is implemented or implied by the
+current D0 evidence.
+
+**Texture/Material Worker.** This worker owns immutable texture-set and
+material-binding revisions. A texture-set revision records albedo, normal,
+roughness/metallic, emissive, and mask artifacts; each artifact records
+provenance and a SHA-256. A material-binding revision records the compatible
+scale profile, material slots, semantic tags, and the texture-set revisions it
+binds. Source acceptance verifies the declared sources, provenance, hashes,
+and compatibility metadata. Runtime acceptance separately verifies that the
+host can bind the revision to the intended scale and material slots. A revision
+that fails either acceptance remains a candidate with a visible rejection,
+rather than becoming a package fragment.
+
+**Arena Worker.** This worker owns immutable arena revisions linked to the
+encounter's semantic entity. Each revision carries arena geometry, collision,
+navigation data, lighting and dressing, spawn and critical-spot markers, and
+deterministic play-envelope metadata. Source acceptance verifies the immutable
+revision, its semantic-entity link, provenance, hashes, and declared
+dependencies. Runtime acceptance separately verifies the host's collision,
+navigation, marker, and play-envelope compatibility. Dressing can be absent or
+rejected without invalidating a deterministic playable envelope.
+
+The catalog stores semantic metadata, revision manifests, compatibility data,
+and acceptance receipts. It is **not** a blob store: immutable artifact bytes
+belong behind a separately addressed blob-store seam, with manifests pointing
+to them by stable reference and SHA-256. “Alien-oceanic” and similar styling
+may appear only as aesthetic demo data in semantic tags; they never become
+schema, endpoint, catalog-type, or runtime special cases.
+
+Until D0 is demonstrated end to end, unrelated speculative expansion—including
+production-infrastructure polish, broad taxonomy work, and advanced
+steering—does not count as milestone progress and must not displace fixing D0.
+The broader C0–C5 plan remains in force after D0.
 
 ## Demo definition of playable
 
@@ -59,6 +173,10 @@ EncounterFragment
 PlayableEncounterPackage
   encounter spec version, selected fragments, combat recipe, arena recipe,
   manifest hash, fallback provenance
+
+ConceptFirstAssetProductionGate
+  immutable intent + art direction + concept -> worker brief -> asset candidate
+  -> assembly selection, rejection, deviation, or fallback receipt
 ```
 
 Compatibility keys initially cover scale, rig/model binding, collision profile,
@@ -115,6 +233,9 @@ checkout before an entry is accepted.
 
 ## Checkpoints
 
+The checkpoints below are deliberately preserved as the post-D0 expansion
+path. They may support D0 only when they directly repair a missing D0 link.
+
 ### C0 — Catalog seed and contracts
 
 Create the three manifest shapes above and import a deliberately small set of
@@ -154,7 +275,10 @@ door.
 
 **Done when:** the UI or inspection route shows workers and the current best
 package; a steering request changes a worker's next priority; freezing a job
-returns one immutable package.
+returns one immutable package. For production candidates, the inspection route
+also shows the pinned concept → candidate → package relationship and whether
+each evidence item was locally observed, remotely observed, reported, or
+simulated.
 
 ### C4 — Horizontal draft lanes
 

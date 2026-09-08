@@ -18,7 +18,7 @@ export function planEncounterWork(spec) {
     deadline_at: spec.deadline_at,
     host_capabilities: structuredClone(spec.host_capabilities),
     input_module_ids: [],
-    attempt: 1,
+    attempt: spec.attempt || 1,
   };
   const lanes = [
     { lane: "body-source", provides: "encounter.body.source" },
@@ -81,7 +81,7 @@ export function assertEncounterWorkOrder(order) {
 
 function assertEncounterSpec(spec) {
   if (!spec || spec.schema_version !== "1" || !ID.test(spec.encounter_id)
-      || !Number.isInteger(spec.seed) || spec.seed < 0 || !validTimestamp(spec.deadline_at)
+      || !Number.isInteger(spec.seed) || spec.seed < 0 || (spec.attempt !== undefined && (!Number.isInteger(spec.attempt) || spec.attempt < 1)) || !validTimestamp(spec.deadline_at)
       || !validCapabilities(spec.host_capabilities) || !spec.objective || !SEMANTIC_TAG.test(spec.objective.kind)
       || !spec.arena_envelope || !Array.isArray(spec.desired_roles) || spec.desired_roles.length === 0
       || !uniqueTags(spec.desired_roles)) {

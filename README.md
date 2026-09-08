@@ -14,9 +14,30 @@ validates its contract and explicitly accepts it.
 
 [`docs/encounter-runtime-project-plan.md`](docs/encounter-runtime-project-plan.md)
 defines the draft-by-deadline encounter model, concrete checkpoints, and work
-that can proceed in parallel. It also records the demo bootstrap: selected
-Mech-project assets and animation clips will seed the encounter catalogs, while
-the design itself remains generic.
+that can proceed in parallel. Its immediate, authoritative target is **D0**:
+one generic component work order from Build Room must produce a local
+Blender-generated `.blend`, PNG render, and GLB; pass hash and strict GLB
+validation; create a newly produced immutable catalog revision; compose into an
+`AssemblyReceipt`; visibly render and select the package in Build Room; accept
+a later compatible worker revision for the same encounter; and reach simple
+host runtime combat where player and encounter can damage one another. The
+tentacled creature is only the first demo blueprint, not a special encounter
+type. Until that chain is demonstrated, infrastructure polish, broad taxonomy,
+and advanced steering are not milestone progress. Markdown is authoritative
+implementation direction; Miro remains diagrams only.
+
+The plan also records the demo bootstrap: selected Mech-project assets and
+animation clips will seed the encounter catalogs, while the design itself
+remains generic.
+
+Two explicit, unimplemented follow-on workstreams keep the asset boundary
+clear: a **Texture/Material Worker** will publish immutable texture-set and
+material-binding revisions, while an **Arena Worker** will publish immutable
+arena revisions linked to the encounter semantic entity. Catalog metadata and
+receipts describe and verify those revisions; they are not a blob store. The
+plan defines the required provenance, compatibility, acceptance, and Build
+Room evidence without treating alien-oceanic styling as schema or as an
+implementation claim.
 
 The first stable machine-readable interchange boundary is in
 [`contracts/`](contracts/). It covers host capabilities, encounter requests,
@@ -24,6 +45,33 @@ parallel work orders, worker events, composable modules, and frozen playable
 packages. These contracts deliberately support recipe, runtime-asset, managed
 plugin, and remote-logic execution without encoding any particular encounter
 shape or genre.
+
+## Concept-first production gate
+
+The canonical future production boundary is the closed, generic
+[`ConceptFirstAssetProductionGate`](contracts/v1/concept-first-asset-production-gate.schema.json).
+Before a new model, material/texture, animation, arena, audio, effect, or any
+future asset type is dispatched, its worker brief must pin immutable
+`EncounterIntent`, `ArtDirectionRevision`, and generated-or-selected
+`ConceptReferenceRevision` records plus acceptance constraints. Art direction
+defines the player-facing beat, silhouette, scale, palette/material cues, arena
+relationship, animation/combat beats, and constraints—not merely an aesthetic
+prompt.
+
+An immutable candidate records that lineage, interpretation constraints,
+provenance, and source/runtime acceptance independently. The assembler must
+reject missing or incompatible lineage before selection and leave an
+inspectable selection, rejection, deviation, or fallback receipt. The one
+exception is a recorded, time-bounded reuse or maintenance waiver with a
+bounded reason, approver, and asset scope.
+
+This is an adoption contract and architectural gate, not a claim about the
+currently active Build Room or worker implementation. The current D0 local
+Blender body output is explicitly **pre-gate bootstrap evidence**: it proves a
+bounded local artifact path, not that concept-first dispatch, assembly, or
+cloud execution exists. When adopted, Build Room must expose the visual concept
+→ candidate → assembled-package lineage while preserving its existing honest
+local, remote, reported, and simulated evidence labels.
 
 ## Implemented starting architecture
 
@@ -41,8 +89,11 @@ It keeps request authorization, idempotency, and one active job per
 project/component in a Durable Object, then forwards opaque computer-use work to
 an external dispatcher. It does not run a model or Blender itself; agents outside
 Cloudflare remain responsible for deciding what to ask the computer-use workers
-to do. The GPU/Blender worker integration remains deliberately unshipped until
-its desktop runtime has a passing cloud smoke test.
+to do. The GPU/Blender **cloud** worker integration remains deliberately
+unshipped until its desktop runtime has a passing cloud smoke test. The Build
+Room's optional local Blender CLI slice is a non-deployed, receipt-bearing
+process proof; it does not contact Cloudflare or Modal and does not establish a
+cloud, Unity-load, or player-facing acceptance claim.
 
 ## Infrastructure foundation
 
@@ -120,13 +171,14 @@ product-flow sketch, but not yet an executable architecture.
 
 ### Recommended sequencing
 
-Do not begin by spawning Blender or animation agents. First make the
-coordinator a trustworthy module: specify the versioned work order and result
-manifest, persist a recoverable state machine and immutable event history, and
-bind idempotency to the canonical request. Then add one dispatcher adapter with
-receipt/callback verification. Only once its artifacts can be validated and
-accepted by the Unity host should semantic reuse, asset generation, and swarm
-fan-out be introduced.
+Do not begin a cloud Blender/animation fleet before the coordinator is
+trustworthy: specify the versioned work order and result manifest, persist a
+recoverable state machine and immutable event history, and bind idempotency to
+the canonical request. Then add one dispatcher adapter with receipt/callback
+verification. The optional local Blender CLI Build Room slice is deliberately
+limited to proving that chain with immutable local artifacts; it is not a cloud
+worker or host acceptance path. Semantic reuse, cloud fan-out, and any Unity
+load claim still require host validation and acceptance.
 
 This preserves the Miro design's strongest idea—specialized generation behind a
 small encounter request—without making the public interface expose the swarm's
@@ -149,6 +201,32 @@ Run the dependency-free inspection viewer with:
 npm run build-room
 ```
 
+For one complete, local-only generated-asset receipt, run:
+
+```sh
+npm run demo:local-blender
+```
+
+That command submits a bounded Build Room request and uses the installed local
+Blender CLI to create a small ocean-inspired demo mesh from a deterministic
+seed. It persists a content-addressed `.blend` checkpoint, checked `glb.v1`
+output, rendered PNG thumbnail, exact Blender command receipts, a newly
+produced catalog asset revision, and an assembler package revision under
+`.local-blender-artifacts/`. The demo creature is bootstrap content only; the
+module remains the generic `encounter.body` capability. It is **local Blender
+CLI evidence only**, not Modal/cloud execution, Unity-load validation, or
+player-facing proof.
+
+After the first package completes, the viewer exposes **Request next
+revision**, or callers can `POST {}` to
+`/api/encounters/<encounter-id>/upgrades`. This bounded action runs a later
+local Blender work order for the same encounter. Revision 2 provides six curved,
+tapered appendage as local Blender demo data; a prompt may call it a tentacle,
+then preserves both revisions' `.blend`, PNG, GLB, package, and receipt history.
+The catalog appends revision 2 under the same asset ID with an exact revision-1
+parent hash; the assembly receipt records the retained revision-1 fallback
+history while selecting the compatible revision-2 runtime candidate.
+
 It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
 restarts it when its source changes, so the local viewer remains easy to patch;
 the projection and replay log are persisted to `.build-room-state.json` across
@@ -170,7 +248,11 @@ The evidence label is deliberate:
   `source: "blender_window"` plus an observed screenshot path or stream URL and
   an observation timestamp. Both Modal and Blender labels also require a local
   bridge to present the configured `x-build-room-observer-token`; otherwise
-  receipt-shaped input is rejected rather than displayed as observed.
+receipt-shaped input is rejected rather than displayed as observed.
+- **Local Blender CLI evidence (observed)** is emitted only by the optional
+  generated-asset checkbox/API flag. It includes a rendered local thumbnail and
+  exact source/output hashes and command receipts, but makes none of the
+  Modal, Unity-load, or player-facing claims above.
 
 The adapter seam is `POST /api/ingest/coordinator` or
 `POST /api/ingest/dispatcher`. It accepts the coordinator's worker-event fields

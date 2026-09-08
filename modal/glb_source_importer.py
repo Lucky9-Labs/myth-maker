@@ -20,6 +20,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any, Protocol
 
 from encounter_worker_adapter import HashAddressedArtifact, SourceArtifactReceipt
@@ -89,6 +90,7 @@ class BlenderCliGlbConverter:
         if resolved is None or not resolved.is_file():
             raise ValueError("Blender CLI is unavailable")
         self.executable = resolved
+        self.last_receipt: dict[str, Any] | None = None
 
     @classmethod
     def discover(cls) -> Path | None:
@@ -110,9 +112,18 @@ class BlenderCliGlbConverter:
                 f"bpy.ops.export_scene.gltf(filepath={str(output)!r}, export_format='GLB', "
                 "export_apply=True, export_materials='EXPORT', check_existing=False)"
             )
+            command = [str(self.executable), "--background", "--disable-autoexec", str(source),
+                       "--python-expr", expression]
+            started = time.monotonic()
             completed = subprocess.run(
-                [str(self.executable), "--background", "--disable-autoexec", str(source),
-                 "--python-expr", expression], capture_output=True, text=True, timeout=60, check=False)
+                command, capture_output=True, text=True, timeout=60, check=False)
+            self.last_receipt = {
+                "argv": command, "cwd": str(directory), "returncode": completed.returncode,
+                "duration_ms": round((time.monotonic() - started) * 1000),
+                "stdout_sha256": hashlib.sha256(completed.stdout.encode()).hexdigest(),
+                "stderr_sha256": hashlib.sha256(completed.stderr.encode()).hexdigest(),
+                "stdout_tail": completed.stdout[-1000:], "stderr_tail": completed.stderr[-1000:],
+            }
             if completed.returncode != 0 or not output.is_file():
                 detail = (completed.stderr or completed.stdout).strip().replace("\n", " ")[:500]
                 raise ValueError("Blender GLB export failed" + (": " + detail if detail else ""))

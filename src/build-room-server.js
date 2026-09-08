@@ -1,17 +1,21 @@
 import { createServer } from "node:http";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import { BuildRoom, CoordinatorEventAdapter } from "./build-room.js";
 import { planEncounterWork } from "./workgraph-planner.js";
 import { EncounterDispatcher } from "./encounter-dispatcher.js";
 import { LocalWorkerBackend } from "./local-worker-backend.js";
+import { LocalBlenderSliceBackend } from "./local-blender-slice-backend.js";
 import { assembleEncounterPackage } from "./encounter-package-assembler.js";
 import { createSqliteCatalog } from "./catalog-sqlite.js";
+import { ingestGlbRuntimeCandidate } from "./glb-runtime-candidate-ingress.js";
 
-export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {}, catalog = createSqliteCatalog() } = {}) {
+export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {}, catalog = createSqliteCatalog(), artifactRoot = ".local-blender-artifacts", blenderBackend = new LocalBlenderSliceBackend({ outputDir: artifactRoot }) } = {}) {
   if (!catalog || typeof catalog.projectionSummary !== "function") throw new TypeError("catalog must expose projectionSummary()");
   room.setCatalogProjection(() => catalog.projectionSummary());
   const adapter = new CoordinatorEventAdapter(room, { trustedObservation: (_input, request) => trustedObserver(request) });
+  const absoluteArtifactRoot = existsSync(artifactRoot) ? realpathSync(artifactRoot) : resolve(artifactRoot);
   const streams = new Map();
   const buildStreams = new Set();
   room.subscribe((encounterId, snapshot) => {
@@ -22,6 +26,8 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
     try {
       const url = new URL(request.url, "http://127.0.0.1");
       if (request.method === "GET" && url.pathname === "/") return html(response);
+      if (request.method === "GET" && url.pathname === "/favicon.ico") { response.writeHead(204); return response.end(); }
+      if (request.method === "GET" && url.pathname.startsWith("/generated/")) return generatedArtifact(response, absoluteArtifactRoot, url.pathname.slice("/generated/".length));
       if (request.method === "GET" && url.pathname === "/api/health") return json(response, 200, { status: "ok", encounters: room.list().length });
       if (request.method === "GET" && url.pathname === "/api/builds") return json(response, 200, room.buildIndex());
       if (request.method === "GET" && url.pathname === "/api/builds/stream") {
@@ -48,8 +54,18 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
       if (request.method === "POST" && url.pathname === "/api/encounters") {
         const run = room.submit(await body(request));
         persist(room);
-        launchLocalBuild(room, run, persist).catch((error) => recordLocalFailure(room, run, error, persist));
-        return json(response, 201, run);
+        if (!run.deduplicated) launchLocalBuild(room, run, persist, catalog, blenderBackend, absoluteArtifactRoot).catch((error) => recordLocalFailure(room, run, error, persist));
+        return json(response, run.deduplicated ? 200 : 201, run);
+      }
+      const upgradeMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/upgrades$/);
+      if (request.method === "POST" && upgradeMatch) {
+        const upgrade = room.requestNextUpgrade(upgradeMatch[1], await body(request));
+        persist(room);
+        if (!upgrade.deduplicated) {
+          launchLocalBuild(room, upgrade, persist, catalog, blenderBackend, absoluteArtifactRoot, upgrade.upgrade.revision)
+            .catch((error) => recordLocalFailure(room, upgrade, error, persist, upgrade.upgrade.revision));
+        }
+        return json(response, upgrade.deduplicated ? 200 : 202, upgrade);
       }
       const streamMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/stream$/);
       if (request.method === "GET" && streamMatch) {
@@ -84,46 +100,170 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
   return server;
 }
 
-async function launchLocalBuild(room, run, persist) {
-  const graph = planEncounterWork(localSpec(run.ids.encounterId));
-  const dispatcher = new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 5 }) });
-  const result = await dispatcher.dispatch(graph);
+async function launchLocalBuild(room, run, persist, catalog, blenderBackend, artifactRoot, revision = 1) {
+  const spec = localSpec(run.ids.encounterId, run.seed, revision);
+  const graph = planEncounterWork(spec);
+  const localBackend = new LocalWorkerBackend({ workDurationMs: 5 });
+  const backend = {
+    launch(order, options) {
+      return run.generate_asset && order.lane === "body-source" ? blenderBackend.launch(order, { ...options, revision }) : localBackend.launch(order, options);
+    },
+  };
+  const dispatcher = new EncounterDispatcher({ backend });
+  let result;
+  try {
+    result = await dispatcher.dispatch(graph);
+  } catch (error) {
+    const rootOrders = graph.work_orders.filter((order) => !(order.depends_on_work_ids || []).length);
+    const rootReceipts = await Promise.all(rootOrders.map((order) => dispatcher.lookup(order.work_id)));
+    if (rootReceipts.some((receipt) => !receipt)) throw error;
+    result = {
+      encounter_id: graph.encounter_id,
+      receipts: rootReceipts,
+      events: rootReceipts.flatMap((receipt) => receipt.events),
+      deduplicated_work_ids: [],
+      recovered_with_baseline_fallback: true,
+    };
+  }
+  const bodyOrder = graph.work_orders.find((order) => order.lane === "body-source");
+  const manifest = run.generate_asset ? blenderBackend.resultFor(bodyOrder.work_id) : undefined;
+  const candidate = manifest ? ingestGlbRuntimeCandidate({ module: manifest.module, loaderProfile: manifest.loader_profile }) : undefined;
+  if (manifest) {
+    const priorAsset = catalog.getAsset(manifest.asset_id);
+    if (priorAsset) catalog.appendAssetRevision(catalogAsset(manifest, priorAsset));
+    else catalog.createAsset(catalogAsset(manifest));
+  }
   for (const order of graph.work_orders) {
     for (const event of result.events.filter((candidate) => candidate.work_id === order.work_id)) {
+      const isBlender = order.lane === "body-source" && event.worker_id.startsWith("blender-cli-");
       const projected = room.record(run.ids.encounterId, {
         eventId: event.event_id, workerId: event.worker_id, sequence: event.sequence, occurredAt: event.occurred_at,
-        kind: event.kind, message: event.message, evidence: { kind: "local_process", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at } },
+        kind: event.kind, message: event.message,
+        ...(isBlender && manifest && event.kind === "candidate_produced" ? { artifact: artifactRevision(manifest, artifactUrl(artifactRoot, manifest.visual.path)) } : {}),
+        evidence: isBlender
+          ? manifest
+            ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, source_inspection: manifest.source_inspection, manifest_path: manifest.manifest_path } }
+            : { kind: "local_blender_cli_failed", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, failure: event.message, note: "Local Blender CLI failed; assembler retained the baseline fallback." } }
+          : { kind: "local_process", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at } },
       });
       room.upsertWork(run.ids.encounterId, order, projected);
     }
   }
+  if (result.recovered_with_baseline_fallback) {
+    const skipped = graph.work_orders.find((order) => order.lane === "validation");
+    const projected = room.record(run.ids.encounterId, {
+      workerId: "local-dispatcher", sequence: 0, kind: "cancelled", occurredAt: new Date().toISOString(),
+      message: "Validation lane skipped because a prerequisite failed; assembler retained the declared baseline fallback.",
+      evidence: { kind: "local_process", receipt: { process: "encounter-dispatcher", observed_at: new Date().toISOString() } },
+    });
+    room.upsertWork(run.ids.encounterId, skipped, projected);
+  }
+  const packageId = `package-${run.ids.encounterId.slice(-24)}`;
+  const priorPackage = room.snapshot(run.ids.encounterId).packages.filter((entry) => entry.package_id === packageId).at(-1)?.package_record;
   const packageResult = assembleEncounterPackage({
-    host: localSpec(run.ids.encounterId).host_capabilities,
+    host: spec.host_capabilities,
     encounterId: run.ids.encounterId,
-    packageId: `package-${run.ids.encounterId.slice(-24)}`,
+    packageId,
     baselineModules: [baselineModule(run.ids.encounterId)],
+    candidateModules: candidate ? [candidate.module] : [],
+    previousPackage: priorPackage,
     assembledAt: new Date().toISOString(),
   });
   room.record(run.ids.encounterId, {
     workerId: "local-assembler", sequence: 0, kind: "completed", occurredAt: new Date().toISOString(),
-    message: "Local assembler produced a compatible baseline package after terminal worker receipts.",
-    package: { package_id: packageResult.package.package_id, revision: packageResult.package.revision, state: packageResult.package.state, selection: packageResult.package.module_ids, fallback: packageResult.package.fallback_provenance, rejections: packageResult.rejections },
+    message: candidate ? `Local assembler re-evaluated encounter package revision ${packageResult.package.revision} and selected the checked local Blender runtime candidate; host-game acceptance remains absent.` : "Local assembler preserved the compatible baseline fallback after terminal worker receipts.",
+    package: {
+      package_id: packageResult.package.package_id,
+      revision: packageResult.package.revision,
+      state: packageResult.package.state,
+      selection: packageResult.package.module_ids,
+      fallback: packageResult.package.fallback_provenance,
+      rejections: packageResult.rejections,
+      manifest_sha256: packageResult.package.manifest_sha256,
+      package_record: packageResult.package,
+      assembly_receipt: assemblyReceipt(packageResult.package, manifest, priorPackage),
+    },
     evidence: { kind: "local_process", receipt: { process: "encounter-package-assembler", observed_at: new Date().toISOString() } },
   });
+  if (revision > 1) {
+    room.record(run.ids.encounterId, {
+      workerId: "local-coordinator", sequence: revision + 1000, kind: "completed", occurredAt: new Date().toISOString(),
+      message: `Local coordinator re-evaluated the same encounter, selected package revision ${packageResult.package.revision}, and preserved package revision ${revision - 1} as immutable fallback history.`,
+      evidence: { kind: "local_process", receipt: { process: "local-encounter-coordinator", upgrade_revision: revision, package_manifest_sha256: packageResult.package.manifest_sha256, observed_at: new Date().toISOString() } },
+    });
+    room.completeUpgrade(run.ids.encounterId, revision);
+  }
   persist(room);
 }
 
-function recordLocalFailure(room, run, error, persist) {
+function assemblyReceipt(packageRecord, manifest, previousPackage = undefined) {
+  const withoutHash = {
+    schema_version: "1",
+    receipt_id: `assembly-${packageRecord.package_id.slice(-40)}`,
+    package_id: packageRecord.package_id,
+    package_revision: packageRecord.revision,
+    package_manifest_sha256: packageRecord.manifest_sha256,
+    assembled_at: packageRecord.assembled_at,
+    selected_modules: manifest ? [{
+      module_id: manifest.module.module_id,
+      revision: manifest.module.revision,
+      artifact_sha256: manifest.runtime.sha256,
+    }] : packageRecord.module_ids.map((module_id) => ({ module_id, revision: 1, artifact_sha256: null })),
+    fallback_provenance: packageRecord.fallback_provenance,
+    validation: manifest ? [{
+      kind: "glb.v1-checked",
+      status: "passed",
+      artifact_sha256: manifest.runtime.sha256,
+      evidence_scope: "local_blender_cli_only",
+    }] : [{ kind: "baseline-contract", status: "passed", artifact_sha256: null, evidence_scope: "local_process_only" }],
+    host_acceptance: "not_observed",
+    ...(previousPackage ? { preserved_fallback_history: { package_revision: previousPackage.revision, package_manifest_sha256: previousPackage.manifest_sha256 } } : {}),
+  };
+  return { ...withoutHash, receipt_sha256: createHash("sha256").update(JSON.stringify(withoutHash)).digest("hex") };
+}
+
+function catalogAsset(manifest, prior = undefined) {
+  return {
+    assetId: manifest.asset_id, revision: prior ? prior.revision : 1, createdAt: manifest.created_at,
+    functionalTags: ["body.generated"], aestheticTags: ["aesthetic.ocean.demo"],
+    compatibility: { platforms: ["local"], loaders: ["gltf", "urp"], contracts: ["encounter-module.v1"], bindingIds: [] },
+    sourceReceipt: { receiptId: `${manifest.work_id}-source-${manifest.source.artifact.sha256.slice(0, 16)}`, uri: manifest.source.artifact.uri, sha256: manifest.source.artifact.sha256, receivedAt: manifest.created_at },
+    runtimeArtifact: { uri: manifest.runtime.uri, sha256: manifest.runtime.sha256, mediaType: manifest.runtime.media_type, byteLength: manifest.runtime.byte_length },
+    visualArtifact: { uri: `sha256:${manifest.visual.sha256}`, sha256: manifest.visual.sha256, mediaType: manifest.visual.media_type, byteLength: manifest.visual.byte_length },
+    sourceAcceptanceState: "accepted", runtimeAcceptanceState: "candidate",
+    provenance: { producer: "local-blender-cli", createdAt: manifest.created_at, label: "newly-produced-local-blender", ...(prior ? { parentRefs: [{ domain: "asset", stableId: prior.assetId, revision: prior.revision, contentSha256: prior.contentSha256 }] } : {}) },
+  };
+}
+
+function artifactRevision(manifest, thumbnailUrl) {
+  return { artifact_id: manifest.asset_id, revision: manifest.revision, source_sha256: manifest.source.artifact.sha256,
+    runtime_sha256: manifest.runtime.sha256, visual_sha256: manifest.visual.sha256, profile: manifest.loader_profile.profile, thumbnail_url: thumbnailUrl,
+    origin: "newly-produced-local-blender", acceptance: "host-unaccepted-candidate" };
+}
+
+function artifactUrl(root, path) { return `/generated/${encodeURIComponent(relative(root, path).split(sep).join("/"))}`; }
+
+function recordLocalFailure(room, run, error, persist, revision = undefined) {
   room.record(run.ids.encounterId, { workerId: "local-dispatcher", sequence: 0, kind: "failed", occurredAt: new Date().toISOString(), message: `Local dispatcher failed: ${error.message}`, evidence: { kind: "local_process", receipt: { process: "encounter-dispatcher", observed_at: new Date().toISOString() } } });
+  if (revision) room.completeUpgrade(run.ids.encounterId, revision);
   persist(room);
 }
 
-function localSpec(encounterId) {
-  return { schema_version: "1", encounter_id: encounterId, seed: 1, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe"], loaders: [], contracts: [], limits: { memory_mb: 128, preload_seconds: 1 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
+function localSpec(encounterId, seed = 1, attempt = 1) {
+  return { schema_version: "1", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
 }
 
 function baselineModule(encounterId) {
-  return { schema_version: "1", module_id: `baseline-${encounterId.slice(-24)}`, revision: 1, execution_kind: "recipe", provides: ["encounter.baseline"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "known-playable-baseline" }, fallback_module_ids: [] };
+  return { schema_version: "1", module_id: `baseline-${encounterId.slice(-24)}`, revision: 1, execution_kind: "recipe", provides: ["encounter.body"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "known-playable-baseline" }, fallback_module_ids: [] };
+}
+
+function generatedArtifact(response, root, encodedRelativePath) {
+  const relativePath = decodeURIComponent(encodedRelativePath);
+  const path = resolve(root, relativePath);
+  if (!path.startsWith(`${root}${sep}`) || !existsSync(path)) return json(response, 404, { error: "generated_artifact_not_found" });
+  const type = path.endsWith(".png") ? "image/png" : path.endsWith(".glb") ? "model/gltf-binary" : "application/octet-stream";
+  response.writeHead(200, { "content-type": type, "cache-control": "immutable" });
+  response.end(readFileSync(path));
 }
 
 export function loadBuildRoom(statePath) {
@@ -157,8 +297,22 @@ function stream(response, snapshot) {
 function body(request) {
   return new Promise((resolve, reject) => {
     let raw = "";
-    request.on("data", (chunk) => { raw += chunk; if (raw.length > 100_000) reject(new TypeError("request body too large")); });
-    request.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new TypeError("invalid JSON")); } });
+    let received = 0;
+    let rejected = false;
+    request.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > 100_000) {
+        if (!rejected) reject(new TypeError("request body too large"));
+        rejected = true;
+        request.resume();
+        return;
+      }
+      if (!rejected) raw += chunk;
+    });
+    request.on("end", () => {
+      if (rejected) return;
+      try { resolve(JSON.parse(raw || "{}")); } catch { reject(new TypeError("invalid JSON")); }
+    });
     request.on("error", reject);
   });
 }
@@ -179,26 +333,28 @@ const PAGE = String.raw`<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Myth Maker Build Room</title>
 <style>
-  :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #101318; color: #e9eef4; }
-  body { max-width: 1160px; margin: 0 auto; padding: 28px; }
-  h1 { margin: 0; } .muted { color: #a9b5c3; }
-  .notice { border: 1px solid #e2ae54; background: #372815; padding: 12px; margin: 20px 0; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-  .card { border: 1px solid #334050; background: #171d25; padding: 14px; border-radius: 6px; }
-  .stage { border-left: 4px solid #52677d; padding: 9px; margin: 8px 0; } .stage.live, .observed-local { border-color: #4bd8a7; } .stage.fixture { border-color: #e2ae54; } .observed-modal { border-color: #ae7df4; } .observed-blender { border-color: #75bfff; } .absent { border-color: #52677d; }
-  .topology { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 8px; align-items: stretch; } .node { border: 1px solid #52677d; padding: 8px; min-height: 80px; } .arrow { color: #91c8ff; text-align: center; font-size: 20px; } .lane { margin-top: 8px; border: 1px dashed #52677d; padding: 8px; }
-  textarea { width: 100%; min-height: 80px; background: #0d1117; color: inherit; border: 1px solid #52677d; padding: 8px; box-sizing: border-box; }
-  button { margin-top: 8px; padding: 9px 13px; background: #4bd8a7; border: 0; color: #07130f; font-weight: bold; cursor: pointer; }
-  code { color: #91c8ff; word-break: break-word; } table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  td, th { border-top: 1px solid #334050; padding: 8px; text-align: left; vertical-align: top; } .pill { display: inline-block; border: 1px solid #52677d; border-radius: 12px; padding: 2px 7px; font-size: 11px; }
-  #empty { padding: 30px; text-align: center; border: 1px dashed #52677d; }
+  :root { color-scheme: dark; font-family: Inter, Avenir Next, Avenir, ui-sans-serif, system-ui, sans-serif; background: #07101f; color: #e4f3f4; }
+  * { box-sizing: border-box; } body { max-width: 1440px; min-height: 100vh; margin: 0 auto; padding: clamp(18px, 4vw, 54px); background: radial-gradient(circle at 52% 7%, #123d56 0, transparent 30rem), #07101f; }
+  h1, h2, h3, p { margin-top: 0; } h1 { font-size: clamp(1.4rem, 3vw, 2.3rem); letter-spacing: -.04em; } h2 { font-size: 1.05rem; letter-spacing: -.02em; } .muted { color: #91a9b8; }
+  .masthead { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 28px; } .quiet { font-size: .82rem; color: #91a9b8; }
+  .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; padding: 16px; margin-bottom: 26px; border: 1px solid #22516b; background: rgba(7, 22, 39, .88); box-shadow: 0 18px 50px rgba(0, 0, 0, .22); }
+  .composer label { display: block; font-size: .84rem; color: #b7d7df; } textarea { width: 100%; min-height: 56px; margin-top: 8px; resize: vertical; background: #07111d; color: inherit; border: 1px solid #35657a; padding: 11px; font: inherit; } textarea:focus-visible, button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #8effec; outline-offset: 3px; }
+  .form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .form-actions label { color: #91a9b8; white-space: nowrap; } button { padding: 11px 16px; border: 1px solid #83e7dc; background: #a0fff2; color: #06202a; font: 700 .9rem/1 inherit; cursor: pointer; } button:hover { background: #cbfff8; }
+  .assembly { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(10px, 2vw, 24px); align-items: stretch; padding: clamp(14px, 3vw, 34px); overflow: hidden; border: 1px solid #214e68; background: linear-gradient(120deg, rgba(12, 42, 62, .9), rgba(4, 15, 29, .95)); }
+  .assembly::before { content: ""; position: absolute; inset: 50% 6% auto; border-top: 1px solid #3d7787; opacity: .6; } .slot { position: relative; min-height: 330px; display: flex; flex-direction: column; border: 1px solid #315e73; background: rgba(4, 17, 31, .78); } .slot + .slot::before { content: "→"; position: absolute; z-index: 1; left: -23px; top: 48%; color: #8cf7ed; font-size: 1.5rem; text-shadow: 0 0 14px #59e4dc; }
+  .slot-head { display: flex; justify-content: space-between; gap: 10px; padding: 11px 12px; border-bottom: 1px solid #234d63; } .slot-head h2 { margin: 0; } .glyph { color: #9affef; } .state { font-size: .75rem; color: #a5ced2; } .frame { flex: 1; display: grid; place-items: center; overflow: hidden; min-height: 230px; background: radial-gradient(circle at 50% 43%, #0c5d78, #071321 68%); }
+  .observed { border-color: #78e8e1; } .observed .slot-head { border-color: #53bfbf; } .active-frame { box-shadow: 0 0 0 1px #4cc8c6, 0 0 28px rgba(74, 221, 214, .42), inset 0 0 36px rgba(56, 202, 205, .12); } .active-frame .frame::after { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 60px rgba(99, 255, 239, .17); } .observed img { width: 100%; height: 100%; min-height: 230px; object-fit: cover; display: block; }
+  .ghost { border-style: dashed; border-color: #355265; background: rgba(7, 18, 31, .4); } .ghost .frame { color: #58717f; background: linear-gradient(135deg, rgba(19, 47, 64, .35), rgba(4, 13, 25, .5)); } .ghost-mark { font-size: 2rem; opacity: .5; } .slot-foot { min-height: 51px; padding: 10px 12px; color: #9fc7ce; font-size: .82rem; border-top: 1px solid #234d63; } .ghost .slot-foot { color: #647b88; }
+  .assembly-caption { display: flex; justify-content: space-between; gap: 18px; padding: 13px 2px 0; color: #9bb8c4; font-size: .88rem; } .assembly-caption strong { color: #bdfcf3; }
+  details.drawer { margin-top: 22px; border-top: 1px solid #31586c; border-bottom: 1px solid #31586c; background: rgba(3, 14, 27, .66); } summary { padding: 14px 4px; cursor: pointer; color: #c8f5f0; font-weight: 650; } .drawer-body { padding: 4px 4px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 22px; } .drawer-body h3 { margin-bottom: 8px; color: #a1e9e3; } .drawer-body ul { margin: 0; padding-left: 18px; } .drawer-body li { margin: 6px 0; color: #acc2cc; } code { color: #a8fcf0; overflow-wrap: anywhere; font-size: .8rem; }
+  .build-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; } .build-link { display: block; padding: 14px; border: 1px solid #315e73; color: inherit; text-decoration: none; background: rgba(4, 18, 32, .65); } .build-link:hover { border-color: #82eade; } .empty-note { padding: 30px 4px; color: #819aa7; }
+  @media (max-width: 800px) { .composer { grid-template-columns: 1fr; } .assembly { grid-template-columns: 1fr; } .assembly::before, .slot + .slot::before { display: none; } .slot { min-height: 180px; } .frame, .observed img { min-height: 135px; } .assembly-caption, .masthead { align-items: flex-start; flex-direction: column; gap: 8px; } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
 <body>
-  <h1>Myth Maker <span class="muted">/ encounter build room</span></h1>
-  <p class="muted">Local inspection surface. Submission runs the local planner, dispatcher, and local worker processes; Cloudflare, Modal, Blender, and Unity remain absent unless receipt-bearing evidence arrives.</p>
-  <div class="notice"><strong>Evidence boundary:</strong> local HTTP and worker receipts are observed locally; catalog counters are direct local SQLite reads; Cloudflare, Modal, and Blender remain absent until receipt-bearing adapter input arrives.</div>
-  <form id="submit"><label for="prompt">Encounter request</label><textarea id="prompt" required placeholder="Describe the encounter to inspect…"></textarea><button>Create local build-room request</button></form>
-  <main id="empty">Submit an encounter request to generate its encounter, request, and worker IDs.</main>
+  <header class="masthead"><div><h1>Myth Maker / Build Room</h1><p class="muted">Compose a playable encounter from observed pieces.</p></div><span class="quiet">D0 assembly surface</span></header>
+  <form id="submit" class="composer"><label for="prompt">What should this encounter do?<textarea id="prompt" required placeholder="Describe the encounter to assemble…"></textarea></label><div class="form-actions"><label><input id="generate-asset" type="checkbox" checked> Include local render</label><button>Assemble encounter</button></div></form>
+  <main id="empty">Preparing assembly table…</main>
   <script><!-- client --></script>
 </body>
 </html>`;
@@ -210,6 +366,8 @@ const CLIENT_SCRIPT = String.raw`
   const labels = {
     fixture: "Simulated fixture (not live)",
     local_process: "Local process receipt (observed)",
+    local_blender_cli: "Local Blender CLI evidence (observed)",
+    local_blender_cli_failed: "Local Blender CLI failure (observed local process)",
     adapter_reported: "Coordinator/dispatcher report (unverified)",
     modal_remote: "Modal remote receipt (observed)",
     blender_window: "Blender window/screenshot/stream (observed)",
@@ -219,7 +377,7 @@ const CLIENT_SCRIPT = String.raw`
     event.preventDefault();
     const prompt = document.querySelector("#prompt").value;
     const response = await fetch("/api/encounters", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, generate_asset: document.querySelector("#generate-asset").checked }),
     });
     const run = await response.json();
     if (!response.ok) return alert(run.error);
@@ -232,27 +390,46 @@ const CLIENT_SCRIPT = String.raw`
   });
 
   function esc(value) { const node = document.createElement("div"); node.textContent = String(value ?? ""); return node.innerHTML; }
-  function revisionList(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> rev " + row.revision + "</li>").join("") + "</ul>" : "<p class=\"muted\">No observed revisions.</p>"; }
-  function eventRows(events) { return events.map((entry) => "<tr><td>" + entry.sequence + "</td><td>" + esc(entry.kind) + "</td><td><span class=\"pill\">" + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "</span></td><td>" + esc(entry.message) + "</td></tr>").join(""); }
-  function workerLanes(run, elapsed) {
-    const workItems = run.topology.work_graph;
-    if (!workItems.length) return "<div class=\"lane absent\"><strong>No observed work items</strong><br>The local planner has not projected work yet.</div>";
-    return workItems.map((work) => { const edges = work.depends_on_work_ids.length ? work.depends_on_work_ids.map((dependency) => dependency + " → " + work.work_id).join("; ") : "request → " + work.work_id; return "<div class=\"lane " + evidenceClass(work.evidence_kind) + "\"><strong>Planner → local dispatcher → " + esc(work.lane) + "</strong><br>work: <code>" + esc(work.work_id) + "</code><br>worker: <code>" + esc(work.worker_id) + "</code><br>status: " + esc(work.status) + " · " + work.elapsed_seconds + "s<br>dependency edges: " + esc(edges) + "<br>evidence: " + esc(labels[work.evidence_kind]) + "</div>"; }).join("");
+  function json(value) { return esc(JSON.stringify(value, null, 2)); }
+  function statusGlyph(observed) { return observed ? "●" : "○"; }
+  function observedBody(run) { return run.artifacts.find((artifact) => artifact.thumbnail_url); }
+  function slot(title, observed, content, foot, active) {
+    return "<article class=\"slot " + (observed ? "observed" : "ghost") + (active ? " active-frame" : "") + "\"><header class=\"slot-head\"><h2>" + esc(title) + "</h2><span class=\"glyph\" aria-label=\"" + (observed ? "observed" : "absent") + "\">" + statusGlyph(observed) + "</span></header><div class=\"frame\">" + content + "</div><footer class=\"slot-foot\">" + foot + "</footer></article>";
   }
-  function evidenceClass(kind) { return ({ local_process: "observed-local", fixture: "fixture", modal_remote: "observed-modal", blender_window: "observed-blender" })[kind] || "absent"; }
-  function buildCard(build) { return "<li><a href=\"" + esc(build.navigation_url) + "\"><code>" + esc(build.request_id) + "</code></a><br>encounter: <code>" + esc(build.encounter_id) + "</code><br>" + esc(build.terminal ? "terminal" : "active") + " · workers: " + build.work_graph.workers.length + " · revisions: " + build.revisions.artifacts + "/" + build.revisions.packages + "</li>"; }
-  function renderDashboard(index) { main.innerHTML = "<section class=\"card\"><h2>Live builds</h2><p class=\"muted\">Active builds are projected from current local state; terminal history is bounded to " + index.terminal_limit + ".</p><h3>Active</h3>" + (index.active.length ? "<ul>" + index.active.map(buildCard).join("") + "</ul>" : "<p class=\"muted\">No active builds.</p>") + "<h3>Recent terminal</h3>" + (index.recent_terminal.length ? "<ul>" + index.recent_terminal.map(buildCard).join("") + "</ul>" : "<p class=\"muted\">No terminal builds.</p>") + "</section>"; }
-  function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> — " + esc(row.status) + (row.status === "accepted" ? " (not applied)" : "") + (row.status === "committed" ? " (successor response committed)" : "") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }
-  function catalogEvidence(value) { return ({ local_sqlite_query: "local SQLite query", local_projection: "local build-room projection", not_connected: "integration absent" })[value] || value; }
+  function ghostSlot(title, role) { return slot(title, false, "<span class=\"ghost-mark\" aria-hidden=\"true\">○</span>", "absent", false); }
+  function assembly(run) {
+    const body = run && observedBody(run);
+    const packageRevision = run && run.packages.at(-1);
+    const bodySlot = body ? slot("Body", true, "<img data-role=\"observed-thumbnail\" src=\"" + esc(body.thumbnail_url) + "\" alt=\"Observed local render for " + esc(body.artifact_id) + "\">", "local render · candidate", true) : ghostSlot("Body");
+    const materialSlot = ghostSlot("Material");
+    const arenaSlot = ghostSlot("Arena");
+    const packageSlot = packageRevision ? slot("Encounter package", true, "<span class=\"glyph\" aria-hidden=\"true\">✦</span>", "assembled · revision " + esc(packageRevision.revision), !body) : ghostSlot("Encounter package");
+    const caption = run ? "Observed pieces glow. Absent lanes stay quiet until evidence arrives." : "Start with a body, then add material, arena, and a package when each is observed.";
+    return "<section aria-label=\"Encounter assembly table\"><div class=\"assembly\">" + bodySlot + materialSlot + arenaSlot + packageSlot + "</div><div class=\"assembly-caption\"><span><strong>Body → Material → Arena → Encounter package</strong></span><span>" + caption + "</span></div></section>";
+  }
+  function eventRows(events) { return events.map((entry) => "<li><strong>" + esc(entry.kind) + "</strong> · " + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "<br>" + esc(entry.message) + "</li>").join(""); }
+  function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + "<br>worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
+  function artifactRows(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> · rev " + esc(row.revision) + "<br>" + json(row) + "</li>").join("") + "</ul>" : "<p class=\"muted\">None observed.</p>"; }
+  function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> · " + esc(row.status) + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }
+  function catalogRows(catalog) { return "<ul>" + Object.entries(catalog).map(([name, row]) => "<li>" + esc(name.replaceAll("_", " ")) + ": " + esc(row.count) + " · " + esc(row.evidence) + "</li>").join("") + "</ul>"; }
+  function details(run) {
+    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package, fallback, and rejections</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section><section><h3>Steer this build</h3><form id=\"steer\"><label for=\"steer-instruction\">Instruction<textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea></label><button>Queue steer</button></form>" + steerRows(run.steering) + "</section></div></details>";
+  }
+  function buildCard(build) { return "<a class=\"build-link\" href=\"" + esc(build.navigation_url) + "\"><strong>" + esc(build.terminal ? "Completed assembly" : "Active assembly") + "</strong><br><span class=\"quiet\">" + esc(build.encounter_id) + "</span></a>"; }
+  function renderDashboard(index) {
+    const builds = index.active.concat(index.recent_terminal);
+    main.innerHTML = assembly() + (builds.length ? "<details class=\"drawer\"><summary>Open a recent assembly</summary><div class=\"build-list\">" + builds.map(buildCard).join("") + "</div></details>" : "<p class=\"empty-note\">No assemblies yet. A local render is optional and remains local evidence only.</p>");
+  }
   async function submitSteer(event) { event.preventDefault(); const instruction = document.querySelector("#steer-instruction").value; const response = await fetch("/api/builds/" + encodeURIComponent(activeRequest) + "/steer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction }) }); if (!response.ok) alert((await response.json()).error); }
+  async function requestUpgrade() { const button = document.querySelector("#upgrade"); button.disabled = true; const response = await fetch("/api/encounters/" + encodeURIComponent(active) + "/upgrades", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); const result = await response.json(); if (!response.ok) { button.disabled = false; return alert(result.error); } render(result); }
   function render(run) {
-    const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(run.submittedAt)) / 1000));
-    const modal = run.evidence.modal.length ? "observed receipt" : "no observed remote receipt";
-    const blender = run.evidence.blender.length ? "observed visual evidence" : "no observed window, screenshot, or stream";
-    const packageRevision = run.packages.length ? "revision observed" : "no observed package revision";
-    const catalog = run.topology.catalog;
-    main.innerHTML = "<p><a href=\"/\">← All builds</a></p><section class=\"grid\"><div class=\"card\"><h2>Identity</h2><p>Encounter<br><code>" + esc(run.ids.encounterId) + "</code></p><p>Request<br><code>" + esc(run.ids.requestId) + "</code></p><p>Worker correlation<br><code>" + esc(run.ids.workerId) + "</code></p><p>Timer <strong>" + elapsed + "s</strong></p></div><div class=\"card\"><h2>Evidence legend</h2><p class=\"observed-local\">Local — observed process receipt</p><p class=\"observed-modal\">Modal — only observed with trusted receipt</p><p class=\"observed-blender\">Blender — only observed with trusted visual receipt</p><p class=\"absent\">Gray — absent / unobserved</p></div></section><section class=\"card\"><h2>Observed work graph</h2><div class=\"topology\"><div class=\"node observed-local\">Request<br>↓<br>Local planner + dispatcher</div><div class=\"arrow\">→</div><div class=\"node absent\">Cloudflare EncounterCoordinator<br>absent / not contacted</div></div><div class=\"topology\">" + workerLanes(run, elapsed) + "</div></section><section class=\"grid\"><div class=\"card\"><h2>Catalog counters</h2><p>Semantic entities: " + catalog.semantic_entities.count + " (" + catalogEvidence(catalog.semantic_entities.evidence) + ")</p><p>Semantic revisions: " + catalog.semantic_entity_revisions.count + " (" + catalogEvidence(catalog.semantic_entity_revisions.evidence) + ")</p><p>Assets: " + catalog.assets.count + " (" + catalogEvidence(catalog.assets.evidence) + ")</p><p>Asset revisions: " + catalog.asset_revisions.count + " (" + catalogEvidence(catalog.asset_revisions.evidence) + ")</p><p>Animations: " + catalog.animations.count + " (" + catalogEvidence(catalog.animations.evidence) + ")</p><p>Animation revisions: " + catalog.animation_revisions.count + " (" + catalogEvidence(catalog.animation_revisions.evidence) + ")</p><p>Package revisions: " + catalog.package_revisions.count + " (" + catalogEvidence(catalog.package_revisions.evidence) + ")</p></div><div class=\"card\"><h2>Steer active build</h2><form id=\"steer\"><textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea><button>Queue steer</button></form>" + steerRows(run.steering) + "</div><div class=\"card\"><h2>Pipeline / work graph</h2><div class=\"stage live\">Local intake — observed receipt</div><div class=\"stage live\">Local planner + dispatcher + worker backend — observed local worker receipts</div><div class=\"stage absent\">Cloudflare EncounterCoordinator — absent / not contacted</div><div class=\"stage absent\">Modal — " + modal + "</div><div class=\"stage absent\">Blender — " + blender + "</div><div class=\"stage absent\">Package — " + packageRevision + "</div></div></section><section class=\"card\"><h2>Ordered worker events</h2><table><thead><tr><th>Sequence (per worker)</th><th>Event</th><th>Evidence source</th><th>Message</th></tr></thead><tbody>" + eventRows(run.events) + "</tbody></table></section><section class=\"grid\"><div class=\"card\"><h2>Artifact revisions</h2>" + revisionList(run.artifacts, "artifact_id") + "</div><div class=\"card\"><h2>Package revisions</h2>" + revisionList(run.packages, "package_id") + "</div></section>";
+    main.innerHTML = assembly(run) + details(run);
+    const inspector = main.querySelector(".drawer .drawer-body");
+    const upgrade = document.createElement("section");
+    upgrade.innerHTML = "<h3>Request next revision</h3><p class=\"muted\">Creates one bounded local revision; earlier source, render, GLB, and package receipts remain inspectable above.</p><button id=\"upgrade\" " + (!run.generate_asset || run.upgrade?.active ? "disabled" : "") + ">Request next revision</button>";
+    inspector.append(upgrade);
     document.querySelector("#steer").addEventListener("submit", submitSteer);
+    document.querySelector("#upgrade").addEventListener("click", requestUpgrade);
   }
 
   function watch(encounterId) { const source = new EventSource("/api/encounters/" + encodeURIComponent(encounterId) + "/stream"); source.addEventListener("projection", (event) => render(JSON.parse(event.data))); }

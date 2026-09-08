@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/concept-first-asset-production-gate.schema.json",
+  "title": "ConceptFirstAssetProductionGate",
+  "description": "A type-neutral, inspectable record of the concept-first production gate for one immutable asset candidate and its assembly decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "encounter_intent", "art_direction_revision", "concept_reference_revision", "worker_brief", "asset_revision", "assembly_receipt"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "encounter_intent": { "$ref": "#/$defs/encounterIntent" },
+    "art_direction_revision": { "$ref": "#/$defs/artDirectionRevision" },
+    "concept_reference_revision": { "$ref": "#/$defs/conceptReferenceRevision" },
+    "worker_brief": { "$ref": "#/$defs/workerBrief" },
+    "asset_revision": { "$ref": "#/$defs/assetRevision" },
+    "assembly_receipt": { "$ref": "#/$defs/assemblyReceipt" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nonEmptyText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "revisionReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "content_sha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "media_type"],
+      "properties": {
+        "uri": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "media_type": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "acceptanceStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["pending", "accepted", "rejected", "not_applicable"] },
+        "receipt": { "$ref": "#/$defs/artifactReference" },
+        "reason": { "$ref": "#/$defs/nonEmptyText" }
+      }
+    },
+    "encounterIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intent_id", "revision", "content_sha256", "player_facing_beat", "constraints"],
+      "properties": {
+        "intent_id": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "player_facing_beat": { "$ref": "#/$defs/nonEmptyText" },
+        "constraints": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmptyText" } }
+      }
+    },
+    "artDirectionRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["art_direction_id", "revision", "content_sha256", "encounter_intent", "player_facing_beat", "silhouette", "scale", "palette_material_cues", "arena_relationship", "animation_combat_beats", "constraints"],
+      "properties": {
+        "art_direction_id": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "encounter_intent": { "$ref": "#/$defs/revisionReference" },
+        "player_facing_beat": { "$ref": "#/$defs/nonEmptyText" },
+        "silhouette": { "$ref": "#/$defs/nonEmptyText" },
+        "scale": { "$ref": "#/$defs/nonEmptyText" },
+        "palette_material_cues": { "$ref": "#/$defs/nonEmptyText" },
+        "arena_relationship": { "$ref": "#/$defs/nonEmptyText" },
+        "animation_combat_beats": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmptyText" } },
+        "constraints": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmptyText" } }
+      }
+    },
+    "conceptReferenceRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["concept_reference_id", "revision", "content_sha256", "mode", "art_direction_revision", "artifact", "interpretation_constraints"],
+      "properties": {
+        "concept_reference_id": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "mode": { "enum": ["generated", "selected"] },
+        "art_direction_revision": { "$ref": "#/$defs/revisionReference" },
+        "artifact": { "$ref": "#/$defs/artifactReference" },
+        "interpretation_constraints": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmptyText" } }
+      }
+    },
+    "reuseMaintenanceWaiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "bounded_reason", "approver", "approved_at", "expires_at", "asset_ids"],
+      "properties": {
+        "kind": { "enum": ["reuse", "maintenance"] },
+        "bounded_reason": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "approver": { "$ref": "#/$defs/id" },
+        "approved_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "asset_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "conceptLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "encounter_intent", "art_direction_revision", "concept_reference_revision"],
+      "properties": {
+        "kind": { "const": "concept_lineage" },
+        "encounter_intent": { "$ref": "#/$defs/revisionReference" },
+        "art_direction_revision": { "$ref": "#/$defs/revisionReference" },
+        "concept_reference_revision": { "$ref": "#/$defs/revisionReference" }
+      }
+    },
+    "waivedLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "waiver"],
+      "properties": {
+        "kind": { "const": "reuse_maintenance_waiver" },
+        "waiver": { "$ref": "#/$defs/reuseMaintenanceWaiver" }
+      }
+    },
+    "lineage": {
+      "oneOf": [
+        { "$ref": "#/$defs/conceptLineage" },
+        { "$ref": "#/$defs/waivedLineage" }
+      ]
+    },
+    "workerBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["brief_id", "revision", "content_sha256", "asset_type", "lineage", "acceptance_constraints"],
+      "properties": {
+        "brief_id": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "asset_type": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,95}$" },
+        "lineage": { "$ref": "#/$defs/lineage" },
+        "acceptance_constraints": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmptyText" } }
+      }
+    },
+    "assetRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "revision", "content_sha256", "asset_type", "artifact", "worker_brief", "lineage", "interpretation_constraints", "provenance", "source_acceptance", "runtime_acceptance"],
+      "properties": {
+        "asset_id": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "content_sha256": { "$ref": "#/$defs/sha256" },
+        "asset_type": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,95}$" },
+        "artifact": { "$ref": "#/$defs/artifactReference" },
+        "worker_brief": { "$ref": "#/$defs/revisionReference" },
+        "lineage": { "$ref": "#/$defs/lineage" },
+        "interpretation_constraints": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/nonEmptyText" } },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["producer", "created_at", "source_artifacts"],
+          "properties": {
+            "producer": { "$ref": "#/$defs/id" },
+            "created_at": { "$ref": "#/$defs/timestamp" },
+            "source_artifacts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/artifactReference" } }
+          }
+        },
+        "source_acceptance": { "$ref": "#/$defs/acceptanceStatus" },
+        "runtime_acceptance": { "$ref": "#/$defs/acceptanceStatus" }
+      }
+    },
+    "assemblyReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "asset_revision", "lineage_compatibility", "decision", "reasons", "recorded_at"],
+      "properties": {
+        "package": { "$ref": "#/$defs/revisionReference" },
+        "asset_revision": { "$ref": "#/$defs/revisionReference" },
+        "lineage_compatibility": { "enum": ["compatible", "missing", "incompatible"] },
+        "decision": { "enum": ["selected", "rejected", "deviation", "fallback"] },
+        "reasons": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/nonEmptyText" } },
+        "recorded_at": { "$ref": "#/$defs/timestamp" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "decision": { "const": "selected" } } },
+          "then": { "properties": { "lineage_compatibility": { "const": "compatible" } } }
+        }
+      ]
+    }
+  }
+}
