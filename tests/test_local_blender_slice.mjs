@@ -22,7 +22,7 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
   try {
     const created = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Make six curved tapered tentacles as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
+      body: JSON.stringify({ prompt: "Make one curved tapered tentacle as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
     });
     assert.equal(created.status, 201);
     const run = await created.json();
@@ -104,14 +104,14 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     }]);
     const upgradedWorker = upgraded.events.find((event) => event.evidence.receipt?.source_inspection?.body_shape === "curved-tapered-appendages-v2");
     assert.ok(upgradedWorker, "revision 2 must carry a local Blender source inspection receipt");
-    assert.equal(upgradedWorker.evidence.receipt.source_inspection.appendage_count, 6);
+    assert.equal(upgradedWorker.evidence.receipt.source_inspection.appendage_count, 1);
     assert.equal(upgradedWorker.evidence.receipt.source_inspection.straight_cone_count, 0);
     assert.ok(upgradedWorker.evidence.receipt.source_inspection.appendages.every((appendage) => appendage.type === "CURVE" && appendage.tapered));
     assert.equal(upgradedWorker.evidence.receipt.commands.length, 3);
     assert.ok(upgraded.events.some((event) => event.workerId === "local-coordinator" && event.kind === "completed" && event.message.includes("re-evaluated")));
     const replay = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Make six curved tapered tentacles as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
+      body: JSON.stringify({ prompt: "Make one curved tapered tentacle as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
     });
     assert.equal(replay.status, 200);
     assert.equal((await replay.json()).ids.requestId, run.ids.requestId);

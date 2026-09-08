@@ -194,7 +194,7 @@ After the first package completes, the viewer exposes **Request next
 revision**, or callers can `POST {}` to
 `/api/encounters/<encounter-id>/upgrades`. This bounded action runs a later
 local Blender work order for the same encounter. Revision 2 provides six curved,
-tapered appendages as local Blender demo data; a prompt may call them tentacles,
+tapered appendage as local Blender demo data; a prompt may call it a tentacle,
 then preserves both revisions' `.blend`, PNG, GLB, package, and receipt history.
 The catalog appends revision 2 under the same asset ID with an exact revision-1
 parent hash; the assembly receipt records the retained revision-1 fallback

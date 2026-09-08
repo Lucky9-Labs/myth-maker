@@ -79,8 +79,8 @@ if {revision} == 1:
         limb.data.materials.append(accent)
         limb.parent=origin
 else:
-    for index in range(6):
-        angle=index*math.tau/6+0.18
+    for index in range(1):
+        angle=index*math.tau+0.18
         direction=mathutils.Vector((math.cos(angle),math.sin(angle),0))
         tangent=mathutils.Vector((-math.sin(angle),math.cos(angle),0))
         root=direction*0.52+mathutils.Vector((0,0,0.22))
@@ -179,7 +179,7 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     inspect_path.write_text(inspection_script(inspection_path), encoding="utf-8")
     inspection_receipt = run_blender(executable, ["--background", "--factory-startup", "--disable-autoexec", str(source_path), "--python", str(inspect_path)], staging)
     inspection = json.loads(inspection_path.read_text(encoding="utf-8"))
-    if args.revision >= 2 and (inspection.get("appendage_count") != 6 or inspection.get("straight_cone_count") != 0
+    if args.revision >= 2 and (inspection.get("appendage_count") != 1 or inspection.get("straight_cone_count") != 0
                                or not all(item.get("type") == "CURVE" and item.get("point_count", 0) >= 4 and item.get("tapered") for item in inspection.get("appendages", []))):
         raise RuntimeError("Blender source inspection did not find six curved, tapered appendages")
     created_at = timestamp()
