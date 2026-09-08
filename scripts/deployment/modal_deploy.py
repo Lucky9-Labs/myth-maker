@@ -11,7 +11,9 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 
@@ -22,6 +24,7 @@ DICT_NAME = "myth-maker-encounter-component-leases"
 SECRET_NAME = "myth-maker-encounter-openai"
 PROBE_FUNCTION = "run_dispatch_probe"
 REQUIRED_CREDENTIALS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY")
+IMAGE_ID = re.compile(r"\bim-[A-Za-z0-9]+\b")
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -77,8 +80,35 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
     return {"volume": volume.object_id, "dict": lease_dict.object_id}
 
 
+def emit_failed_image_logs(error: subprocess.CalledProcessError) -> None:
+    """Surface the provider's failed image layer without exposing credentials."""
+    output = "\n".join(str(value) for value in (error.stdout, error.stderr, error.output) if value)
+    match = IMAGE_ID.search(output)
+    if not match:
+        return
+    image_id = match.group(0)
+    logs = subprocess.run(
+        ("modal", "image", "logs", image_id, "--all"),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if logs.stdout:
+        print(f"Modal image build logs for {image_id}:\n{logs.stdout}", file=sys.stderr, end="")
+    elif logs.stderr:
+        print(f"Modal could not retrieve image build logs for {image_id}: {logs.stderr}", file=sys.stderr, end="")
+
+
+def deploy_app(environment: str) -> None:
+    try:
+        run("modal", "deploy", "--env", environment, "modal/draft_trial.py", capture=True)
+    except subprocess.CalledProcessError as error:
+        emit_failed_image_logs(error)
+        raise
+
+
 def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
-    run("modal", "deploy", "--env", environment, "modal/draft_trial.py")
+    deploy_app(environment)
     apps = json_command("modal", "app", "list", "--env", environment, "--json")
     app = next((item for item in apps if item.get("Description") == APP_NAME and item.get("State") == "deployed"), None)
     if not app or not isinstance(app.get("App ID"), str):
