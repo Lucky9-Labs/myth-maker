@@ -4,7 +4,7 @@ import { planEncounterWork } from "../src/workgraph-planner.js";
 
 // Fixture only: the planner remains an EncounterSpec-to-work graph transform.
 const fixture = {
-  schema_version: "1",
+  schema_version: "2",
   encounter_id: "tideglass-reef",
   seed: 17,
   deadline_at: "2026-09-09T12:00:00Z",
@@ -16,6 +16,18 @@ const fixture = {
   objective: { kind: "survive", parameters: { seconds: 90 } },
   arena_envelope: { bounds: { width: 30, height: 12, depth: 30 }, navigation_profiles: ["ground"] },
   desired_roles: ["pressure", "support"],
+  production_gate: {
+    kind: "bootstrap_waiver",
+    waiver: {
+      kind: "bootstrap_waiver",
+      bounded_reason: "This standalone local dispatcher fixture is pre-gate bootstrap evidence only.",
+      approver: "local-demo-owner",
+      approved_at: "2026-09-08T00:00:00Z",
+      expires_at: "2026-12-31T00:00:00Z",
+      requested_provides: ["encounter.body.source", "encounter.animation.recipe", "encounter.combat.recipe", "encounter.validation.report"],
+      not_concept_compliant: true,
+    },
+  },
 };
 
 const graph = planEncounterWork(fixture);

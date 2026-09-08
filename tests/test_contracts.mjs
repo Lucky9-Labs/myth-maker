@@ -46,3 +46,18 @@ test("all relative schema references resolve to a published v1 schema", async ()
     }
   }
 });
+
+test("v2 planner contracts are closed and retain v1 dependencies without changing v1", async () => {
+  const contractDirectory = path.join(here, "..", "contracts", "v2");
+  const files = ["encounter-spec.schema.json", "work-order.schema.json"];
+  for (const file of files) {
+    const schema = JSON.parse(await readFile(path.join(contractDirectory, file), "utf8"));
+    assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
+    assert.equal(schema.$id, `https://myth-maker.dev/contracts/v2/${file}`);
+    assert.equal(schema.additionalProperties, false);
+    assert.equal(schema.properties.schema_version.const, "2");
+    assert.ok(schema.required.includes("production_gate"));
+  }
+  const workOrder = JSON.parse(await readFile(path.join(contractDirectory, "work-order.schema.json"), "utf8"));
+  assert.equal(workOrder.properties.production_gate.$ref, "production-gate.schema.json#/$defs/dispatchGate");
+});

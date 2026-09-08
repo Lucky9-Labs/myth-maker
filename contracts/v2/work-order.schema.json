@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v2/work-order.schema.json",
+  "title": "EncounterWorkOrder",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "work_id", "encounter_id", "lane", "deadline_at", "requested_provides", "host_capabilities", "input_module_ids", "attempt", "production_gate"],
+  "properties": {
+    "schema_version": { "const": "2" },
+    "work_id": { "$ref": "../v1/common.schema.json#/$defs/id" },
+    "encounter_id": { "$ref": "../v1/common.schema.json#/$defs/id" },
+    "lane": { "$ref": "../v1/common.schema.json#/$defs/semanticTag" },
+    "deadline_at": { "type": "string", "format": "date-time" },
+    "requested_provides": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "../v1/common.schema.json#/$defs/semanticTag" }
+    },
+    "host_capabilities": { "$ref": "../v1/host-capability-manifest.schema.json" },
+    "input_module_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../v1/common.schema.json#/$defs/id" }
+    },
+    "depends_on_work_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../v1/common.schema.json#/$defs/id" }
+    },
+    "resource_leases": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../v1/common.schema.json#/$defs/semanticTag" }
+    },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "production_gate": { "$ref": "production-gate.schema.json#/$defs/dispatchGate" },
+    "instruction": { "type": "string", "maxLength": 16000 }
+  }
+}

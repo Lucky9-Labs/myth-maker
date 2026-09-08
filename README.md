@@ -48,30 +48,31 @@ shape or genre.
 
 ## Concept-first production gate
 
-The canonical future production boundary is the closed, generic
+The production boundary is the closed, generic
 [`ConceptFirstAssetProductionGate`](contracts/v1/concept-first-asset-production-gate.schema.json).
 Before a new model, material/texture, animation, arena, audio, effect, or any
-future asset type is dispatched, its worker brief must pin immutable
+future asset type is dispatched, its work-order gate payload must pin immutable
 `EncounterIntent`, `ArtDirectionRevision`, and generated-or-selected
 `ConceptReferenceRevision` records plus acceptance constraints. Art direction
 defines the player-facing beat, silhouette, scale, palette/material cues, arena
 relationship, animation/combat beats, and constraints—not merely an aesthetic
 prompt.
 
-An immutable candidate records that lineage, interpretation constraints,
-provenance, and source/runtime acceptance independently. The assembler must
-reject missing or incompatible lineage before selection and leave an
-inspectable selection, rejection, deviation, or fallback receipt. The one
-exception is a recorded, time-bounded reuse or maintenance waiver with a
-bounded reason, approver, and asset scope.
+The generic planner and dispatcher now reject a missing, mismatched, or expired
+gate before calling a worker backend. Every worker receipt retains the exact
+gate payload for the catalog and assembler seams. A recorded, time-bounded
+reuse/maintenance waiver remains available for its named assets and requested
+outputs. The only D0 compatibility route is a separate, scoped
+`bootstrap_waiver` that explicitly marks its receipt
+`not_concept_compliant: true`.
 
-This is an adoption contract and architectural gate, not a claim about the
-currently active Build Room or worker implementation. The current D0 local
-Blender body output is explicitly **pre-gate bootstrap evidence**: it proves a
-bounded local artifact path, not that concept-first dispatch, assembly, or
-cloud execution exists. When adopted, Build Room must expose the visual concept
-→ candidate → assembled-package lineage while preserving its existing honest
-local, remote, reported, and simulated evidence labels.
+An immutable candidate still records its lineage, interpretation constraints,
+provenance, and source/runtime acceptance independently. Assembler lineage
+selection and Build Room’s visual concept → candidate → package inspection are
+later slices. The current D0 local Blender body output remains **pre-gate
+bootstrap evidence**: the waiver permits the bounded dispatcher path but does
+not relabel existing artifacts as concept-first compliant, cloud-executed,
+Unity-loaded, or player-facing proof.
 
 ## Implemented starting architecture
 
