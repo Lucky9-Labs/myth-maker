@@ -1,0 +1,19 @@
+name: Deploy Cloudflare provider
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/provider-executor.yml
+    with:
+      provider: cloudflare
+      environment: ${{ inputs.environment }}
+      source_sha: ${{ inputs.source_sha }}
