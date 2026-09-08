@@ -61,26 +61,16 @@ test("provider-environment locks isolate providers and serialize duplicates", ()
 test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
   assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
-  assert.deepEqual(providerDefinitions.railway.secretNames, ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
+  assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
 
-test("an unsupported Railway deployment fails instead of producing a success", () => {
-  assert.throws(
-    () => validateProviderRequest({ eventName: "pull_request", mode: "deploy", provider: "railway", environment: "dev" }),
-  );
-  const receipt = createReceipt({
-    provider: "railway", environment: "dev", sourceSha: "a".repeat(40), status: "failure",
-    startedAt: "2026-09-08T00:00:00Z", completedAt: "2026-09-08T00:00:01Z",
-    verification: { provider_command_outcome: "failure" },
-  });
-  assert.equal(receipt.status, "failure");
-  assert.equal(receipt.verification.provider_command_outcome, "failure");
+test("a Railway release requires a project-scoped token and explicit immutable target IDs", () => {
   const result = spawnSync(process.execPath, [
     "scripts/deployment/controller.mjs", "deploy", "--event", "push", "--provider", "railway", "--environment", "dev",
   ], { encoding: "utf8" });
   assert.notEqual(result.status, 0, result.stdout);
-  assert.match(result.stderr, /unsupported/);
+  assert.match(result.stderr, /RAILWAY_PROJECT_ID/);
 });
 
 test("receipt outcome selects the invoked provider, never an earlier skipped step", () => {
@@ -119,7 +109,6 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(terraformFoundation, /init -reconfigure/);
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
-
   const preview = JSON.parse(execFileSync(
     "ruby",
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deployment-preview.yml"],
@@ -134,6 +123,8 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
     assert.equal(preview.jobs[job].if, undefined, `${job} must always emit its required context`);
     assert.equal(preview.jobs[job].needs, "deployment-change-scope");
   }
+  assert.match(executor, /RAILWAY_TOKEN/);
+  assert.match(executor, /RAILWAY_PROJECT_ID/);
 });
 
 test("preview scope emits explicit no-op contexts for unrelated pull request files", () => {
@@ -189,7 +180,7 @@ test("provider workflow preserves each step's common inputs and scoped secrets a
   const modal = steps.find((step) => step.id === "modal").env;
   const receipt = steps.find((step) => step.name === "Write machine-readable receipt").env;
   assert.deepEqual(Object.keys(cloudflare).sort(), ["CLOUDFLARE_API_TOKEN", "DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
-  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "TF_VAR_railway_token", "WORK_DISPATCH_TOKEN"]);
+  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "RAILWAY_ENVIRONMENT_ID", "RAILWAY_PROJECT_ID", "RAILWAY_SERVICE_ID", "RAILWAY_TOKEN"]);
   assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
   assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "SOURCE_SHA"]);
 });

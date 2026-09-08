@@ -48,14 +48,14 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT"
-      - name: Verify Railway foundation through the provider adapter
+      - name: Deploy Railway dispatcher through the provider adapter
         id: railway
         if: inputs.provider == 'railway'
         env:
-          TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
-          WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
           EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider railway --environment "$DEPLOYMENT_ENVIRONMENT"

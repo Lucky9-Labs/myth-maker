@@ -26,10 +26,12 @@ export const providerDefinitions = Object.freeze({
     deploy: null,
   }),
   railway: Object.freeze({
-    secretNames: ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"],
-    requiredFiles: [],
+    // A Railway project token can deploy only this configured environment. The
+    // broader Terraform workspace token is intentionally unavailable here.
+    secretNames: ["RAILWAY_TOKEN"],
+    requiredFiles: ["railway.json", "src/railway-server.js", "src/postgres-receipt-store.js"],
     preview: null,
-    deploy: null,
+    deploy: ["npx", ["--yes", "@railway/cli@5.49.6", "up", "--ci", "--json"]],
   }),
   modal: Object.freeze({
     secretNames: ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"],
@@ -112,6 +114,11 @@ export function providerCommand(provider, mode, environment) {
   if (mode !== "deploy") return null;
   if (provider === "modal") {
     return [definition.deploy[0], [...definition.deploy[1], "--env", environment, "modal/draft_trial.py"]];
+  }
+  if (provider === "railway") {
+    const target = ["RAILWAY_PROJECT_ID", "RAILWAY_ENVIRONMENT_ID", "RAILWAY_SERVICE_ID"].map((name) => process.env[name]);
+    if (target.some((value) => !value)) throw new Error("RAILWAY_PROJECT_ID, RAILWAY_ENVIRONMENT_ID, and RAILWAY_SERVICE_ID are required for a Railway deploy");
+    return [definition.deploy[0], [...definition.deploy[1], "--project", target[0], "--environment", target[1], "--service", target[2], "--message", `myth-maker:${environment}`]];
   }
   return definition.deploy;
 }
@@ -200,9 +207,6 @@ function run(command, options) {
   }
   const invocation = providerCommand(provider, command, environment);
   if (!invocation) {
-    if (command === "deploy" && provider === "railway") {
-      throw new Error("Railway dispatcher deployment and x-work-id acknowledgement are unsupported until a dispatcher adapter is supplied");
-    }
     process.stdout.write(`${JSON.stringify({ ...request, status: "validated", command: null })}\n`);
     return;
   }

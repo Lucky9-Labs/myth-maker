@@ -30,7 +30,7 @@ in the environment that needs them:
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
 | Cloudflare | `CLOUDFLARE_API_TOKEN`, `TF_VAR_agent_ingress_token`, `TF_VAR_work_dispatch_token` |
-| Railway | `TF_VAR_railway_token`, `WORK_DISPATCH_TOKEN`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` |
+| Railway | `RAILWAY_TOKEN` (a project token scoped to that Railway environment) |
 | Modal | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `OPENAI_API_KEY` |
 
 The environment boundary lives in the shared executor, before any credential is
@@ -85,14 +85,31 @@ managed; disabled resources are null or empty. Modal CLI output is not assumed
 to be JSON, so its receipt must mark a deployment ID unavailable until a
 parseable CLI/API seam is added—never invent an ID.
 
-Current release status is intentionally conservative. The merged
-`src/railway-dispatcher.js` supplies an in-repository work-graph dispatcher, but
-it is not yet a deployable Railway entrypoint/configuration and has no
-production durable receipt store or live verification endpoint. Worker version
-promotion is therefore blocked, Railway produces an unsupported/failure receipt,
-and Cloudflare produces a skipped receipt. None of those stages is presented as
-a completed provider deployment until Railway can prove a durable
-`x-work-id` acknowledgement and the provider receipts contain live evidence.
+The Railway adapter is a deployable Node/Railpack service: `railway.json`
+starts `src/railway-server.js`, which migrates its PostgreSQL receipt/outbox
+table before accepting traffic. A database-primary-key claim carries a bounded
+lease token, so a crashed instance can be retried only after its lease expires
+and a stale instance cannot finish over the retried receipt. `GET /v1/dispatch/verify` is deliberately
+non-mutating and echoes a syntactically valid `x-work-id` in its response header
+and acknowledgement JSON. The release workflow uploads code with a
+project-scoped `RAILWAY_TOKEN` and explicit project/environment/service IDs;
+the broader Terraform workspace token is not exposed to that job. A successful
+CLI upload alone is not full-chain evidence: first promotion remains blocked
+until CI can call the live verification endpoint and record the acknowledgement.
+
+For the `dev` release job, set the non-secret GitHub Environment variables
+`RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID`, and `RAILWAY_SERVICE_ID` to
+the immutable Railway targets. Store only the matching project-scoped
+`RAILWAY_TOKEN` as a GitHub Environment secret. The Railway service itself
+needs `DATABASE_URL`, `WORK_DISPATCH_TOKEN`, `COORDINATOR_URL`, and
+`AGENT_INGRESS_TOKEN`; those are provider-side service configuration, not
+workflow inputs. `DATABASE_URL` must point to the isolated Railway Postgres
+service. Do not use a shared or local JSON file for deployment receipts.
+
+The verification receipt must include the Railway deployment ID, the service
+and environment IDs, the exact `x-work-id` sent to
+`/v1/dispatch/verify`, its echoed response header, and the JSON fields
+`acknowledgement: "x-work-id-accepted"` and `dispatch_mutated: false`.
 
 ## Receipts and build-room consumption
 

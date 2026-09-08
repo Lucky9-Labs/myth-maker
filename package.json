@@ -10,6 +10,10 @@
     "test": "node --test tests/*.mjs && python3 -m unittest tests/test_*.py",
     "test:cloudflare": "node --test tests/test_cloudflare_worker.mjs",
     "test:contracts": "node --test tests/test_contracts.mjs",
-    "test:infrastructure": "python3 -m unittest tests/test_infrastructure_contract.py"
+    "test:infrastructure": "python3 -m unittest tests/test_infrastructure_contract.py",
+    "start:railway": "node src/railway-server.js"
+  },
+  "dependencies": {
+    "pg": "8.16.3"
   }
 }

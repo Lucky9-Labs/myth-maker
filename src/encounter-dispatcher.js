@@ -31,22 +31,22 @@ export class EncounterDispatcher {
       const events = result.events?.map(clone) || observed;
       validateEvents(order, events);
       const receipt = makeReceipt(order, result.worker_id, events);
-      await this.receiptStore.finish(order.work_id, receipt);
+      await this.receiptStore.finish(order.work_id, receipt, claim.leaseToken);
       return { receipt: clone(receipt), events: events.map(clone), deduplicated: false };
     } catch (error) {
       if (error instanceof InvalidWorkerEventsError) {
-        await this.receiptStore.finish(order.work_id, invalidReceipt(order, error.message));
+        await this.receiptStore.finish(order.work_id, invalidReceipt(order, error.message), claim.leaseToken);
         throw error;
       }
       const failure = failureEvent(order, observed, error);
       const events = [...observed, failure];
       try { validateEvents(order, events); }
       catch (validationError) {
-        await this.receiptStore.finish(order.work_id, invalidReceipt(order, validationError.message));
+        await this.receiptStore.finish(order.work_id, invalidReceipt(order, validationError.message), claim.leaseToken);
         throw validationError;
       }
       const receipt = makeReceipt(order, failure.worker_id, events);
-      await this.receiptStore.finish(order.work_id, receipt);
+      await this.receiptStore.finish(order.work_id, receipt, claim.leaseToken);
       return { receipt: clone(receipt), events: receipt.events.map(clone), deduplicated: false };
     }
   }
