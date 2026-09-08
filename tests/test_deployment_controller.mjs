@@ -211,15 +211,11 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.doesNotMatch(deployWorkflow, /release-readiness/);
   assert.doesNotMatch(deployWorkflow, /DEPLOYMENT_READY/);
   assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
-  assert.match(deployWorkflow, /modal:[\s\S]*?secrets: inherit/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
   assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
-  assert.match(executor, /if: inputs\.provider == 'modal'/);
-  assert.match(executor, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
-  assert.match(executor, /modal==1\.4\.0/);
   assert.match(executor, /provider command did not produce parseable result/);
   assert.match(executor, /assert-github-deployment/);
   assert.match(executor, /id-token: write/);
@@ -240,19 +236,12 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
     { encoding: "utf8" },
   ));
-  const modalProvider = JSON.parse(execFileSync(
-    "ruby",
-    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-modal.yml"],
-    { encoding: "utf8" },
-  ));
   const railwayProvider = JSON.parse(execFileSync(
     "ruby",
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-railway.yml"],
     { encoding: "utf8" },
   ));
   assert.match(deploy.jobs["write-unavailable-provider-receipts"].steps[0].uses, /^actions\/checkout@/);
-  assert.equal(deploy.jobs.modal.secrets, "inherit");
-  assert.equal(modalProvider.jobs.deploy.secrets, "inherit");
   assert.equal(railwayProvider.jobs.deploy.secrets, "inherit");
   for (const job of [
     "terraform-foundation-preview",
@@ -306,21 +295,20 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("provider workflow gives credentials only to a provider command that consumes them", () => {
+test("Modal activation consumes environment secrets in its direct executor, not a nested reusable workflow", () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
-    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-executor.yml"],
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-modal.yml"],
     { encoding: "utf8" },
   ));
-  const steps = workflow.jobs.deploy.steps;
-  const cloudflare = steps.find((step) => step.id === "deploy").env;
-  const railway = steps.find((step) => step.id === "railway").env;
+  const direct = workflow.jobs.activate;
+  const steps = direct.steps;
   const modal = steps.find((step) => step.id === "modal").env;
-  const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable receipt")).env;
-  assert.deepEqual(Object.keys(cloudflare).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
-  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
+  const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt")).env;
+  assert.equal(direct.environment.name, "${{ inputs.environment }}");
+  assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment }}");
   assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
-  assert.doesNotMatch(JSON.stringify({ cloudflare, railway }), /TOKEN|OPENAI|TF_VAR/);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
-  assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "CLOUDFLARE_STATUS", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "RAILWAY_STATUS", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
+  assert.doesNotMatch(JSON.stringify(receipt), /TOKEN|OPENAI/);
+  assert.deepEqual(Object.keys(receipt).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
 });

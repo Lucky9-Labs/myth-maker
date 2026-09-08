@@ -78,10 +78,6 @@ jobs:
   modal:
     needs: assert-deployment-input
     uses: ./.github/workflows/provider-modal.yml
-    # Reusable workflows do not receive caller secrets implicitly. This first
-    # hop is required so the nested provider executor can use the dev
-    # environment's narrowly scoped Modal credentials.
-    secrets: inherit
     with:
       environment: ${{ inputs.environment || 'dev' }}
       source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
