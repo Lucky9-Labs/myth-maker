@@ -62,12 +62,23 @@ jobs:
           set -euo pipefail
           node scripts/deployment/controller.mjs deploy --provider railway --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
           node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
-      - name: Record unavailable Modal deployment without injecting runtime credentials
+      - name: Install the pinned Modal control-plane client
+        if: inputs.provider == 'modal'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install Modal client for the CI-owned provider controller
+        if: inputs.provider == 'modal'
+        run: python3 -m pip install --disable-pip-version-check 'modal==1.4.0'
+      - name: Bootstrap, deploy, verify, and observe one bounded Modal work order
         id: modal
         if: inputs.provider == 'modal'
         env:
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           RESULT: ${{ runner.temp }}/provider-result.json
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           node scripts/deployment/controller.mjs deploy --provider modal --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"

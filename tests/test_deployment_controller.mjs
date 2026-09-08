@@ -76,14 +76,14 @@ test("a deploy request derives its immutable source from trusted GitHub Actions 
   }
 });
 
-test("a release cannot begin until bootstrap and every provider deploy command are ready", () => {
+test("legacy all-provider readiness remains fail-closed while Modal has its own independent path", () => {
   assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: false }), {
     ready: false,
     reason: "DEPLOYMENT_READY is not true; no provider command was invoked",
   });
   assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: true }), {
     ready: false,
-    reason: "provider deploy commands are unavailable: cloudflare, railway, modal",
+    reason: "provider deploy commands are unavailable: cloudflare, railway",
   });
 });
 
@@ -116,7 +116,7 @@ test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
   assert.deepEqual(providerDefinitions.cloudflare.secretNames, []);
   assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
-  assert.deepEqual(providerDefinitions.modal.secretNames, []);
+  assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
 
 test("an unsupported Railway deployment is skipped rather than presented as a preview or success", () => {
@@ -164,11 +164,13 @@ test("Modal receipts accept only parsed deployment and healthy resource evidence
     version_id: "ver-123",
     resource_ids: ["volume-123", "dict-123"],
     health: { status: "healthy" },
+    dispatch: { status: "completed", function_call_id: "fc-123", function_id: "fu-123" },
   })), {
     deployment_id: "depl-123",
     version_id: "ver-123",
     resource_ids: ["volume-123", "dict-123"],
     health: { status: "healthy" },
+    dispatch: { status: "completed", function_call_id: "fc-123", function_id: "fu-123" },
   });
   for (const output of ["not-json", JSON.stringify({ deployment_id: "depl-123" }), JSON.stringify({
     deployment_id: "depl-123", version_id: "ver-123", resource_ids: [], health: { status: "unhealthy" },
@@ -204,15 +206,19 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /branches: \[main\]/);
   assert.match(deployWorkflow, /github\.sha/);
   assert.match(deployWorkflow, /assert-deployment-input/);
-  assert.match(deployWorkflow, /release-readiness/);
-  assert.match(deployWorkflow, /write-skipped-release-receipts/);
-  assert.match(deployWorkflow, /DEPLOYMENT_READY/);
+  assert.match(deployWorkflow, /write-unavailable-provider-receipts/);
+  assert.match(deployWorkflow, /Modal deployment proceeds independently/);
+  assert.doesNotMatch(deployWorkflow, /release-readiness/);
+  assert.doesNotMatch(deployWorkflow, /DEPLOYMENT_READY/);
+  assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
   assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
   assert.match(executor, /if: inputs\.provider == 'modal'/);
+  assert.match(executor, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
+  assert.match(executor, /modal==1\.4\.0/);
   assert.match(executor, /assert-github-deployment/);
   assert.match(executor, /id-token: write/);
   assert.doesNotMatch(executor, /controller\.mjs deploy --event/);
@@ -298,7 +304,8 @@ test("provider workflow gives credentials only to a provider command that consum
   const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable receipt")).env;
   assert.deepEqual(Object.keys(cloudflare).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
   assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
-  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
+  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
   assert.doesNotMatch(JSON.stringify({ cloudflare, railway }), /TOKEN|OPENAI|TF_VAR/);
+  assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
   assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "CLOUDFLARE_STATUS", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "RAILWAY_STATUS", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
 });

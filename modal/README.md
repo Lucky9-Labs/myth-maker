@@ -138,3 +138,15 @@ The command below reports whether that concrete adapter is available:
 ```sh
 python3 glb_source_importer.py --check-live-conversion
 ```
+## CI-owned Modal activation
+
+Only the trusted GitHub Actions deployment workflow may bootstrap or deploy this
+runtime. Its `dev` environment needs `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, and
+`OPENAI_API_KEY`; the controller creates the dedicated Modal environment,
+Volume, Dict, and `myth-maker-encounter-openai` secret idempotently, deploys the
+app, resolves public resource/function IDs, and waits for one bounded remote
+probe before writing its receipt artifact. The current bootstrap uses the
+authenticated maintainer profile because Modal's CLI cannot mint a scoped token
+without a browser session. Rotate both GitHub Modal secrets to a dedicated
+least-privilege CI token as soon as one is created; do not use local worker
+credentials for ordinary dispatches.
