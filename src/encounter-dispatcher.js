@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { assertEncounterWorkGraph, assertEncounterWorkOrder } from "./workgraph-planner.js";
 
 /**
@@ -7,13 +8,15 @@ import { assertEncounterWorkGraph, assertEncounterWorkOrder } from "./workgraph-
  * return the original receipt; simultaneous deliveries share one launch.
  */
 export class EncounterDispatcher {
-  constructor({ backend, receiptStore = new Map() } = {}) {
+  constructor({ backend, receiptStore = new InMemoryReceiptStore() } = {}) {
     if (!backend || typeof backend.launch !== "function") {
       throw new TypeError("dispatcher needs a worker backend with launch(order)");
     }
     this.backend = backend;
     this.receiptStore = receiptStore;
-    this.inflight = new Map();
+    if (typeof receiptStore.get !== "function" || typeof receiptStore.claim !== "function" || typeof receiptStore.complete !== "function") {
+      throw new TypeError("receiptStore must provide atomic get, claim, and complete operations");
+    }
   }
 
   lookup(workId) {
@@ -60,26 +63,78 @@ export class EncounterDispatcher {
   }
 
   async #dispatchWork(order, allEvents) {
-    const stored = this.receiptStore.get(order.work_id);
-    if (stored) return { receipt: clone(stored), deduplicated: true };
-    const running = this.inflight.get(order.work_id);
-    if (running) return { receipt: clone(await running), deduplicated: true };
+    const claim = this.receiptStore.claim(order.work_id);
+    if (claim.kind === "completed") return { receipt: clone(claim.receipt), deduplicated: true };
+    if (claim.kind === "running") return { receipt: clone(await claim.completion), deduplicated: true };
 
-    const execution = this.backend.launch(order, { onEvent: (event) => allEvents.push(event) })
+    const workEvents = [];
+    const execution = this.backend.launch(order, { onEvent: (event) => { workEvents.push(event); allEvents.push(event); } })
       .then((result) => {
+        const terminal = result.events.at(-1);
+        if (!terminal || !["completed", "failed", "cancelled"].includes(terminal.kind)) {
+          throw new Error(`worker ${order.work_id} did not return a terminal WorkerEvent`);
+        }
         const receipt = {
           work_id: order.work_id,
           encounter_id: order.encounter_id,
           worker_id: result.worker_id,
-          status: "completed",
+          status: terminal.kind,
           events: result.events.map(clone),
         };
-        this.receiptStore.set(order.work_id, receipt);
+        this.receiptStore.complete(order.work_id, receipt);
         return receipt;
       })
-      .finally(() => this.inflight.delete(order.work_id));
-    this.inflight.set(order.work_id, execution);
+      .catch((error) => {
+        const last = workEvents.at(-1);
+        const workerId = last?.worker_id || "dispatch-backend";
+        const failure = {
+          schema_version: "1",
+          event_id: `evt-${createHash("sha256").update(`${order.work_id}:launch-failed`).digest("hex").slice(0, 32)}`,
+          work_id: order.work_id,
+          encounter_id: order.encounter_id,
+          worker_id: workerId,
+          sequence: (last?.sequence ?? -1) + 1,
+          occurred_at: new Date().toISOString(),
+          kind: "failed",
+          error_code: "worker_launch_failed",
+          retryable: true,
+          message: String(error.message || error).slice(0, 2000),
+        };
+        workEvents.push(failure);
+        allEvents.push(failure);
+        const receipt = { work_id: order.work_id, encounter_id: order.encounter_id, worker_id: workerId, status: "failed", events: workEvents.map(clone) };
+        this.receiptStore.complete(order.work_id, receipt);
+        return receipt;
+      });
     return { receipt: clone(await execution), deduplicated: false };
+  }
+}
+
+/** Local/test implementation of the atomic-claim receipt-store contract. */
+export class InMemoryReceiptStore {
+  constructor() {
+    this.receipts = new Map();
+    this.claims = new Map();
+  }
+
+  get(workId) { return this.receipts.get(workId); }
+
+  claim(workId) {
+    const receipt = this.receipts.get(workId);
+    if (receipt) return { kind: "completed", receipt };
+    const claim = this.claims.get(workId);
+    if (claim) return { kind: "running", completion: claim.completion };
+    let resolve;
+    const completion = new Promise((done) => { resolve = done; });
+    this.claims.set(workId, { completion, resolve });
+    return { kind: "claimed" };
+  }
+
+  complete(workId, receipt) {
+    this.receipts.set(workId, receipt);
+    const claim = this.claims.get(workId);
+    if (claim) claim.resolve(receipt);
+    this.claims.delete(workId);
   }
 }
 

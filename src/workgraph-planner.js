@@ -82,8 +82,9 @@ export function assertEncounterWorkOrder(order) {
 function assertEncounterSpec(spec) {
   if (!spec || spec.schema_version !== "1" || !ID.test(spec.encounter_id)
       || !Number.isInteger(spec.seed) || spec.seed < 0 || !validTimestamp(spec.deadline_at)
-      || !spec.host_capabilities || !spec.objective || !SEMANTIC_TAG.test(spec.objective.kind)
-      || !spec.arena_envelope || !Array.isArray(spec.desired_roles) || spec.desired_roles.length === 0) {
+      || !validCapabilities(spec.host_capabilities) || !spec.objective || !SEMANTIC_TAG.test(spec.objective.kind)
+      || !spec.arena_envelope || !Array.isArray(spec.desired_roles) || spec.desired_roles.length === 0
+      || !uniqueTags(spec.desired_roles)) {
     throw new TypeError("planner requires an EncounterSpec-compatible v1 request");
   }
 }
@@ -94,7 +95,7 @@ function assertWorkOrder(order, encounterId) {
       || required.some((key) => !(key in order)) || order.schema_version !== "1"
       || !ID.test(order.work_id) || order.encounter_id !== encounterId || !SEMANTIC_TAG.test(order.lane)
       || !validTimestamp(order.deadline_at) || !Array.isArray(order.requested_provides) || order.requested_provides.length === 0
-      || !order.requested_provides.every((tag) => SEMANTIC_TAG.test(tag))
+      || !uniqueTags(order.requested_provides) || !validCapabilities(order.host_capabilities)
       || !Array.isArray(order.input_module_ids) || !order.input_module_ids.every((id) => ID.test(id))
       || !Number.isInteger(order.attempt) || order.attempt < 1) {
     throw new TypeError("work order does not match the v1 dispatcher shape");
@@ -106,6 +107,12 @@ function assertWorkOrder(order, encounterId) {
   }
   if (order.depends_on_work_ids && !order.depends_on_work_ids.every((id) => ID.test(id))) {
     throw new TypeError("depends_on_work_ids must contain v1 IDs");
+  }
+  if (order.resource_leases && !uniqueTags(order.resource_leases)) {
+    throw new TypeError("resource_leases must contain v1 semantic tags");
+  }
+  if (order.instruction !== undefined && (typeof order.instruction !== "string" || order.instruction.length > 16000)) {
+    throw new TypeError("instruction must be a string of at most 16000 characters");
   }
 }
 
@@ -125,7 +132,7 @@ function assertAcyclic(orders) {
 }
 
 function workId(spec, lane) {
-  return `wg-${createHash("sha256").update(`${spec.encounter_id}:${spec.seed}:${lane}`).digest("hex").slice(0, 32)}`;
+  return `wg-${createHash("sha256").update(canonicalJson({ spec, lane })).digest("hex").slice(0, 32)}`;
 }
 
 function instructionFor(spec, lane) {
@@ -134,7 +141,45 @@ function instructionFor(spec, lane) {
 }
 
 function validTimestamp(value) {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && !Number.isNaN(Date.parse(value));
+}
+
+function uniqueTags(values) {
+  return Array.isArray(values) && values.every((value) => SEMANTIC_TAG.test(value))
+    && new Set(values).size === values.length;
+}
+
+function validCapabilities(value) {
+  const fields = new Set(["schema_version", "host_id", "host_build", "platform", "scripting_backend", "execution_kinds", "loaders", "contracts", "limits"]);
+  const executions = new Set(["recipe", "runtime_asset", "managed_plugin", "remote_logic"]);
+  const contract = /^[a-z][a-z0-9_.-]{0,95}\.v[1-9][0-9]*$/;
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !fields.has(key))
+    || value.schema_version !== "1" || !ID.test(value.host_id)
+    || typeof value.host_build !== "string" || value.host_build.length < 1 || value.host_build.length > 128
+    || typeof value.platform !== "string" || value.platform.length < 1 || value.platform.length > 64
+    || !["mono", "il2cpp"].includes(value.scripting_backend)
+    || !Array.isArray(value.execution_kinds) || value.execution_kinds.length === 0
+    || !value.execution_kinds.every((kind) => executions.has(kind)) || new Set(value.execution_kinds).size !== value.execution_kinds.length
+    || !uniqueTags(value.loaders) || !Array.isArray(value.contracts) || !value.contracts.every((name) => contract.test(name))
+    || new Set(value.contracts).size !== value.contracts.length) return false;
+  const limitFields = new Set(["memory_mb", "preload_seconds", "artifact_bytes", "actors"]);
+  const limits = value.limits;
+  return Boolean(limits) && typeof limits === "object" && !Array.isArray(limits)
+    && Object.keys(limits).every((key) => limitFields.has(key))
+    && Number.isInteger(limits.memory_mb) && limits.memory_mb >= 1
+    && Number.isInteger(limits.preload_seconds) && limits.preload_seconds >= 0
+    && (limits.artifact_bytes === undefined || (Number.isInteger(limits.artifact_bytes) && limits.artifact_bytes >= 0))
+    && (limits.actors === undefined || (Number.isInteger(limits.actors) && limits.actors >= 1));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function deepFreeze(value) {
