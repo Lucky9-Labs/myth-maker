@@ -23,11 +23,17 @@ receipt persists a client steering ID, input SHA-256, bounded user input,
 request time, lifecycle status, and successor response ID. The receipt's event
 list is suitable for a build-room timeline.
 
-The worker that owns the upgraded Responses connection calls
-`EncounterCoordinator.attachResponsesWebSocket(laneId, webSocket)` before it
-records the attempt. The lane is never sent over HTTP: the gateway writes the
-steer frame to that exact live socket. If the process loses it, the receipt is
-failed as reconnect-uncertain rather than replayed.
+`ResponsesSteeringWorker` owns the upgraded Responses connection in the worker
+process. It reports an attempt and lifecycle receipts through the dedicated
+worker token; the coordinator never accepts a socket or treats an ingress token
+as worker identity. `SteeringWorkerAdapter` carries a queued user command to
+that owner. The lane is never sent over HTTP.
+
+The beta event correlation is nested under `event.steer`: its server steering
+ID, parent response ID, and lane identify a receipt. `accepted` and `pending`
+are non-commit states; an explicit server `failed` is terminal. A dropped
+connection remains `pending` with reconciliation metadata—never replayed—until
+the worker can report a definitive server outcome.
 
 Only one user-role input message is accepted, with bounded text, image, or file
 content. The active lane writes exactly this beta frame:
@@ -43,11 +49,11 @@ content. The active lane writes exactly this beta frame:
 `response.steer.accepted` changes a receipt from `queued` to `accepted`, which
 means the request is server-owned, not applied. It becomes `committed` only on
 the automatic successor `response.created` whose `previous_response_id` matches
-the receipt. An incomplete response whose reason is `steered` remains `pending`;
-required tool input becomes `required_input` and does not rerun tools. A lost
-lane is `failed` rather than retried, because replaying would make the steering
-effect uncertain. A completed response uses an explicit `response.create`
-continuation with `previous_response_id` instead.
+the receipt. An incomplete response whose reason is `steered` remains `pending`.
+Required-input stubs become `required_input`; the worker resolves them from its
+saved results and sends exactly one explicit `response.create` continuation per
+parent, without rerunning a tool or resending the steer. A completed response
+uses the same explicit `response.create` continuation path.
 
 Multi-agent, conversation, automatic-compaction, and unsupported-model
 attempts return an `unsupported` receipt without writing to a lane.

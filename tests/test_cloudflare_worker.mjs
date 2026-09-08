@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 import worker, { EncounterCoordinator } from "../src/worker.js";
-import { ResponsesSteeringGateway } from "../src/responses-steering.js";
+import { ResponsesSteeringGateway, ResponsesSteeringWorker } from "../src/responses-steering.js";
 
 const baseWorkOrder = {
   schema_version: "1",
@@ -66,11 +66,11 @@ function storage() {
   };
 }
 
-function coordinator(steeringGateway) {
+function coordinator(steeringGateway, steeringTransport) {
   return new EncounterCoordinator({ storage: storage() }, {
     WORK_DISPATCH_URL: "https://workers.example/dispatch",
     WORK_DISPATCH_TOKEN: "dispatch",
-  }, { steeringGateway });
+  }, { steeringGateway, steeringTransport });
 }
 
 function submit(instance, order, idempotencyKey = "encounter-work-0001") {
@@ -145,6 +145,23 @@ test("the edge route rejects a work order for a different encounter", async () =
   assert.equal((await body(result)).error, "encounter_path_mismatch");
 });
 
+test("only the dedicated steering-worker token can report attempts or receipts", async () => {
+  const calls = [];
+  const env = {
+    AGENT_INGRESS_TOKEN: "ingress",
+    STEERING_WORKER_TOKEN: "steering-worker",
+    ENCOUNTER_COORDINATOR: {
+      idFromName(name) { return name; },
+      get() { return { fetch: async (url, init) => { calls.push({ url, init }); return new Response("{}", { status: 202 }); } }; },
+    },
+  };
+  const url = "https://runtime/v1/encounters/encounter-alpha/work-items/arena-shell/steering-attempts";
+  const bodyValue = JSON.stringify({ attempt_id: "attempt-alpha" });
+  assert.equal((await worker.fetch(new Request(url, { method: "POST", headers: { authorization: "Bearer ingress" }, body: bodyValue }), env)).status, 401);
+  assert.equal((await worker.fetch(new Request(url, { method: "POST", headers: { authorization: "Bearer steering-worker" }, body: bodyValue }), env)).status, 202);
+  assert.equal(calls.length, 1);
+});
+
 test("the coordinator dispatches a v1 work item through the adapter", async () => {
   const oldFetch = globalThis.fetch;
   const dispatches = [];
@@ -163,34 +180,41 @@ test("the coordinator dispatches a v1 work item through the adapter", async () =
   }
 });
 
-test("steering routes expose a durable-looking receipt but do not treat accepted as committed", async () => {
-  const oldFetch = globalThis.fetch;
-  const frames = [];
+test("steering routes persist worker-reported receipts but do not treat accepted as committed", async () => {
+    const oldFetch = globalThis.fetch;
+    const frames = [];
   globalThis.fetch = async () => new Response("accepted", { status: 202 });
   try {
     const gateway = new ResponsesSteeringGateway();
-    const instance = coordinator(gateway);
+    let worker;
+    const instance = coordinator(gateway, { send(command) { return worker.acceptCommand(command); } });
+    worker = new ResponsesSteeringWorker({
+      gateway: new ResponsesSteeringGateway(),
+      reporter: {
+        registerAttempt(attempt) { return instance.fetch(new Request(`https://coordinator/work-items/${attempt.work_id}/steering-attempts`, { method: "POST", body: JSON.stringify(attempt) })); },
+        reportReceipt(receipt) { return instance.fetch(new Request(`https://coordinator/work-items/${receipt.work_id}/steering-receipts`, { method: "POST", body: JSON.stringify(receipt) })); },
+      },
+    });
     await submit(instance, workOrder());
     await appendEvent(instance, event("arena-shell", 0, "accepted"));
-    instance.attachResponsesWebSocket("lane-alpha", { send(frame) { frames.push(JSON.parse(frame)); } });
     const attempt = {
       attempt_id: "attempt-alpha", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one",
       lane_id: "lane-alpha", response_id: "resp-original", mode: "single_agent", model_supports_steering: true,
     };
-    const registered = await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steering-attempts", { method: "POST", body: JSON.stringify(attempt) }));
-    assert.equal(registered.status, 201);
+    await worker.registerAttempt(attempt, { send(frame) { frames.push(JSON.parse(frame)); } });
     const request = new Request("https://coordinator/work-items/arena-shell/steers", {
       method: "POST",
       body: JSON.stringify({ attempt_id: "attempt-alpha", client_steering_id: "steer-alpha", input: [{ role: "user", content: [{ type: "input_text", text: "Use more cover." }] }] }),
     });
     const queued = await instance.fetch(request);
-    assert.equal(queued.status, 202);
-    assert.equal((await body(queued)).receipt.status, "queued");
+    const queuedBody = await body(queued);
+    assert.equal(queued.status, 202, JSON.stringify(queuedBody));
+    assert.equal(queuedBody.receipt.status, "queued");
     assert.equal(frames[0].type, "response.steer");
-    await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", previous_response_id: "resp-original" });
+    await worker.receive("lane-alpha", { type: "response.steer.accepted", steer: { id: "steer-server-01", previous_response_id: "resp-original" } });
     const afterAcceptance = await body(await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steers/steer-alpha")));
     assert.equal(afterAcceptance.receipt.status, "accepted");
-    await gateway.handleServerEvent("lane-alpha", { type: "response.created", response: { id: "resp-next", previous_response_id: "resp-original" } });
+    await worker.receive("lane-alpha", { type: "response.created", response: { id: "resp-next", previous_response_id: "resp-original" } });
     const listed = await body(await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steers")));
     assert.equal(listed.receipts[0].status, "committed");
     assert.equal(listed.receipts[0].successor_response_id, "resp-next");
@@ -244,6 +268,29 @@ test("an invalid planner batch leaves no directive or partial work attempts behi
     assert.equal((await body(result)).error, "planner_work_attempt_not_unique");
     assert.deepEqual((await body(await instance.fetch(new Request("https://coordinator/steers")))).planner_directives, []);
     assert.deepEqual((await body(await instance.fetch(new Request("https://coordinator/status")))).work_items.map((item) => item.work_id), ["arena-shell"]);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("Durable Object steering receipt and event indexes survive coordinator reinstantiation", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const state = { storage: storage() };
+    const transport = { async send() {} };
+    const first = new EncounterCoordinator(state, { WORK_DISPATCH_URL: "https://workers.example/dispatch", WORK_DISPATCH_TOKEN: "dispatch" }, { steeringTransport: transport });
+    await submit(first, workOrder());
+    await appendEvent(first, event("arena-shell", 0, "accepted"));
+    const attempt = { attempt_id: "attempt-restart", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", lane_id: "lane-restart", response_id: "resp-restart", mode: "single_agent", model_supports_steering: true };
+    assert.equal((await first.fetch(new Request("https://coordinator/work-items/arena-shell/steering-attempts", { method: "POST", body: JSON.stringify(attempt) }))).status, 201);
+    assert.equal((await first.fetch(new Request("https://coordinator/work-items/arena-shell/steers", { method: "POST", body: JSON.stringify({ attempt_id: "attempt-restart", client_steering_id: "steer-restart", input: [{ role: "user", content: [{ type: "input_text", text: "Persist this." }] }] }) }))).status, 202);
+    const restarted = new EncounterCoordinator(state, { WORK_DISPATCH_URL: "https://workers.example/dispatch", WORK_DISPATCH_TOKEN: "dispatch" }, { steeringTransport: transport });
+    const receipt = await body(await restarted.fetch(new Request("https://coordinator/work-items/arena-shell/steers/steer-restart")));
+    assert.equal(receipt.receipt.status, "queued");
+    assert.equal(receipt.receipt.events.length, 1);
+    const listed = await body(await restarted.fetch(new Request("https://coordinator/work-items/arena-shell/steers")));
+    assert.equal(listed.receipts.length, 1);
   } finally {
     globalThis.fetch = oldFetch;
   }

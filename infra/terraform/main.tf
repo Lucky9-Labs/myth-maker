@@ -11,6 +11,7 @@ locals {
   cloudflare_secret_names = [
     "AGENT_INGRESS_TOKEN",
     "WORK_DISPATCH_TOKEN",
+    "STEERING_WORKER_TOKEN",
   ]
 
   railway_secret_names = [
@@ -45,6 +46,10 @@ locals {
       type = "plain_text"
       name = "WORK_DISPATCH_URL"
       text = var.work_dispatch_url
+      }], var.steering_worker_url == null ? [] : [{
+      type = "plain_text"
+      name = "STEERING_WORKER_URL"
+      text = var.steering_worker_url
       }], var.agent_ingress_token == null ? [] : [{
       type = "secret_text"
       name = "AGENT_INGRESS_TOKEN"
@@ -53,6 +58,10 @@ locals {
       type = "secret_text"
       name = "WORK_DISPATCH_TOKEN"
       text = var.work_dispatch_token
+      }], var.steering_worker_token == null ? [] : [{
+      type = "secret_text"
+      name = "STEERING_WORKER_TOKEN"
+      text = var.steering_worker_token
   }])
 }
 

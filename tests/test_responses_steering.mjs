@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ResponsesSteeringGateway } from "../src/responses-steering.js";
+import { InMemorySteeringStore, ResponsesSteeringGateway, ResponsesSteeringWorker, createCoordinatorSteeringReporter, createSteeringWorkerCommandHandler } from "../src/responses-steering.js";
 
 class FakeWebSocketLane {
   constructor() { this.frames = []; this.listeners = new Map(); }
@@ -40,9 +40,10 @@ test("a single-agent attempt queues a user steer and commits only at its success
     input: [{ role: "user", content: [{ type: "input_text", text: "Prefer a flooded courtyard." }] }],
   });
 
-  lane.emit("message", JSON.stringify({ type: "response.steer.accepted", previous_response_id: "resp-original" }));
+  lane.emit("message", JSON.stringify({ type: "response.steer.accepted", steer: { id: "steer-server-01", previous_response_id: "resp-original" } }));
   await drainEvents();
   assert.equal((await gateway.getReceipt("steer-alpha")).status, "accepted");
+  assert.equal((await gateway.getReceipt("steer-alpha")).server_steering_id, "steer-server-01");
   lane.emit("message", JSON.stringify({ type: "response.created", response: { id: "resp-successor", previous_response_id: "resp-original" } }));
   await drainEvents();
   const committed = await gateway.getReceipt("steer-alpha");
@@ -66,9 +67,48 @@ test("a closed Responses lane fails the queued receipt without replaying its fra
   lane.emit("close");
   await drainEvents();
   const receipt = await gateway.getReceipt("steer-close");
-  assert.equal(receipt.status, "failed");
+  assert.equal(receipt.status, "pending");
   assert.equal(receipt.error_code, "steering_transport_reconnect_uncertain");
   assert.equal(lane.frames.length, 1);
+});
+
+test("nested steering pending input resolves saved stubs once across a gateway restart", async () => {
+  const lane = new FakeWebSocketLane();
+  const store = new InMemorySteeringStore();
+  const gateway = new ResponsesSteeringGateway({ store });
+  await gateway.recordAttempt({ attempt_id: "attempt-required", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", lane_id: "lane-required", response_id: "resp-required", mode: "single_agent", model_supports_steering: true }, lane);
+  await gateway.requestSteer("attempt-required", { client_steering_id: "steer-required", input: [{ role: "user", content: [{ type: "input_text", text: "Keep terrain readable." }] }] });
+  await gateway.handleServerEvent("lane-required", { type: "response.steer.pending", steer: { id: "steer-server-required", previous_response_id: "resp-required" } });
+  await gateway.handleServerEvent("lane-required", { type: "response.required_input", steer: { id: "steer-server-required", previous_response_id: "resp-required", required_input: [{ id: "tool-call-01" }] } });
+  assert.equal((await gateway.getReceipt("steer-required")).status, "required_input");
+  const restarted = new ResponsesSteeringGateway({ store });
+  restarted.attachLane("lane-required", lane);
+  await restarted.resolveRequiredInput("attempt-required", { "tool-call-01": { type: "function_call_output", call_id: "tool-call-01", output: "cached result" } });
+  assert.deepEqual(lane.frames.at(-1), { type: "response.create", previous_response_id: "resp-required", input: [{ type: "function_call_output", call_id: "tool-call-01", output: "cached result" }] });
+  const frameCount = lane.frames.length;
+  await restarted.resolveRequiredInput("attempt-required", { "tool-call-01": { type: "function_call_output", call_id: "tool-call-01", output: "cached result" } });
+  assert.equal(lane.frames.length, frameCount);
+});
+
+test("the worker-owned command handler separates socket ownership from authenticated reporting", async () => {
+  const frames = [];
+  const reports = [];
+  const gateway = new ResponsesSteeringGateway();
+  const worker = new ResponsesSteeringWorker({ gateway, reporter: { async registerAttempt(attempt) { reports.push({ kind: "attempt", attempt }); }, async reportReceipt(receipt) { reports.push({ kind: "receipt", receipt }); } } });
+  await worker.registerAttempt({ attempt_id: "attempt-owner", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", lane_id: "lane-owner", response_id: "resp-owner", mode: "single_agent", model_supports_steering: true }, { send(frame) { frames.push(JSON.parse(frame)); } });
+  const handler = createSteeringWorkerCommandHandler({ worker, workerToken: "worker-secret" });
+  assert.equal((await handler(new Request("https://worker/v1/steering/commands", { method: "POST", headers: { authorization: "Bearer wrong" }, body: "{}" }))).status, 401);
+  const accepted = await handler(new Request("https://worker/v1/steering/commands", { method: "POST", headers: { authorization: "Bearer worker-secret" }, body: JSON.stringify({ attempt_id: "attempt-owner", request: { client_steering_id: "steer-owner", input: [{ role: "user", content: [{ type: "input_text", text: "Use a single bridge." }] }] } }) }));
+  assert.equal(accepted.status, 202);
+  assert.equal(frames[0].type, "response.steer");
+  assert.equal(reports.filter((report) => report.kind === "receipt").length, 1);
+
+  const requests = [];
+  const reporter = createCoordinatorSteeringReporter({ coordinatorUrl: "https://coordinator", workerToken: "worker-secret", fetcher: async (url, init) => { requests.push({ url, init }); return new Response("{}", { status: 202 }); } });
+  await reporter.registerAttempt({ encounter_id: "encounter-alpha", work_id: "arena-shell" });
+  await reporter.reportReceipt({ encounter_id: "encounter-alpha", work_id: "arena-shell" });
+  assert.ok(requests.every(({ init }) => init.headers.authorization === "Bearer worker-secret"));
+  assert.match(requests[1].url, /steering-receipts$/);
 });
 
 test("completed attempts use an explicit continuation while unsupported and pending modes never rerun tools", async () => {

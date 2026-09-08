@@ -72,6 +72,13 @@ variable "work_dispatch_url" {
   nullable    = true
 }
 
+variable "steering_worker_url" {
+  description = "Explicit worker-owned Responses steering endpoint. Null keeps steering unavailable without inventing an endpoint."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "agent_ingress_token" {
   description = "Value for the AGENT_INGRESS_TOKEN Worker secret. Never commit this value."
   type        = string
@@ -82,6 +89,14 @@ variable "agent_ingress_token" {
 
 variable "work_dispatch_token" {
   description = "Value for the WORK_DISPATCH_TOKEN Worker/Railway receiver secret. Never commit this value."
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+}
+
+variable "steering_worker_token" {
+  description = "Coordinator/worker authentication token for steering commands and receipt reports. Never commit this value."
   type        = string
   default     = null
   nullable    = true

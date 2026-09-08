@@ -55,6 +55,7 @@ export class InMemorySteeringStore {
   async listReceipts(workId) { return [...this.receipts.values()].filter((receipt) => workId === undefined || receipt.work_id === workId).map(copy).sort((a, b) => a.requested_at.localeCompare(b.requested_at)); }
   async appendEvent(id, event) { this.events.set(id, [...(this.events.get(id) || []), copy(event)]); }
   async listEvents(id) { return (this.events.get(id) || []).map(copy); }
+  async commitTransition(receipt, event) { await this.putReceipt(receipt); await this.appendEvent(receipt.client_steering_id, event); }
 }
 
 // This deep module is deliberately independent from Durable Object storage. Its
@@ -119,26 +120,53 @@ export class ResponsesSteeringGateway {
     };
     if (!supportsSteering(attempt)) return this.transition(receipt, "unsupported", { error_code: unsupportedReason(attempt) });
     const lane = this.lanes.get(attempt.lane_id);
-    if (!lane) return this.transition(receipt, "failed", { error_code: "steering_transport_unavailable_after_reconnect" });
+    if (!lane) return this.transition(receipt, "pending", { reconciliation: "transport_ack_uncertain", error_code: "steering_transport_unavailable_after_reconnect" });
     const frame = attempt.response_status === "completed"
       ? { type: "response.create", previous_response_id: attempt.response_id, input: request.input }
       : { type: "response.steer", previous_response_id: attempt.response_id, input: request.input };
     // Persist before writing: after a crash/reconnect the request is failed,
     // never replayed, because the server may have received the frame.
     const queued = await this.transition(receipt, "queued", { transport: frame.type });
-    try { lane.send(JSON.stringify(frame)); } catch { return this.transition(queued, "failed", { error_code: "steering_transport_send_failed" }); }
+    try { lane.send(JSON.stringify(frame)); } catch { return this.transition(queued, "pending", { reconciliation: "transport_ack_uncertain", error_code: "steering_transport_send_uncertain" }); }
     return queued;
+  }
+
+  async enqueueSteer(attemptId, request) {
+    const attempt = await this.store.getAttempt(attemptId);
+    if (!attempt) throw new Error("steering_attempt_not_found");
+    if (!isObject(request) || !ID.test(request.client_steering_id || "") || !validInput(request.input)) throw new Error("invalid_steering_request");
+    const inputHash = await sha256(request.input);
+    const existing = await this.store.getReceipt(request.client_steering_id);
+    if (existing) {
+      if (existing.input_sha256 !== inputHash || existing.attempt_id !== attemptId) throw new Error("client_steering_id_reused_with_different_request");
+      return existing;
+    }
+    const inFlight = (await this.store.listReceipts(undefined)).find((receipt) => receipt.attempt_id === attemptId && receipt.response_id === attempt.response_id && ACTIVE_STATUSES.has(receipt.status));
+    if (inFlight) throw new Error("steering_request_already_pending");
+    const receipt = { schema_version: "1", client_steering_id: request.client_steering_id, attempt_id: attemptId, encounter_id: attempt.encounter_id, work_id: attempt.work_id, worker_id: attempt.worker_id, response_id: attempt.response_id, lane_id: attempt.lane_id, input_sha256: inputHash, input: boundedInput(request.input), requested_at: this.now(), status: "queued" };
+    if (!supportsSteering(attempt)) return this.transition(receipt, "unsupported", { error_code: unsupportedReason(attempt) });
+    return this.transition(receipt, "queued", { transport: attempt.response_status === "completed" ? "response.create" : "response.steer" });
+  }
+
+  async importReceipt(receipt) {
+    if (!isObject(receipt) || !ID.test(receipt.client_steering_id || "")) throw new Error("invalid_steering_receipt_report");
+    const existing = await this.store.getReceipt(receipt.client_steering_id);
+    if (!existing || existing.attempt_id !== receipt.attempt_id || existing.lane_id !== receipt.lane_id || existing.response_id !== receipt.response_id || existing.input_sha256 !== receipt.input_sha256) throw new Error("steering_receipt_report_scope_mismatch");
+    const fields = { ...receipt };
+    delete fields.status; delete fields.client_steering_id; delete fields.attempt_id; delete fields.encounter_id; delete fields.work_id; delete fields.worker_id; delete fields.response_id; delete fields.lane_id; delete fields.input_sha256; delete fields.input; delete fields.requested_at;
+    return this.transition(existing, receipt.status, fields);
   }
 
   async transition(receipt, status, fields = {}) {
     if (!STEERING_STATUSES.has(status)) throw new Error("invalid_steering_status");
     const persisted = await this.store.getReceipt(receipt.client_steering_id);
     const current = persisted || receipt;
-    const allowed = { queued: new Set(["queued", "accepted", "pending", "required_input", "failed", "unsupported"]), accepted: new Set(["accepted", "pending", "required_input", "committed", "failed"]), pending: new Set(["pending", "required_input", "committed", "failed"]), required_input: new Set(["required_input", "committed", "failed"]), committed: new Set(["committed"]), failed: new Set(["failed"]), unsupported: new Set(["unsupported"]) };
+    const allowed = { queued: new Set(["queued", "accepted", "pending", "required_input", "failed", "unsupported"]), accepted: new Set(["accepted", "pending", "required_input", "committed", "failed"]), pending: new Set(["pending", "required_input", "committed", "failed"]), required_input: new Set(["required_input", "pending", "committed", "failed"]), committed: new Set(["committed"]), failed: new Set(["failed"]), unsupported: new Set(["unsupported"]) };
     if (!allowed[current.status || "queued"].has(status)) return current;
     const next = { ...current, ...fields, status, updated_at: this.now() };
-    await this.store.putReceipt(next);
-    await this.store.appendEvent(next.client_steering_id, { status, occurred_at: next.updated_at, ...fields });
+    const event = { status, occurred_at: next.updated_at, ...fields };
+    if (typeof this.store.commitTransition === "function") await this.store.commitTransition(next, event);
+    else { await this.store.putReceipt(next); await this.store.appendEvent(next.client_steering_id, event); }
     return next;
   }
 
@@ -153,7 +181,10 @@ export class ResponsesSteeringGateway {
     this.lanes.delete(laneId);
     const affected = [];
     for (const receipt of await this.store.listReceipts(undefined)) {
-      if (receipt.lane_id === laneId && ACTIVE_STATUSES.has(receipt.status)) affected.push(await this.transition(receipt, "failed", { error_code: "steering_transport_reconnect_uncertain" }));
+      // A dropped socket cannot prove that OpenAI did not receive the steer.
+      // Keep a reconciliation record instead of treating it as terminal or
+      // replaying a command that may already have taken effect.
+      if (receipt.lane_id === laneId && ACTIVE_STATUSES.has(receipt.status)) affected.push(await this.transition(receipt, "pending", { reconciliation: "transport_ack_uncertain", error_code: "steering_transport_reconnect_uncertain" }));
     }
     return affected;
   }
@@ -161,7 +192,11 @@ export class ResponsesSteeringGateway {
   async handleServerEvent(laneId, event) {
     if (!isObject(event) || typeof event.type !== "string") return [];
     const response = event.response || {};
-    const previous = event.previous_response_id || response.previous_response_id;
+    // The Responses steering beta nests its correlation values under `steer`.
+    // Legacy root-level fields remain accepted only for old recorded fixtures.
+    const steer = isObject(event.steer) ? event.steer : isObject(response.steer) ? response.steer : {};
+    const previous = steer.previous_response_id || event.previous_response_id || response.previous_response_id;
+    const serverSteeringId = steer.id;
     if (event.type === "response.completed" && typeof response.id === "string") {
       const attempts = await this.store.listAttempts();
       await Promise.all(attempts.filter((attempt) => attempt.lane_id === laneId && attempt.response_id === response.id).map((attempt) => this.store.putAttempt({ ...attempt, response_status: "completed", updated_at: this.now() })));
@@ -169,8 +204,11 @@ export class ResponsesSteeringGateway {
     }
     if (!previous) return [];
     const matching = (await this.store.listReceipts(undefined)).filter((receipt) => receipt.lane_id === laneId && ACTIVE_STATUSES.has(receipt.status));
-    const target = matching.filter((receipt) => !previous || receipt.response_id === previous).sort((a, b) => a.requested_at.localeCompare(b.requested_at));
-    if (event.type === "response.steer.accepted") return target.length ? [await this.transition(target[0], "accepted", { accepted_at: this.now() })] : [];
+    const target = matching.filter((receipt) => receipt.response_id === previous && (!serverSteeringId || !receipt.server_steering_id || receipt.server_steering_id === serverSteeringId)).sort((a, b) => a.requested_at.localeCompare(b.requested_at));
+    const correlation = serverSteeringId ? { server_steering_id: serverSteeringId } : {};
+    if (event.type === "response.steer.accepted") return target.length ? [await this.transition(target[0], "accepted", { accepted_at: this.now(), ...correlation })] : [];
+    if (event.type === "response.steer.pending") return target.length ? [await this.transition(target[0], "pending", { pending_at: this.now(), ...correlation })] : [];
+    if (event.type === "response.steer.failed") return target.length ? [await this.transition(target[0], "failed", { error_code: steer.error?.code || "responses_steering_failed", ...correlation })] : [];
     if (event.type === "response.created" && typeof response.id === "string" && previous) {
       const committed = [];
       for (const receipt of target.slice(0, 1)) committed.push(await this.transition(receipt, "committed", { committed_at: this.now(), successor_response_id: response.id }));
@@ -180,9 +218,102 @@ export class ResponsesSteeringGateway {
       }
       return committed;
     }
-    if (event.type === "response.incomplete" && response.incomplete_details?.reason === "steered") return Promise.all(target.map((receipt) => this.transition(receipt, "pending", { pending_reason: "steered" })));
-    if (event.type === "response.required_input" || (event.type === "response.incomplete" && response.incomplete_details?.reason === "tool_use")) return Promise.all(target.map((receipt) => this.transition(receipt, "required_input", { pending_reason: "required_tool_input" })));
+    if (event.type === "response.incomplete" && response.incomplete_details?.reason === "steered") return Promise.all(target.map((receipt) => this.transition(receipt, "pending", { pending_reason: "steered", ...correlation })));
+    if (event.type === "response.required_input" || (event.type === "response.incomplete" && response.incomplete_details?.reason === "tool_use")) {
+      const stubs = steer.required_input || event.required_input || response.required_input || [];
+      return Promise.all(target.map((receipt) => this.transition(receipt, "required_input", { pending_reason: "required_tool_input", required_input: copy(stubs), ...correlation })));
+    }
     if (event.type === "error" || event.type === "response.failed") return Promise.all(target.map((receipt) => this.transition(receipt, "failed", { error_code: "responses_steering_failed" })));
     return [];
   }
+
+  async resolveRequiredInput(attemptId, savedResults) {
+    const attempt = await this.store.getAttempt(attemptId);
+    if (!attempt) throw new Error("steering_attempt_not_found");
+    const candidates = (await this.store.listReceipts(undefined)).filter((receipt) => receipt.attempt_id === attemptId && receipt.response_id === attempt.response_id && receipt.status === "required_input");
+    if (!candidates.length) return [];
+    const lane = this.lanes.get(attempt.lane_id);
+    if (!lane) return Promise.all(candidates.map((receipt) => this.transition(receipt, "pending", { reconciliation: "transport_ack_uncertain", error_code: "steering_transport_reconnect_uncertain" })));
+    const emitted = [];
+    for (const receipt of candidates) {
+      if (receipt.continuation_sent_at) { emitted.push(receipt); continue; }
+      const stubs = Array.isArray(receipt.required_input) ? receipt.required_input : [];
+      const input = stubs.map((stub) => savedResults?.[stub.id || stub.call_id]).filter((value) => value !== undefined);
+      if (input.length !== stubs.length) throw new Error("required_input_result_missing");
+      const queued = await this.transition(receipt, "pending", { continuation_sent_at: this.now(), continuation_input_hash: await sha256(input) });
+      try { lane.send(JSON.stringify({ type: "response.create", previous_response_id: receipt.response_id, input })); }
+      catch { emitted.push(await this.transition(queued, "pending", { reconciliation: "transport_ack_uncertain", error_code: "steering_transport_send_uncertain" })); continue; }
+      emitted.push(queued);
+    }
+    return emitted;
+  }
 }
+
+/**
+ * Owns a real Responses socket in the worker process. The coordinator never
+ * receives this object: it receives authenticated attempt/receipt reports.
+ */
+export class ResponsesSteeringWorker {
+  constructor({ reporter, gateway = new ResponsesSteeringGateway() } = {}) {
+    if (!reporter || typeof reporter.registerAttempt !== "function" || typeof reporter.reportReceipt !== "function") throw new TypeError("steering worker needs an authenticated reporter");
+    this.reporter = reporter;
+    this.gateway = gateway;
+  }
+
+  async registerAttempt(attempt, socket) {
+    const recorded = await this.gateway.recordAttempt(attempt, socket);
+    await this.reporter.registerAttempt(attempt);
+    return recorded;
+  }
+
+  async acceptCommand({ attempt_id, request }) {
+    const receipt = await this.gateway.requestSteer(attempt_id, request);
+    await this.reporter.reportReceipt(receipt);
+    return receipt;
+  }
+
+  async receive(laneId, event) {
+    const receipts = await this.gateway.handleServerEvent(laneId, event);
+    await Promise.all(receipts.map((receipt) => this.reporter.reportReceipt(receipt)));
+    return receipts;
+  }
+
+  async disconnect(laneId) {
+    const receipts = await this.gateway.handleDisconnect(laneId);
+    await Promise.all(receipts.map((receipt) => this.reporter.reportReceipt(receipt)));
+    return receipts;
+  }
+
+  async resolveRequiredInput(attemptId, savedResults) {
+    const receipts = await this.gateway.resolveRequiredInput(attemptId, savedResults);
+    await Promise.all(receipts.map((receipt) => this.reporter.reportReceipt(receipt)));
+    return receipts;
+  }
+}
+
+export function createCoordinatorSteeringReporter({ coordinatorUrl, workerToken, fetcher = fetch } = {}) {
+  if (!coordinatorUrl || !workerToken) throw new TypeError("coordinatorUrl and workerToken are required");
+  const base = coordinatorUrl.replace(/\/$/, "");
+  async function post(path, body) {
+    const result = await fetcher(`${base}${path}`, { method: "POST", headers: { authorization: `Bearer ${workerToken}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!result.ok) throw new Error(`coordinator_steering_report_failed:${result.status}`);
+  }
+  return {
+    registerAttempt(attempt) { return post(`/v1/encounters/${attempt.encounter_id}/work-items/${attempt.work_id}/steering-attempts`, attempt); },
+    reportReceipt(receipt) { return post(`/v1/encounters/${receipt.encounter_id}/work-items/${receipt.work_id}/steering-receipts`, receipt); },
+  };
+}
+
+export function createSteeringWorkerCommandHandler({ worker, workerToken } = {}) {
+  if (!worker || typeof worker.acceptCommand !== "function" || !workerToken) throw new TypeError("worker and workerToken are required");
+  return async (request) => {
+    if (request.method !== "POST") return steeringResponse({ error: "not_found" }, 404);
+    if (request.headers.get("authorization") !== `Bearer ${workerToken}`) return steeringResponse({ error: "unauthorized" }, 401);
+    let command;
+    try { command = await request.json(); } catch { return steeringResponse({ error: "invalid_steering_command" }, 400); }
+    try { return steeringResponse({ receipt: await worker.acceptCommand(command) }, 202); }
+    catch (error) { return steeringResponse({ error: error.message || "invalid_steering_command" }, 409); }
+  };
+}
+
+function steeringResponse(value, status) { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8" } }); }
