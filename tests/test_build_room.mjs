@@ -37,7 +37,7 @@ test("projection orders cross-worker events by receipt time and stable cursor, w
   });
   room.record(run.ids.encounterId, {
     workerId: "worker-b", sequence: 0,
-    occurredAt: "2026-09-08T12:01:00.100Z",
+    occurredAt: "2026-09-08T12:01:00.000Z",
     kind: "started",
     message: "b started",
     evidence: { kind: "fixture" },

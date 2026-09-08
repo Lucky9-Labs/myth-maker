@@ -348,7 +348,11 @@ function revisions(entries) {
 
 function orderedEvents(events) {
   return [...events].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt)
-    || a.cursor.localeCompare(b.cursor));
+    || cursorPosition(a.cursor) - cursorPosition(b.cursor));
+}
+
+function cursorPosition(cursor) {
+  return Number(cursor.slice(cursor.lastIndexOf(":") + 1));
 }
 
 function topology(run, catalogProjection) {
