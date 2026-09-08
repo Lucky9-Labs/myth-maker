@@ -45,6 +45,13 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
         persist(room);
         return json(response, 201, receipt);
       }
+      if (request.method === "POST" && url.pathname === "/api/ingest/simulation") {
+        if (!trustedObserver(request)) throw new TypeError("simulation evidence requires a trusted local observer");
+        const receipt = await body(request);
+        const projection = room.recordSimulation(receipt.encounter_id, receipt, { observed: true });
+        persist(room);
+        return json(response, 201, projection);
+      }
       if (request.method === "POST" && url.pathname === "/api/encounters") {
         const run = room.submit(await body(request));
         persist(room);
@@ -142,7 +149,10 @@ export function persistBuildRoom(statePath, room) {
 
 function trustedObserver(request) {
   const token = process.env.BUILD_ROOM_OBSERVER_TOKEN;
-  return Boolean(token) && request.headers.get("x-build-room-observer-token") === token;
+  const supplied = typeof request.headers?.get === "function"
+    ? request.headers.get("x-build-room-observer-token")
+    : request.headers?.["x-build-room-observer-token"];
+  return Boolean(token) && supplied === token;
 }
 
 function stream(response, snapshot) {

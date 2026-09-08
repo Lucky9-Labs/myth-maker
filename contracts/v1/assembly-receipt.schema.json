@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/assembly-receipt.schema.json",
+  "title": "AssemblyReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "assembly_id", "encounter_id", "frozen_package", "package_manifest_sha256", "selected_assets", "selected_animations", "assembled_at", "provenance", "assembly_sha256"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "assembly_id": { "$ref": "common.schema.json#/$defs/id" },
+    "encounter_id": { "$ref": "common.schema.json#/$defs/id" },
+    "frozen_package": { "$ref": "playable-encounter-package.schema.json" },
+    "package_manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+    "selected_assets": { "$ref": "#/$defs/assetSelections" },
+    "selected_animations": { "$ref": "#/$defs/animationSelections" },
+    "assembled_at": { "type": "string", "format": "date-time" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "assembly_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "assetSelections": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "object", "additionalProperties": false, "required": ["asset_id", "revision", "sha256", "uri"], "properties": { "asset_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "uri": { "type": "string", "format": "uri", "maxLength": 2048 } } }
+    },
+    "animationSelections": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "object", "additionalProperties": false, "required": ["animation_id", "revision", "sha256", "uri"], "properties": { "animation_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "uri": { "type": "string", "format": "uri", "maxLength": 2048 } } }
+    },
+    "provenance": { "type": "object", "additionalProperties": false, "required": ["producer", "observed_at"], "properties": { "producer": { "type": "string", "minLength": 1, "maxLength": 128 }, "observed_at": { "type": "string", "format": "date-time" } } }
+  }
+}

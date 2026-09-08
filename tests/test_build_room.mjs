@@ -9,6 +9,7 @@ import {
 } from "../src/build-room.js";
 import { createBuildRoomServer } from "../src/build-room-server.js";
 import { createSqliteCatalog } from "../src/catalog-sqlite.js";
+import { createAssemblyReceipt, runDeterministicEncounter } from "../src/encounter-runner.js";
 
 test("a local submission creates distinct inspectable IDs and an honest local receipt", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
@@ -23,6 +24,41 @@ test("a local submission creates distinct inspectable IDs and an honest local re
   assert.equal(run.events[0].evidence.kind, "local_process");
   assert.equal(evidenceLabel(run.events[0].evidence), "Local process receipt (observed)");
   assert.equal(run.events.length, 1);
+});
+
+test("terminal build projections expose a simulation receipt only after it is observed, without inventing a visual", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:04:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Neutral chamber" });
+  const receipt = neutralSimulationReceipt(run.ids.encounterId);
+  assert.throws(() => room.recordSimulation(run.ids.encounterId, receipt), /observed receipt/);
+  room.recordSimulation(run.ids.encounterId, receipt, { observed: true });
+  const detail = room.snapshot(run.ids.encounterId);
+  assert.equal(detail.simulation.status, "passed");
+  assert.equal(detail.simulation.playable_or_recorded_output, null);
+  assert.equal(detail.simulation.evidence_tiers.player, "not_observed");
+});
+
+test("the simulation ingress requires a trusted observer and streams only its observed terminal projection", async () => {
+  const token = process.env.BUILD_ROOM_OBSERVER_TOKEN;
+  process.env.BUILD_ROOM_OBSERVER_TOKEN = "test-simulation-token";
+  const room = new BuildRoom({ now: () => "2026-09-08T12:04:00.000Z", id: sequenceIds() });
+  const server = createBuildRoomServer({ room });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Observed simulation" }) })).json();
+    const receipt = neutralSimulationReceipt(run.ids.encounterId);
+    const rejected = await fetch(`${base}/api/ingest/simulation`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(receipt) });
+    assert.equal(rejected.status, 400);
+    const accepted = await fetch(`${base}/api/ingest/simulation`, { method: "POST", headers: { "content-type": "application/json", "x-build-room-observer-token": "test-simulation-token" }, body: JSON.stringify(receipt) });
+    assert.equal(accepted.status, 201);
+    assert.equal((await accepted.json()).playable_or_recorded_output, null);
+  } finally {
+    server.close();
+    if (token === undefined) delete process.env.BUILD_ROOM_OBSERVER_TOKEN;
+    else process.env.BUILD_ROOM_OBSERVER_TOKEN = token;
+  }
 });
 
 test("projection orders cross-worker events by receipt time and stable cursor, while retaining replay after reconnect", () => {
@@ -328,6 +364,25 @@ function adapterEvent(run, overrides = {}) {
     encounter_id: run.ids.encounterId, worker_id: run.ids.workerId, sequence: 1, occurred_at: "2026-09-08T12:02:00.000Z", kind: "progress",
     ...overrides,
   };
+}
+
+function neutralSimulationReceipt(encounterId) {
+  const frozenPackage = {
+    schema_version: "1", package_id: "neutral-chamber-package", encounter_id: encounterId, revision: 1, state: "frozen",
+    assembled_at: "2026-09-08T12:00:00.000Z", frozen_at: "2026-09-08T12:01:00.000Z", module_ids: ["neutral-combat-recipe"],
+    manifest_sha256: "a".repeat(64), fallback_provenance: { used_fallback: false, module_ids: [] },
+  };
+  const assembly = createAssemblyReceipt({
+    assemblyId: "neutral-chamber-assembly", frozenPackage,
+    selected: { assets: [{ asset_id: "neutral-target", revision: 3, sha256: "b".repeat(64), uri: "artifact://neutral-target.prefab" }], animations: [{ animation_id: "neutral-strike", revision: 2, sha256: "c".repeat(64), uri: "artifact://neutral-strike.anim" }] },
+    assembledAt: "2026-09-08T12:02:00.000Z", provenance: { producer: "test", observed_at: "2026-09-08T12:02:00.000Z" },
+  });
+  return runDeterministicEncounter({
+    assemblyReceipt: assembly,
+    runtimeProfile: { schema_version: "1", profile_id: "unity-neutral-headless", profile_revision: 1, runner_id: "myth-maker-unity-encounter-runner", runtime_id: "unity-6000.6.0f1", build_profile_id: "editor-macos-mono-batch", evidence_tier: "local_unity_runner", execution_mode: "headless", unity: { editor_version: "6000.6.0f1", scripting_backend: "mono", platform: "macos" } },
+    seed: 41, script: [{ at_ms: 100, actor: "player", target: "encounter-target", damage: 9 }, { at_ms: 250, actor: "encounter-target", target: "player", damage: 4 }],
+    startedAt: "2026-09-08T12:03:00.000Z",
+  });
 }
 
 async function eventually(read, predicate) {

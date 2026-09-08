@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/runtime-profile.schema.json",
+  "title": "EncounterRuntimeProfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile_id", "profile_revision", "runner_id", "runtime_id", "build_profile_id", "evidence_tier", "execution_mode", "unity"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "profile_id": { "$ref": "common.schema.json#/$defs/id" },
+    "profile_revision": { "type": "integer", "minimum": 1 },
+    "runner_id": { "$ref": "common.schema.json#/$defs/id" },
+    "runtime_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "build_profile_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "evidence_tier": { "enum": ["local_unity_runner", "cloud_headless_validation", "cloud_rendered_preview"] },
+    "execution_mode": { "enum": ["headless", "rendered", "streamed"] },
+    "unity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["editor_version", "scripting_backend", "platform"],
+      "properties": {
+        "editor_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "scripting_backend": { "enum": ["mono", "il2cpp"] },
+        "platform": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    }
+  }
+}

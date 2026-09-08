@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isV1WorkerEvent } from "./worker.js";
+import { validateSimulationReceipt } from "./encounter-runner.js";
 
 const EVIDENCE_LABELS = {
   fixture: "Simulated fixture (not live)",
@@ -47,6 +48,7 @@ export class BuildRoom {
       artifacts: new Map(),
       packages: new Map(),
       workGraph: new Map(),
+      simulation: undefined,
       evidence: { local: [], modal: [], blender: [] },
       steering: [],
       nextCursor: 1,
@@ -77,6 +79,20 @@ export class BuildRoom {
     if (event.evidence.kind === "blender_window") run.evidence.blender.push(event.evidence.receipt);
     this.notify(encounterId);
     return event;
+  }
+
+  /**
+   * Project a terminal simulation only after the Build Room's local adapter has
+   * observed the full receipt. Receipt-shaped input is never a visual claim.
+   */
+  recordSimulation(encounterId, receipt, { observed = false } = {}) {
+    if (observed !== true) throw new TypeError("simulation projection requires an observed receipt");
+    const run = this.requireRun(encounterId);
+    validateSimulationReceipt(receipt);
+    if (receipt.encounter_id !== encounterId) throw new TypeError("simulation receipt encounter does not match build room run");
+    run.simulation = { receipt: clone(receipt), observed_at: this.now() };
+    this.notify(encounterId);
+    return projectSimulation(run.simulation);
   }
 
   upsertWork(encounterId, input, event) {
@@ -114,6 +130,7 @@ export class BuildRoom {
         blender: [...run.evidence.blender],
       },
       steering: [...run.steering],
+      ...(run.simulation ? { simulation: projectSimulation(run.simulation) } : {}),
       topology: topology(run, this.catalogProjection, this.now()),
     };
   }
@@ -441,7 +458,23 @@ function buildSummary(run) {
     catalog: run.topology.catalog,
     revisions: { artifacts: run.artifacts.length, packages: run.packages.length, evidence: "reported" },
     evidence_tier: workers.map((worker) => worker.evidence_kind),
+    ...(run.simulation ? { simulation: projectSimulation(run.simulation) } : {}),
     navigation_url: `/?build=${encodeURIComponent(run.ids.requestId)}`,
+  };
+}
+
+function projectSimulation(simulation) {
+  const receipt = simulation.receipt;
+  return {
+    status: receipt.status,
+    observed_at: simulation.observed_at,
+    assembly_sha256: receipt.assembly_sha256,
+    package_manifest_sha256: receipt.package_manifest_sha256,
+    evidence_tiers: clone(receipt.evidence_tiers),
+    hit_exchange_verified: receipt.telemetry.hit_exchange.verified,
+    playable_or_recorded_output: receipt.evidence_tiers.player === "not_observed"
+      ? null
+      : clone(receipt.frame_or_clip_artifact || null),
   };
 }
 
@@ -458,4 +491,8 @@ function validSteeringTransition(from, to) {
 
 function randomStableId(prefix) {
   return `${prefix}-${randomUUID()}`;
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
