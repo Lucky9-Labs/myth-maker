@@ -61,10 +61,28 @@ export function assembleEncounterPackage({
   }
   assertConflictFreeBaseline(activeModules(slotOwners));
 
-  const candidates = sortModules(candidateModules);
+  const validCandidates = [];
+  for (const module of candidateModules) {
+    const reasons = moduleShapeReasons(module);
+    if (reasons.length) {
+      addRejection(rejections, module, reasons);
+      continue;
+    }
+    validCandidates.push(module);
+  }
+  const candidateIdCounts = new Map();
+  for (const module of validCandidates) {
+    candidateIdCounts.set(module.module_id, (candidateIdCounts.get(module.module_id) || 0) + 1);
+  }
+  const candidates = sortModules(validCandidates);
   for (const module of candidates) {
+    if (candidateIdCounts.get(module.module_id) > 1) {
+      addRejection(rejections, module, [`duplicate candidate module id ${module.module_id}`]);
+      rejectedCandidates.push(module);
+      continue;
+    }
     if (baselineIds.has(module.module_id)) {
-      addRejection(rejections, module, [`module id already selected ${module.module_id}`]);
+      addRejection(rejections, module, [`module id collides with baseline ${module.module_id}`]);
       rejectedCandidates.push(module);
       continue;
     }
@@ -419,18 +437,26 @@ function sortModules(modules) {
 }
 
 function compareModules(left, right) {
-  return right.quality?.score - left.quality?.score
-    || right.quality?.tier - left.quality?.tier
-    || String(left.module_id).localeCompare(String(right.module_id))
-    || right.revision - left.revision;
+  return (right?.quality?.score ?? -Infinity) - (left?.quality?.score ?? -Infinity)
+    || (right?.quality?.tier ?? -Infinity) - (left?.quality?.tier ?? -Infinity)
+    || String(left?.module_id).localeCompare(String(right?.module_id))
+    || (right?.revision ?? -Infinity) - (left?.revision ?? -Infinity);
 }
 
 function addRejection(rejections, module, reasons) {
   const normalized = [...new Set(reasons)].sort();
-  if (!rejections.some((item) => item.module_id === module.module_id && item.revision === module.revision
+  const identity = rejectionIdentity(module);
+  if (!rejections.some((item) => item.module_id === identity.module_id && item.revision === identity.revision
     && JSON.stringify(item.reasons) === JSON.stringify(normalized))) {
-    rejections.push({ module_id: module.module_id, revision: module.revision, reasons: normalized });
+    rejections.push({ ...identity, reasons: normalized });
   }
+}
+
+function rejectionIdentity(module) {
+  return {
+    module_id: ID.test(module?.module_id || "") ? module.module_id : "invalid-candidate",
+    revision: Number.isInteger(module?.revision) && module.revision >= 1 ? module.revision : 0,
+  };
 }
 
 function compareRejections(left, right) {
@@ -440,7 +466,7 @@ function compareRejections(left, right) {
 }
 
 function moduleLabel(module) {
-  return `${module.module_id}@${module.revision}`;
+  return `${module?.module_id || "invalid-candidate"}@${module?.revision || 0}`;
 }
 
 function packageRejectionReason(module, reason) {
