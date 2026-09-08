@@ -38,6 +38,7 @@ export class BuildRoom {
       events: [],
       artifacts: new Map(),
       packages: new Map(),
+      workGraph: new Map(),
       evidence: { local: [], modal: [], blender: [] },
       steering: [],
       nextCursor: 1,
@@ -79,6 +80,24 @@ export class BuildRoom {
     return event;
   }
 
+  upsertWork(encounterId, input, event) {
+    if (!input?.work_id) return;
+    const run = this.requireRun(encounterId);
+    const prior = run.workGraph.get(input.work_id) || {};
+    run.workGraph.set(input.work_id, {
+      ...prior,
+      work_id: input.work_id,
+      lane: input.lane || input.work_order?.lane || prior.lane || "unreported",
+      depends_on_work_ids: input.depends_on_work_ids || input.work_order?.depends_on_work_ids || prior.depends_on_work_ids || [],
+      worker_id: event.workerId,
+      status: workerStatus(event.kind),
+      started_at: prior.started_at || event.occurredAt,
+      updated_at: event.occurredAt,
+      evidence_kind: event.evidence.kind,
+    });
+    this.notify(encounterId);
+  }
+
   snapshot(encounterId) {
     const run = this.requireRun(encounterId);
     return {
@@ -88,6 +107,7 @@ export class BuildRoom {
       events: orderedEvents(run.events),
       artifacts: revisions(run.artifacts),
       packages: revisions(run.packages),
+      work_graph: [...run.workGraph.values()],
       evidence: {
         local: [...run.evidence.local],
         modal: [...run.evidence.modal],
@@ -126,7 +146,9 @@ export class BuildRoom {
 
   steer(requestId, input) {
     const run = this.requireRunByRequest(requestId);
-    if (typeof input?.instruction !== "string" || !input.instruction.trim()) throw new TypeError("steer instruction is required");
+    if (typeof input?.instruction !== "string" || !input.instruction.trim() || input.instruction.length > 2000) {
+      throw new TypeError("steer instruction must be 1 to 2000 characters");
+    }
     const receipt = {
       steer_id: this.id("steer"),
       status: "queued",
@@ -140,12 +162,14 @@ export class BuildRoom {
     return receipt;
   }
 
-  recordSteering(input) {
+  recordSteering(input, { trusted = false } = {}) {
     const run = this.requireRunByRequest(input?.request_id);
     const status = input?.status;
     if (!input.steer_id || !["queued", "accepted", "pending", "failed", "committed"].includes(status)) throw new TypeError("invalid steering receipt");
+    if (["accepted", "committed"].includes(status) && !trusted) throw new TypeError("accepted or committed steering requires trusted observer provenance");
     if (status === "committed" && !input.successor_response?.created) throw new TypeError("committed steering requires successor response.created");
     const prior = run.steering.find((receipt) => receipt.steer_id === input.steer_id);
+    if (prior && !validSteeringTransition(prior.status, status)) throw new TypeError("illegal steering receipt transition");
     const receipt = { ...prior, ...input, received_at: this.now() };
     if (prior) Object.assign(prior, receipt); else run.steering.push(receipt);
     this.notify(run.ids.encounterId);
@@ -182,6 +206,7 @@ export class BuildRoom {
         ...stored,
         artifacts: new Map(stored.artifacts || []),
         packages: new Map(stored.packages || []),
+        workGraph: new Map(stored.workGraph || []),
         steering: stored.steering || [],
       });
     }
@@ -211,7 +236,7 @@ export class CoordinatorEventAdapter {
   ingest(input, context = {}) {
     const evidence = evidenceFromAdapterInput(input, context, this.trustedObservation);
     const artifact = normaliseRevision(input.artifact, "artifact") || moduleRevision(input.module);
-    return this.room.record(input.encounter_id, {
+    const event = this.room.record(input.encounter_id, {
       eventId: input.event_id,
       workerId: input.worker_id,
       sequence: input.sequence,
@@ -222,6 +247,8 @@ export class CoordinatorEventAdapter {
       package: normaliseRevision(input.package, "package"),
       evidence,
     });
+    this.room.upsertWork(input.encounter_id, input, event);
+    return event;
   }
 }
 
@@ -316,6 +343,7 @@ function topology(run) {
     workers.set(event.workerId, current);
   }
   return {
+    work_graph: [...run.workGraph.values()].sort((a, b) => a.work_id.localeCompare(b.work_id)),
     workers: [...workers.values()].map((worker) => {
       const last = worker.events.at(-1);
       return {
@@ -335,6 +363,13 @@ function topology(run) {
   };
 }
 
+function workerStatus(kind) {
+  if (kind === "completed") return "completed";
+  if (kind === "failed" || kind === "cancelled") return "failed";
+  if (kind === "accepted") return "accepted";
+  return "running";
+}
+
 function buildSummary(run) {
   const events = run.events;
   const updatedAt = events.at(-1)?.occurredAt || run.submittedAt;
@@ -349,12 +384,23 @@ function buildSummary(run) {
     submitted_at: run.submittedAt,
     updated_at: updatedAt,
     terminal,
-    work_graph: { stages: ["request", "planner", "coordinator", "dispatcher", "workers"], workers },
+    work_graph: { stages: ["request", "planner", "coordinator", "dispatcher", "workers"], workers, work_items: run.topology.work_graph },
     catalog: run.topology.catalog,
     revisions: { artifacts: run.artifacts.length, packages: run.packages.length, evidence: "reported" },
     evidence_tier: workers.map((worker) => worker.evidence_kind),
     navigation_url: `/?build=${encodeURIComponent(run.ids.requestId)}`,
   };
+}
+
+function validSteeringTransition(from, to) {
+  if (from === to) return true;
+  return {
+    queued: new Set(["accepted", "pending", "failed"]),
+    accepted: new Set(["pending", "committed", "failed"]),
+    pending: new Set(["accepted", "committed", "failed"]),
+    failed: new Set(),
+    committed: new Set(),
+  }[from]?.has(to) || false;
 }
 
 function randomStableId(prefix) {

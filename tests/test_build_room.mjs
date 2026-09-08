@@ -166,10 +166,11 @@ test("steering stays queued or accepted until a successor response commits it", 
   const run = room.submit({ prompt: "Steer me" });
   const queued = room.steer(run.ids.requestId, { instruction: "prefer cover" });
   assert.equal(queued.status, "queued");
-  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" });
+  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" }), /trusted observer/);
+  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" }, { trusted: true });
   assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "accepted");
-  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed" }), /successor response.created/);
-  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed", successor_response: { created: true, response_id: "response-2" } });
+  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed" }, { trusted: true }), /successor response.created/);
+  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed", successor_response: { created: true, response_id: "response-2" } }, { trusted: true });
   assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "committed");
 });
 
@@ -188,11 +189,33 @@ test("the optional HTTP steer route queues a receipt without an approval state",
   }
 });
 
+test("both explicit SSE routes stream before generic detail routes and survive disconnects", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "SSE routes" }) })).json();
+    for (const path of ["/api/builds/stream", `/api/encounters/${run.ids.encounterId}/stream`]) {
+      const response = await fetch(`${base}${path}`);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("content-type"), /text\/event-stream/);
+      const reader = response.body.getReader();
+      assert.match(new TextDecoder().decode((await reader.read()).value), /event: projection/);
+      await reader.cancel();
+    }
+    assert.equal((await fetch(`${base}/api/builds/${run.ids.requestId}`)).status, 200);
+    assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).status, 200);
+  } finally {
+    server.close();
+  }
+});
+
 test("adapter accepts the coordinator worker-event shape without upgrading its evidence claim", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Coordinator contract" });
   new CoordinatorEventAdapter(room).ingest({
-    schema_version: "1", event_id: "event-remote-1", work_id: "work-001", encounter_id: run.ids.encounterId,
+    schema_version: "1", event_id: "event-remote-1", work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], encounter_id: run.ids.encounterId,
     worker_id: run.ids.workerId, sequence: 2, occurred_at: "2026-09-08T12:02:00.000Z", kind: "candidate_produced",
     module: { module_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" } },
   });
@@ -201,6 +224,10 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
   assert.deepEqual(snapshot.artifacts[0], {
     artifact_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" },
   });
+  assert.deepEqual(snapshot.topology.work_graph, [{
+    work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
+    status: "running", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported",
+  }]);
 });
 
 function sequenceIds() {

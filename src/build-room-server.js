@@ -18,22 +18,23 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
       if (request.method === "GET" && url.pathname === "/api/health") return json(response, 200, { status: "ok", encounters: room.list().length });
       if (request.method === "GET" && url.pathname === "/api/builds") return json(response, 200, room.buildIndex());
       if (request.method === "GET" && url.pathname === "/api/builds/stream") {
+        const projection = room.buildIndex();
         response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
         buildStreams.add(response);
-        stream(response, room.buildIndex());
+        stream(response, projection);
         request.on("close", () => buildStreams.delete(response));
         return;
       }
-      const buildMatch = url.pathname.match(/^\/api\/builds\/([^/]+)$/);
-      if (request.method === "GET" && buildMatch) return json(response, 200, room.buildDetail(buildMatch[1]));
       const steerMatch = url.pathname.match(/^\/api\/builds\/([^/]+)\/steer$/);
       if (request.method === "POST" && steerMatch) {
         const receipt = room.steer(steerMatch[1], await body(request));
         persist(room);
         return json(response, 202, receipt);
       }
+      const buildMatch = url.pathname.match(/^\/api\/builds\/([^/]+)$/);
+      if (request.method === "GET" && buildMatch) return json(response, 200, room.buildDetail(buildMatch[1]));
       if (request.method === "POST" && url.pathname === "/api/ingest/steering") {
-        const receipt = room.recordSteering(await body(request));
+        const receipt = room.recordSteering(await body(request), { trusted: trustedObserver(request) });
         persist(room);
         return json(response, 201, receipt);
       }
@@ -42,23 +43,24 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
         persist(room);
         return json(response, 201, run);
       }
+      const streamMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/stream$/);
+      if (request.method === "GET" && streamMatch) {
+        const encounterId = streamMatch[1];
+        room.requireRun(encounterId);
+        const projection = room.snapshot(encounterId);
+        response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+        const group = streams.get(encounterId) || new Set();
+        group.add(response);
+        streams.set(encounterId, group);
+        stream(response, projection);
+        request.on("close", () => { group.delete(response); if (group.size === 0) streams.delete(encounterId); });
+        return;
+      }
       const match = url.pathname.match(/^\/api\/encounters\/([^/]+)$/);
       if (request.method === "GET" && match) {
         const snapshot = room.snapshot(match[1]);
         const after = url.searchParams.get("after");
         return json(response, 200, { ...snapshot, events: room.replay(match[1], after || undefined) });
-      }
-      const streamMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/stream$/);
-      if (request.method === "GET" && streamMatch) {
-        const encounterId = streamMatch[1];
-        room.requireRun(encounterId);
-        response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
-        const group = streams.get(encounterId) || new Set();
-        group.add(response);
-        streams.set(encounterId, group);
-        stream(response, room.snapshot(encounterId));
-        request.on("close", () => { group.delete(response); if (group.size === 0) streams.delete(encounterId); });
-        return;
       }
       if (request.method === "POST" && ["/api/ingest/coordinator", "/api/ingest/dispatcher"].includes(url.pathname)) {
         const event = adapter.ingest(await body(request), request);
@@ -67,6 +69,7 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
       }
       return json(response, 404, { error: "not_found" });
     } catch (error) {
+      if (response.headersSent) return response.destroy();
       return json(response, error instanceof RangeError ? 404 : 400, { error: error.message });
     }
   });
@@ -181,9 +184,9 @@ const CLIENT_SCRIPT = String.raw`
   function revisionList(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> rev " + row.revision + "</li>").join("") + "</ul>" : "<p class=\"muted\">No observed revisions.</p>"; }
   function eventRows(events) { return events.map((entry) => "<tr><td>" + entry.sequence + "</td><td>" + esc(entry.kind) + "</td><td><span class=\"pill\">" + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "</span></td><td>" + esc(entry.message) + "</td></tr>").join(""); }
   function workerLanes(run, elapsed) {
-    const workers = run.topology.workers;
-    const observed = workers.map((worker) => "<div class=\"lane " + evidenceClass(worker.evidence_kind) + "\"><strong>Worker lane</strong><br><code>" + esc(worker.worker_id) + "</code><br>status: " + esc(worker.status) + " · " + elapsed + "s<br>stage: " + esc(worker.current_stage) + "<br>evidence: " + esc(labels[worker.evidence_kind]) + "</div>").join("");
-    return observed + "<div class=\"lane absent\"><strong>Asset lane</strong><br>unassigned — absent</div><div class=\"lane absent\"><strong>Animation lane</strong><br>unassigned — absent</div>";
+    const workItems = run.topology.work_graph;
+    if (!workItems.length) return "<div class=\"lane absent\"><strong>No observed work items</strong><br>Coordinator work graph has not been received.</div>";
+    return workItems.map((work) => "<div class=\"lane " + evidenceClass(work.evidence_kind) + "\"><strong>" + esc(work.lane) + " work</strong><br>work: <code>" + esc(work.work_id) + "</code><br>worker: <code>" + esc(work.worker_id) + "</code><br>status: " + esc(work.status) + " · " + elapsed + "s<br>depends on: " + esc(work.depends_on_work_ids.join(", ") || "none") + "<br>evidence: " + esc(labels[work.evidence_kind]) + "</div>").join("");
   }
   function evidenceClass(kind) { return ({ local_process: "observed-local", fixture: "fixture", modal_remote: "observed-modal", blender_window: "observed-blender" })[kind] || "absent"; }
   function buildCard(build) { return "<li><a href=\"" + esc(build.navigation_url) + "\"><code>" + esc(build.request_id) + "</code></a><br>encounter: <code>" + esc(build.encounter_id) + "</code><br>" + esc(build.terminal ? "terminal" : "active") + " · workers: " + build.work_graph.workers.length + " · revisions: " + build.revisions.artifacts + "/" + build.revisions.packages + "</li>"; }
@@ -196,7 +199,7 @@ const CLIENT_SCRIPT = String.raw`
     const blender = run.evidence.blender.length ? "observed visual evidence" : "no observed window, screenshot, or stream";
     const packageRevision = run.packages.length ? "revision observed" : "no observed package revision";
     const catalog = run.topology.catalog;
-    main.innerHTML = "<p><a href=\"/\">← All builds</a></p><section class=\"grid\"><div class=\"card\"><h2>Identity</h2><p>Encounter<br><code>" + esc(run.ids.encounterId) + "</code></p><p>Request<br><code>" + esc(run.ids.requestId) + "</code></p><p>Worker correlation<br><code>" + esc(run.ids.workerId) + "</code></p><p>Timer <strong>" + elapsed + "s</strong></p></div><div class=\"card\"><h2>Evidence legend</h2><p class=\"fixture\">Fixture — simulated only</p><p class=\"observed-local\">Local — observed process receipt</p><p class=\"observed-modal\">Modal — only observed with trusted receipt</p><p class=\"observed-blender\">Blender — only observed with trusted visual receipt</p><p class=\"absent\">Gray — absent / unobserved</p></div></section><section class=\"card\"><h2>Directed encounter topology</h2><div class=\"topology\"><div class=\"node observed-local\">Request<br>↓<br>Encounter</div><div class=\"arrow\">→</div><div class=\"node fixture\">Planner<br>fixture preview</div><div class=\"arrow\">→</div><div class=\"node absent\">Coordinator<br>no observed receipt</div><div class=\"arrow\">→</div><div class=\"node absent\">Dispatcher<br>" + modal + "</div></div><div class=\"topology\">" + workerLanes(run, elapsed) + "</div><p class=\"muted\">Directed edges are the intended dispatch/dependency route; gray nodes have no observed execution evidence.</p></section><section class=\"grid\"><div class=\"card\"><h2>Catalog counters</h2><p>Semantic entities: " + catalog.semantic_entities.count + " (" + catalog.semantic_entities.evidence + ")</p><p>Assets: " + catalog.assets.count + " (" + catalog.assets.evidence + ")</p><p>Animations: " + catalog.animations.count + " (" + catalog.animations.evidence + ")</p><p>Artifact revisions: " + catalog.artifact_revisions.count + " (" + catalog.artifact_revisions.evidence + ")</p><p>Package revisions: " + catalog.package_revisions.count + " (" + catalog.package_revisions.evidence + ")</p></div><div class=\"card\"><h2>Steer active build</h2><form id=\"steer\"><textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea><button>Queue steer</button></form>" + steerRows(run.steering) + "</div><div class=\"card\"><h2>Pipeline / work graph</h2><div class=\"stage live\">Local intake — observed receipt</div><div class=\"stage fixture\">Preview fixture — simulated only</div><div class=\"stage absent\">Coordinator adapter — no observed receipt</div><div class=\"stage absent\">Dispatcher / Modal — " + modal + "</div><div class=\"stage absent\">Blender — " + blender + "</div><div class=\"stage absent\">Package — " + packageRevision + "</div></div></section><section class=\"card\"><h2>Ordered worker events</h2><table><thead><tr><th>Sequence</th><th>Event</th><th>Evidence source</th><th>Message</th></tr></thead><tbody>" + eventRows(run.events) + "</tbody></table></section><section class=\"grid\"><div class=\"card\"><h2>Artifact revisions</h2>" + revisionList(run.artifacts, "artifact_id") + "</div><div class=\"card\"><h2>Package revisions</h2>" + revisionList(run.packages, "package_id") + "</div></section>";
+    main.innerHTML = "<p><a href=\"/\">← All builds</a></p><section class=\"grid\"><div class=\"card\"><h2>Identity</h2><p>Encounter<br><code>" + esc(run.ids.encounterId) + "</code></p><p>Request<br><code>" + esc(run.ids.requestId) + "</code></p><p>Worker correlation<br><code>" + esc(run.ids.workerId) + "</code></p><p>Timer <strong>" + elapsed + "s</strong></p></div><div class=\"card\"><h2>Evidence legend</h2><p class=\"fixture\">Fixture — simulated only</p><p class=\"observed-local\">Local — observed process receipt</p><p class=\"observed-modal\">Modal — only observed with trusted receipt</p><p class=\"observed-blender\">Blender — only observed with trusted visual receipt</p><p class=\"absent\">Gray — absent / unobserved</p></div></section><section class=\"card\"><h2>Observed work graph</h2><div class=\"topology\"><div class=\"node observed-local\">Request<br>↓<br>Encounter</div><div class=\"arrow\">→</div><div class=\"node absent\">Coordinator/dispatcher<br>only receipt-derived work shown below</div></div><div class=\"topology\">" + workerLanes(run, elapsed) + "</div></section><section class=\"grid\"><div class=\"card\"><h2>Catalog counters</h2><p>Semantic entities: " + catalog.semantic_entities.count + " (" + catalog.semantic_entities.evidence + ")</p><p>Assets: " + catalog.assets.count + " (" + catalog.assets.evidence + ")</p><p>Animations: " + catalog.animations.count + " (" + catalog.animations.evidence + ")</p><p>Artifact revisions: " + catalog.artifact_revisions.count + " (" + catalog.artifact_revisions.evidence + ")</p><p>Package revisions: " + catalog.package_revisions.count + " (" + catalog.package_revisions.evidence + ")</p></div><div class=\"card\"><h2>Steer active build</h2><form id=\"steer\"><textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea><button>Queue steer</button></form>" + steerRows(run.steering) + "</div><div class=\"card\"><h2>Pipeline / work graph</h2><div class=\"stage live\">Local intake — observed receipt</div><div class=\"stage fixture\">Preview fixture — simulated only</div><div class=\"stage absent\">Coordinator adapter — no observed receipt</div><div class=\"stage absent\">Dispatcher / Modal — " + modal + "</div><div class=\"stage absent\">Blender — " + blender + "</div><div class=\"stage absent\">Package — " + packageRevision + "</div></div></section><section class=\"card\"><h2>Ordered worker events</h2><table><thead><tr><th>Sequence</th><th>Event</th><th>Evidence source</th><th>Message</th></tr></thead><tbody>" + eventRows(run.events) + "</tbody></table></section><section class=\"grid\"><div class=\"card\"><h2>Artifact revisions</h2>" + revisionList(run.artifacts, "artifact_id") + "</div><div class=\"card\"><h2>Package revisions</h2>" + revisionList(run.packages, "package_id") + "</div></section>";
     document.querySelector("#steer").addEventListener("submit", submitSteer);
   }
 
