@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isV1WorkerEvent } from "./worker.js";
 
 const EVIDENCE_LABELS = {
   fixture: "Simulated fixture (not live)",
   local_process: "Local process receipt (observed)",
+  local_blender_cli: "Local Blender CLI evidence (observed)",
   adapter_reported: "Coordinator/dispatcher report (unverified)",
   modal_remote: "Modal remote receipt (observed)",
   blender_window: "Blender window/screenshot/stream (observed)",
@@ -19,6 +20,7 @@ export class BuildRoom {
     this.now = now;
     this.id = id;
     this.runs = new Map();
+    this.idempotency = new Map();
     this.listeners = new Set();
     this.catalogProjection = catalogProjection;
   }
@@ -29,9 +31,27 @@ export class BuildRoom {
     return this;
   }
 
-  submit({ prompt }) {
+  submit(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)
+      || Object.keys(input).some((key) => !["prompt", "generate_asset", "idempotency_key"].includes(key))) {
+      throw new TypeError("build-room request has unknown fields");
+    }
+    const { prompt, generate_asset: generateAsset = false, idempotency_key: idempotencyKey = undefined } = input;
     if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 2000) {
       throw new TypeError("prompt must be a non-empty string of at most 2000 characters");
+    }
+    if (typeof generateAsset !== "boolean") throw new TypeError("generate_asset must be a boolean when supplied");
+    if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9._-]{8,128}$/.test(idempotencyKey))) {
+      throw new TypeError("idempotency_key must be 8 to 128 URL-safe characters");
+    }
+    const normalizedPrompt = prompt.trim();
+    const fingerprint = createHash("sha256").update(JSON.stringify({ prompt: normalizedPrompt, generate_asset: generateAsset })).digest("hex");
+    if (idempotencyKey) {
+      const prior = this.idempotency.get(idempotencyKey);
+      if (prior) {
+        if (prior.fingerprint !== fingerprint) throw new TypeError("idempotency_key reused with a different build-room request");
+        return { ...this.snapshot(prior.encounterId), deduplicated: true };
+      }
     }
     const ids = {
       encounterId: this.id("encounter"),
@@ -41,7 +61,9 @@ export class BuildRoom {
     const submittedAt = this.now();
     this.runs.set(ids.encounterId, {
       ids,
-      prompt: prompt.trim(),
+      prompt: normalizedPrompt,
+      generateAsset,
+      seed: seedFor(normalizedPrompt),
       submittedAt,
       events: [],
       artifacts: new Map(),
@@ -61,9 +83,10 @@ export class BuildRoom {
       message: "The local build-room accepted this request. Cloudflare EncounterCoordinator was not contacted.",
       evidence: { kind: "local_process", receipt: { request_id: ids.requestId, observed_at: submittedAt } },
     });
+    if (idempotencyKey) this.idempotency.set(idempotencyKey, { encounterId: ids.encounterId, fingerprint });
     const snapshot = this.snapshot(ids.encounterId);
     this.notify(ids.encounterId);
-    return snapshot;
+    return { ...snapshot, deduplicated: false };
   }
 
   record(encounterId, input) {
@@ -72,7 +95,7 @@ export class BuildRoom {
     run.events.push(event);
     if (event.artifact) upsertRevision(run.artifacts, event.artifact);
     if (event.package) upsertRevision(run.packages, event.package);
-    if (event.evidence.kind === "local_process") run.evidence.local.push(event.evidence.receipt);
+    if (["local_process", "local_blender_cli"].includes(event.evidence.kind)) run.evidence.local.push(event.evidence.receipt);
     if (event.evidence.kind === "modal_remote") run.evidence.modal.push(event.evidence.receipt);
     if (event.evidence.kind === "blender_window") run.evidence.blender.push(event.evidence.receipt);
     this.notify(encounterId);
@@ -103,6 +126,8 @@ export class BuildRoom {
     return {
       ids: { ...run.ids },
       prompt: run.prompt,
+      generate_asset: run.generateAsset,
+      seed: run.seed,
       submittedAt: run.submittedAt,
       events: orderedEvents(run.events),
       artifacts: revisions(run.artifacts),
@@ -197,6 +222,7 @@ export class BuildRoom {
   exportState() {
     return {
       version: 1,
+      idempotency: [...this.idempotency.entries()],
       runs: [...this.runs.values()].map((run) => ({
         ...run,
         artifacts: [...run.artifacts.entries()],
@@ -209,6 +235,7 @@ export class BuildRoom {
   restore(state) {
     if (state?.version !== 1 || !Array.isArray(state.runs)) throw new TypeError("invalid build-room state");
     this.runs.clear();
+    this.idempotency.clear();
     for (const stored of state.runs) {
       if (!stored?.ids?.encounterId || !Array.isArray(stored.events)) throw new TypeError("invalid stored build-room run");
       this.runs.set(stored.ids.encounterId, {
@@ -218,6 +245,9 @@ export class BuildRoom {
         workGraph: new Map(Array.isArray(stored.workGraph) ? stored.workGraph : []),
         steering: stored.steering || [],
       });
+    }
+    for (const [key, value] of state.idempotency || []) {
+      if (typeof key === "string" && value?.encounterId && value?.fingerprint) this.idempotency.set(key, value);
     }
     return this;
   }
@@ -331,7 +361,7 @@ function evidenceFromAdapterInput(input, context, trustedObservation) {
 
 function validateEvidence(evidence) {
   if (!EVIDENCE_LABELS[evidence?.kind]) throw new TypeError("unknown evidence kind");
-  if (["local_process", "modal_remote", "blender_window"].includes(evidence.kind) && !evidence.receipt) {
+  if (["local_process", "local_blender_cli", "modal_remote", "blender_window"].includes(evidence.kind) && !evidence.receipt) {
     throw new TypeError(`${evidence.kind} evidence requires an observed receipt`);
   }
 }
@@ -382,7 +412,7 @@ function topology(run, catalogProjection, observedAt) {
       ...work,
       elapsed_seconds: elapsedSeconds(work, observedAt),
     })),
-    workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process"].includes(event.evidence.kind))).map((worker) => {
+    workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process", "local_blender_cli"].includes(event.evidence.kind))).map((worker) => {
       const last = worker.events.at(-1);
       return {
         worker_id: worker.workerId,
@@ -458,4 +488,8 @@ function validSteeringTransition(from, to) {
 
 function randomStableId(prefix) {
   return `${prefix}-${randomUUID()}`;
+}
+
+function seedFor(prompt) {
+  return createHash("sha256").update(prompt).digest().readUInt32BE(0);
 }

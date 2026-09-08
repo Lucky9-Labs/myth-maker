@@ -149,6 +149,22 @@ Run the dependency-free inspection viewer with:
 npm run build-room
 ```
 
+For one complete, local-only generated-asset receipt, run:
+
+```sh
+npm run demo:local-blender
+```
+
+That command submits a bounded Build Room request and uses the installed local
+Blender CLI to create a small ocean-inspired demo mesh from a deterministic
+seed. It persists a content-addressed `.blend` checkpoint, checked `glb.v1`
+output, rendered PNG thumbnail, exact Blender command receipts, a newly
+produced catalog asset revision, and an assembler package revision under
+`.local-blender-artifacts/`. The demo creature is bootstrap content only; the
+module remains the generic `encounter.body` capability. It is **local Blender
+CLI evidence only**, not Modal/cloud execution, Unity-load validation, or
+player-facing proof.
+
 It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
 restarts it when its source changes, so the local viewer remains easy to patch;
 the projection and replay log are persisted to `.build-room-state.json` across
@@ -170,7 +186,11 @@ The evidence label is deliberate:
   `source: "blender_window"` plus an observed screenshot path or stream URL and
   an observation timestamp. Both Modal and Blender labels also require a local
   bridge to present the configured `x-build-room-observer-token`; otherwise
-  receipt-shaped input is rejected rather than displayed as observed.
+receipt-shaped input is rejected rather than displayed as observed.
+- **Local Blender CLI evidence (observed)** is emitted only by the optional
+  generated-asset checkbox/API flag. It includes a rendered local thumbnail and
+  exact source/output hashes and command receipts, but makes none of the
+  Modal, Unity-load, or player-facing claims above.
 
 The adapter seam is `POST /api/ingest/coordinator` or
 `POST /api/ingest/dispatcher`. It accepts the coordinator's worker-event fields
