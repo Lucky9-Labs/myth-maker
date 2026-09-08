@@ -93,7 +93,13 @@ jobs:
           started_at="${STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
           details="$(node -e '
             const fs = require("node:fs");
-            const result = fs.existsSync(process.env.RESULT) ? JSON.parse(fs.readFileSync(process.env.RESULT, "utf8")) : {};
+            let result = {};
+            try {
+              const text = fs.existsSync(process.env.RESULT) ? fs.readFileSync(process.env.RESULT, "utf8").trim() : "";
+              result = text ? JSON.parse(text) : {};
+            } catch {
+              result = { reason: "provider command did not produce parseable result" };
+            }
             process.stdout.write(JSON.stringify(result.evidence ? { provider_evidence: result.evidence } : { reason: result.reason || "provider command did not produce verified evidence" }));
           ')"
           node scripts/deployment/controller.mjs receipt \
