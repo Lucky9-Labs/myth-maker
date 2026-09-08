@@ -92,7 +92,12 @@ function trustedObserver(request) {
 }
 
 function stream(response, snapshot) {
-  response.write(`event: projection\ndata: ${JSON.stringify(snapshot)}\n\n`);
+  if (response.destroyed || response.writableEnded) return;
+  try {
+    response.write(`event: projection\ndata: ${JSON.stringify(snapshot)}\n\n`);
+  } catch {
+    // A disconnected EventSource is not an API failure and must not take down the viewer.
+  }
 }
 
 function body(request) {

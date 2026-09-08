@@ -182,6 +182,7 @@ export class BuildRoom {
         ...stored,
         artifacts: new Map(stored.artifacts || []),
         packages: new Map(stored.packages || []),
+        steering: stored.steering || [],
       });
     }
     return this;
