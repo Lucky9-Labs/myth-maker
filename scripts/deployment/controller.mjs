@@ -34,13 +34,13 @@ export const providerDefinitions = Object.freeze({
     deploy: null,
   }),
   modal: Object.freeze({
-    // Modal deploy has no machine-readable evidence/health query seam yet.
-    // Do not run it until a successful command can produce verifiable receipt
-    // facts; OPENAI_API_KEY remains a runtime secret, never a CI CLI input.
-    secretNames: [],
-    requiredFiles: ["modal/draft_trial.py"],
+    // These are read only by the CI-owned bootstrap helper after the GitHub
+    // Environment gate. OPENAI_API_KEY is copied to a named Modal Secret and
+    // never passed as a CLI argument or emitted in the deployment evidence.
+    secretNames: ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"],
+    requiredFiles: ["modal/draft_trial.py", "scripts/deployment/modal_deploy.py"],
     preview: null,
-    deploy: null,
+    deploy: ["python3", ["scripts/deployment/modal_deploy.py"]],
   }),
 });
 
@@ -141,15 +141,23 @@ export function parseModalDeploymentEvidence(output) {
   const versionId = parsed.version_id;
   const resourceIds = parsed.resource_ids;
   const health = parsed.health;
+  const dispatch = parsed.dispatch;
   if (
     typeof deploymentId !== "string" || !deploymentId
     || typeof versionId !== "string" || !versionId
     || !Array.isArray(resourceIds) || resourceIds.length === 0 || resourceIds.some((value) => typeof value !== "string" || !value)
     || health?.status !== "healthy"
+    || health?.dedicated_secret_verified !== true
+    || typeof health?.verified_secret_name !== "string" || !health.verified_secret_name
+    || typeof dispatch?.function_call_id !== "string" || !dispatch.function_call_id
+    || typeof dispatch?.function_id !== "string" || !dispatch.function_id
+    || typeof dispatch?.input_id !== "string" || !dispatch.input_id
+    || typeof dispatch?.worker_id !== "string" || !dispatch.worker_id
+    || dispatch?.status !== "completed"
   ) {
-    throw new Error("Modal deployment evidence requires deployment_id, version_id, resource_ids, and healthy status");
+    throw new Error("Modal deployment evidence requires deployment_id, version_id, resource_ids, healthy status, and a completed remote dispatch receipt");
   }
-  return { deployment_id: deploymentId, version_id: versionId, resource_ids: resourceIds, health };
+  return { deployment_id: deploymentId, version_id: versionId, resource_ids: resourceIds, health, dispatch };
 }
 
 export function createReceipt({ provider, environment, sourceSha, status, startedAt, completedAt, artifactIds = [], verification = {}, details = {} }) {
@@ -183,7 +191,9 @@ export function providerCommand(provider, mode, environment) {
   }
   if (mode !== "deploy") return null;
   if (provider === "modal" && definition.deploy) {
-    return [definition.deploy[0], [...definition.deploy[1], "--env", environment, "modal/draft_trial.py"]];
+    const evidencePath = process.env.MODAL_EVIDENCE_PATH;
+    if (!evidencePath) throw new Error("MODAL_EVIDENCE_PATH is required for a Modal deployment receipt");
+    return [definition.deploy[0], [...definition.deploy[1], "--environment", environment, "--output", evidencePath]];
   }
   return definition.deploy;
 }
@@ -305,7 +315,10 @@ function run(command, options) {
   if (missingSecrets.length) {
     throw new Error(`${missingSecrets.join(", ")} are required only after the reviewed environment gate`);
   }
-  const output = executeProviderCommand(invocation);
+  let output = executeProviderCommand(invocation);
+  if (provider === "modal") {
+    output = readFileSync(process.env.MODAL_EVIDENCE_PATH, "utf8");
+  }
   const evidence = provider === "modal" ? parseModalDeploymentEvidence(output) : undefined;
   process.stdout.write(`${JSON.stringify({ ...request, status: "deployed", ...(evidence ? { evidence } : {}) })}\n`);
 }
