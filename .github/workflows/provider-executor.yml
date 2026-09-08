@@ -1,0 +1,80 @@
+name: Provider deployment executor
+
+on:
+  workflow_call:
+    inputs:
+      provider:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment }}
+    concurrency:
+      group: myth-maker-deploy-${{ inputs.provider }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+      - name: Assert an immutable clean checked-out revision
+        id: preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+          git diff --exit-code
+          git diff --cached --exit-code
+          printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Deploy through the provider adapter
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
+          TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
+          WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node scripts/deployment/controller.mjs deploy --event workflow_dispatch --provider '${{ inputs.provider }}' --environment '${{ inputs.environment }}'
+      - name: Write machine-readable receipt
+        if: always()
+        shell: bash
+        env:
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+        run: |
+          set -euo pipefail
+          status=failure
+          if [[ "$DEPLOY_OUTCOME" == success ]]; then status=success; fi
+          completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node scripts/deployment/controller.mjs receipt \
+            --provider '${{ inputs.provider }}' \
+            --environment '${{ inputs.environment }}' \
+            --source-sha '${{ inputs.source_sha }}' \
+            --status "$status" \
+            --started-at '${{ steps.preflight.outputs.started_at }}' \
+            --completed-at "$completed_at" \
+            --verification "{\"checkout_clean\":true,\"provider_command_outcome\":\"$DEPLOY_OUTCOME\"}" \
+            --output 'receipts/${{ inputs.provider }}-${{ inputs.environment }}.json'
+      - name: Upload deployment receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deployment-receipt-${{ inputs.provider }}-${{ inputs.environment }}-${{ inputs.source_sha }}
+          path: receipts/${{ inputs.provider }}-${{ inputs.environment }}.json
+          if-no-files-found: error
+          retention-days: 30
