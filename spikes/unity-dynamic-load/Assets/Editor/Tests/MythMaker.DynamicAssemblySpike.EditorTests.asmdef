@@ -1,0 +1,13 @@
+{
+  "name": "MythMaker.DynamicAssemblySpike.EditorTests",
+  "rootNamespace": "MythMaker.DynamicAssemblySpike.Tests",
+  "references": [
+    "MythMaker.DynamicAssemblySpike"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}

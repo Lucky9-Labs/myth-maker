@@ -1,0 +1,10 @@
+[Ll]ibrary/
+[Ll]ogs/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Tt]est[Rr]esults/
+[Uu]ser[Ss]ettings/
+*.log
+ProjectSettings/*
+!ProjectSettings/ProjectVersion.txt
