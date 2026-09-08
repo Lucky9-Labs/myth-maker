@@ -24,13 +24,34 @@ const baseWorkOrder = {
   attempt: 1,
 };
 
+const playablePackage = {
+  schema_version: "1",
+  package_id: "package-alpha",
+  encounter_id: "encounter-alpha",
+  revision: 1,
+  state: "ready",
+  assembled_at: "2026-09-08T19:30:00.000Z",
+  module_ids: ["baseline-core"],
+  manifest_sha256: "a".repeat(64),
+  fallback_provenance: { used_fallback: true, module_ids: ["baseline-core"] },
+};
+
 function workOrder(overrides = {}) {
   return { ...structuredClone(baseWorkOrder), ...overrides };
 }
 
 function storage() {
   const values = new Map();
-  return { get: async (key) => values.get(key), put: async (key, value) => values.set(key, value) };
+  const store = { get: async (key) => values.get(key), put: async (key, value) => values.set(key, value) };
+  let pending = Promise.resolve();
+  return {
+    ...store,
+    transaction(callback) {
+      const transaction = pending.then(() => callback(store));
+      pending = transaction.catch(() => undefined);
+      return transaction;
+    },
+  };
 }
 
 function coordinator() {
@@ -152,19 +173,48 @@ test("idempotency replays an identical request and rejects a fingerprint mismatc
 test("independent work items in one encounter dispatch without a component-wide busy lock", async () => {
   const oldFetch = globalThis.fetch;
   const dispatched = [];
-  globalThis.fetch = async (_url, init) => { dispatched.push(JSON.parse(init.body).work_id); return new Response("accepted", { status: 202 }); };
+  let releaseDispatch;
+  const bothStarted = new Promise((resolve) => { releaseDispatch = resolve; });
+  let releaseResponses;
+  const responsesReleased = new Promise((resolve) => { releaseResponses = resolve; });
+  globalThis.fetch = async (_url, init) => {
+    dispatched.push(JSON.parse(init.body).work_id);
+    if (dispatched.length === 2) releaseDispatch();
+    await responsesReleased;
+    return new Response("accepted", { status: 202 });
+  };
   try {
     const instance = coordinator();
-    const [first, second] = await Promise.all([
+    const submissions = Promise.all([
       submit(instance, workOrder(), "encounter-work-0001"),
       submit(instance, workOrder({ work_id: "combat-plan", lane: "combat", requested_provides: ["combat.attack"] }), "encounter-work-0002"),
     ]);
+    await bothStarted;
+    releaseResponses();
+    const [first, second] = await submissions;
     assert.equal(first.status, 202);
     assert.equal(second.status, 202);
     assert.deepEqual(dispatched.sort(), ["arena-shell", "combat-plan"]);
     const status = await body(await instance.fetch(new Request("https://coordinator/status")));
     assert.equal(status.work_items.length, 2);
     assert.deepEqual(status.work_items.map((item) => item.status).sort(), ["queued", "queued"]);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("a dispatch failure is durably replayed without a second external dispatch", async () => {
+  const oldFetch = globalThis.fetch;
+  let dispatches = 0;
+  globalThis.fetch = async () => { dispatches += 1; return new Response("unavailable", { status: 503 }); };
+  try {
+    const instance = coordinator();
+    const first = await submit(instance, workOrder());
+    const replay = await submit(instance, workOrder());
+    assert.equal(first.status, 502);
+    assert.equal(replay.status, 502);
+    assert.equal(dispatches, 1);
+    assert.equal((await body(replay)).work_item.status, "blocked");
   } finally {
     globalThis.fetch = oldFetch;
   }
@@ -206,18 +256,21 @@ test("a failed worker event is visible and terminal", async () => {
   }
 });
 
-test("freezing returns one immutable encounter result", async () => {
+test("freezing persists one immutable assembler-supplied package", async () => {
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("accepted", { status: 202 });
   try {
     const instance = coordinator();
     await submit(instance, workOrder());
-    const firstFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST" }));
+    const firstFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST", body: JSON.stringify({ package: playablePackage }) }));
     const frozen = await body(firstFreeze);
     const replayFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST" }));
     assert.equal(firstFreeze.status, 201);
     assert.equal(replayFreeze.status, 200);
     assert.deepEqual(await body(replayFreeze), frozen);
+    assert.equal(frozen.state, "frozen");
+    assert.equal(frozen.package_id, playablePackage.package_id);
+    assert.ok(frozen.frozen_at);
     assert.equal((await submit(instance, workOrder({ work_id: "late-work" }), "encounter-work-late")).status, 409);
     assert.equal((await appendEvent(instance, event("arena-shell", 0, "accepted"))).status, 409);
   } finally {

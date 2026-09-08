@@ -20,7 +20,9 @@ function hasOnly(value, fields) {
 }
 
 function isDateTime(value) {
-  return typeof value === "string" && !Number.isNaN(Date.parse(value));
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && !Number.isNaN(Date.parse(value));
 }
 
 function isIdArray(value) {
@@ -36,8 +38,8 @@ function validCapabilities(value) {
   const fields = new Set(["schema_version", "host_id", "host_build", "platform", "scripting_backend", "execution_kinds", "loaders", "contracts", "limits"]);
   if (!isObject(value) || !hasOnly(value, fields)
     || value.schema_version !== "1" || !ID.test(value.host_id)
-    || typeof value.host_build !== "string" || value.host_build.length === 0
-    || typeof value.platform !== "string" || value.platform.length === 0
+    || typeof value.host_build !== "string" || value.host_build.length === 0 || value.host_build.length > 128
+    || typeof value.platform !== "string" || value.platform.length === 0 || value.platform.length > 64
     || !["mono", "il2cpp"].includes(value.scripting_backend)
     || !Array.isArray(value.execution_kinds) || value.execution_kinds.length === 0
     || !value.execution_kinds.every((kind) => EXECUTION_KINDS.has(kind))
@@ -138,6 +140,23 @@ function validWorkerEvent(value) {
   return value.kind !== "failed" || (SEMANTIC_TAG.test(value.error_code) && typeof value.retryable === "boolean");
 }
 
+function validPlayablePackage(value) {
+  const fields = new Set(["schema_version", "package_id", "encounter_id", "revision", "state", "assembled_at", "frozen_at", "module_ids", "manifest_sha256", "fallback_provenance", "rejection_reasons"]);
+  if (!isObject(value) || !hasOnly(value, fields) || value.schema_version !== "1"
+    || !ID.test(value.package_id) || !ID.test(value.encounter_id)
+    || !Number.isInteger(value.revision) || value.revision < 1
+    || !["candidate", "preloading", "ready", "frozen", "rejected"].includes(value.state)
+    || !isDateTime(value.assembled_at) || !Array.isArray(value.module_ids) || value.module_ids.length === 0 || !isIdArray(value.module_ids)
+    || !SHA256.test(value.manifest_sha256) || !isObject(value.fallback_provenance)) return false;
+  const fallbackFields = new Set(["used_fallback", "module_ids"]);
+  if (!hasOnly(value.fallback_provenance, fallbackFields)
+    || typeof value.fallback_provenance.used_fallback !== "boolean" || !isIdArray(value.fallback_provenance.module_ids)) return false;
+  if (value.frozen_at !== undefined && !isDateTime(value.frozen_at)) return false;
+  if (value.state === "frozen" && !isDateTime(value.frozen_at)) return false;
+  return value.rejection_reasons === undefined || (Array.isArray(value.rejection_reasons)
+    && value.rejection_reasons.every((reason) => typeof reason === "string" && reason.length > 0 && reason.length <= 512));
+}
+
 function validSubmission(value) {
   return isObject(value) && hasOnly(value, new Set(["idempotency_key", "work_order"]))
     && IDEMPOTENCY_KEY.test(value.idempotency_key || "") && validWorkOrder(value.work_order);
@@ -209,7 +228,12 @@ export class EncounterCoordinator {
   constructor(state, env) {
     this.state = state;
     this.dispatcher = new WorkDispatcherAdapter(env);
-    this.operationQueue = Promise.resolve();
+    this.dispatches = new Map();
+  }
+
+  async transaction(callback) {
+    if (typeof this.state.storage.transaction === "function") return this.state.storage.transaction(callback);
+    return callback(this.state.storage);
   }
 
   async encounterStatus() {
@@ -222,91 +246,111 @@ export class EncounterCoordinator {
   async submit(submission) {
     if (!validSubmission(submission)) return response({ error: "invalid_work_submission" }, 400);
     const workOrder = submission.work_order;
-    const encounter = await this.state.storage.get("encounter");
-    if (encounter?.state === "frozen") return response({ error: "encounter_frozen", encounter_id: encounter.encounter_id }, 409);
-
     const requestFingerprint = await fingerprint(workOrder);
     const idempotencyKey = `idempotency:${submission.idempotency_key}`;
-    const prior = await this.state.storage.get(idempotencyKey);
-    if (prior) {
-      if (prior.fingerprint !== requestFingerprint) return response({ error: "idempotency_key_reused_with_different_request" }, 409);
-      return response(prior.response, prior.status);
-    }
+    const admitted = await this.transaction(async (storage) => {
+      const encounter = await storage.get("encounter");
+      if (encounter?.state === "frozen") return { error: { error: "encounter_frozen", encounter_id: encounter.encounter_id }, status: 409 };
+      const prior = await storage.get(idempotencyKey);
+      if (prior) {
+        if (prior.fingerprint !== requestFingerprint) return { error: { error: "idempotency_key_reused_with_different_request" }, status: 409 };
+        return prior.dispatch_pending ? { dispatch: await storage.get(workKey(prior.work_id)) } : { replay: prior };
+      }
+      if (await storage.get(workKey(workOrder.work_id))) return { error: { error: "work_id_already_exists", work_id: workOrder.work_id }, status: 409 };
+      const openEncounter = encounter || { encounter_id: workOrder.encounter_id, state: "open", work_ids: [] };
+      if (openEncounter.encounter_id !== workOrder.encounter_id) return { error: { error: "wrong_encounter" }, status: 409 };
+      const now = new Date().toISOString();
+      const work = { work_order: workOrder, status: "dispatching", event_count: 0, last_event_sequence: -1, created_at: now, updated_at: now };
+      const pending = { fingerprint: requestFingerprint, work_id: workOrder.work_id, dispatch_pending: true, response: { work_item: workSummary(work) }, status: 202 };
+      await storage.put("encounter", { ...openEncounter, work_ids: [...openEncounter.work_ids, workOrder.work_id] });
+      await storage.put(workKey(workOrder.work_id), work);
+      await storage.put(idempotencyKey, pending);
+      return { dispatch: work };
+    });
+    if (admitted.error) return response(admitted.error, admitted.status);
+    if (admitted.replay) return response(admitted.replay.response, admitted.replay.status);
+    return this.dispatchWork(admitted.dispatch, idempotencyKey, requestFingerprint);
+  }
 
-    if (await this.state.storage.get(workKey(workOrder.work_id))) return response({ error: "work_id_already_exists", work_id: workOrder.work_id }, 409);
-    const openEncounter = encounter || { encounter_id: workOrder.encounter_id, state: "open", work_ids: [] };
-    if (openEncounter.encounter_id !== workOrder.encounter_id) return response({ error: "wrong_encounter" }, 409);
-    const now = new Date().toISOString();
-    const work = { work_order: workOrder, status: "dispatching", event_count: 0, last_event_sequence: -1, created_at: now, updated_at: now };
-    await this.state.storage.put("encounter", { ...openEncounter, work_ids: [...openEncounter.work_ids, workOrder.work_id] });
-    await this.state.storage.put(workKey(workOrder.work_id), work);
-
-    let dispatched;
-    try { dispatched = await this.dispatcher.dispatch(workOrder); } catch { dispatched = { ok: false, status: 0 }; }
-    const settled = dispatched.ok
-      ? { ...work, status: "queued", updated_at: new Date().toISOString() }
-      : { ...work, status: "blocked", updated_at: new Date().toISOString(), failure: { error_code: "work_dispatch_failed", retryable: true } };
-    const resultStatus = dispatched.ok ? 202 : 502;
-    const result = { work_item: workSummary(settled) };
-    await this.state.storage.put(workKey(workOrder.work_id), settled);
-    await this.state.storage.put(idempotencyKey, { fingerprint: requestFingerprint, response: result, status: resultStatus });
-    return response(result, resultStatus);
+  async dispatchWork(work, idempotencyKey, requestFingerprint) {
+    const existing = this.dispatches.get(work.work_order.work_id);
+    if (existing) return existing;
+    const dispatch = (async () => {
+      let dispatched;
+      try { dispatched = await this.dispatcher.dispatch(work.work_order); } catch { dispatched = { ok: false }; }
+      const result = await this.transaction(async (storage) => {
+        const current = await storage.get(workKey(work.work_order.work_id));
+        const settled = current.status === "dispatching"
+          ? (dispatched.ok
+            ? { ...current, status: "queued", updated_at: new Date().toISOString() }
+            : { ...current, status: "blocked", updated_at: new Date().toISOString(), failure: { error_code: "work_dispatch_failed", retryable: true } })
+          : current;
+        const status = dispatched.ok || settled.status !== "blocked" ? 202 : 502;
+        const responseBody = { work_item: workSummary(settled) };
+        await storage.put(workKey(work.work_order.work_id), settled);
+        await storage.put(idempotencyKey, { fingerprint: requestFingerprint, work_id: work.work_order.work_id, dispatch_pending: false, response: responseBody, status });
+        return { responseBody, status };
+      });
+      return response(result.responseBody, result.status);
+    })();
+    this.dispatches.set(work.work_order.work_id, dispatch);
+    try { return await dispatch; } finally { this.dispatches.delete(work.work_order.work_id); }
   }
 
   async appendEvent(workId, event) {
     if (!validWorkerEvent(event)) return response({ error: "invalid_worker_event" }, 400);
-    const encounter = await this.state.storage.get("encounter");
-    if (!encounter) return response({ error: "encounter_not_found" }, 404);
-    if (encounter.state === "frozen") return response({ error: "encounter_frozen", encounter_id: encounter.encounter_id }, 409);
-    const work = await this.state.storage.get(workKey(workId));
-    if (!work) return response({ error: "work_item_not_found" }, 404);
-    if (event.encounter_id !== encounter.encounter_id || event.work_id !== workId) return response({ error: "worker_event_scope_mismatch" }, 409);
     const eventFingerprint = await fingerprint(event);
     const eventIdKey = `event-id:${event.event_id}`;
-    const prior = await this.state.storage.get(eventIdKey);
-    if (prior) {
-      if (prior.fingerprint !== eventFingerprint) return response({ error: "event_id_reused_with_different_event" }, 409);
-      return response({ event: prior.event, idempotent_replay: true });
-    }
-    if (TERMINAL_WORK_STATUSES.has(work.status)) return response({ error: "work_item_terminal", work_id: workId }, 409);
-    if (event.sequence <= work.last_event_sequence) return response({ error: "worker_event_out_of_order", expected_sequence_after: work.last_event_sequence }, 409);
-
-    const events = (await this.state.storage.get(eventKey(workId))) || [];
-    await this.state.storage.put(eventKey(workId), [...events, event]);
-    await this.state.storage.put(eventIdKey, { fingerprint: eventFingerprint, event });
-    const updated = {
-      ...work,
-      status: eventStatus(work.status, event),
-      event_count: work.event_count + 1,
-      last_event_sequence: event.sequence,
-      updated_at: new Date().toISOString(),
-      ...(event.kind === "failed" ? { failure: { error_code: event.error_code, retryable: event.retryable } } : {}),
-    };
-    await this.state.storage.put(workKey(workId), updated);
-    return response({ event, work_item: workSummary(updated) }, 202);
+    const appended = await this.transaction(async (storage) => {
+      const encounter = await storage.get("encounter");
+      if (!encounter) return { value: { error: "encounter_not_found" }, status: 404 };
+      if (encounter.state === "frozen") return { value: { error: "encounter_frozen", encounter_id: encounter.encounter_id }, status: 409 };
+      const work = await storage.get(workKey(workId));
+      if (!work) return { value: { error: "work_item_not_found" }, status: 404 };
+      if (event.encounter_id !== encounter.encounter_id || event.work_id !== workId) return { value: { error: "worker_event_scope_mismatch" }, status: 409 };
+      const prior = await storage.get(eventIdKey);
+      if (prior) return prior.fingerprint === eventFingerprint
+        ? { value: { event: prior.event, idempotent_replay: true }, status: 200 }
+        : { value: { error: "event_id_reused_with_different_event" }, status: 409 };
+      if (TERMINAL_WORK_STATUSES.has(work.status)) return { value: { error: "work_item_terminal", work_id: workId }, status: 409 };
+      if (event.sequence <= work.last_event_sequence) return { value: { error: "worker_event_out_of_order", expected_sequence_after: work.last_event_sequence }, status: 409 };
+      const events = (await storage.get(eventKey(workId))) || [];
+      const updated = {
+        ...work,
+        status: eventStatus(work.status, event),
+        event_count: work.event_count + 1,
+        last_event_sequence: event.sequence,
+        updated_at: new Date().toISOString(),
+        ...(event.kind === "failed" ? { failure: { error_code: event.error_code, retryable: event.retryable } } : {}),
+      };
+      await storage.put(eventKey(workId), [...events, event]);
+      await storage.put(eventIdKey, { fingerprint: eventFingerprint, event });
+      await storage.put(workKey(workId), updated);
+      return { value: { event, work_item: workSummary(updated) }, status: 202 };
+    });
+    return response(appended.value, appended.status);
   }
 
-  async freeze() {
-    const encounter = await this.state.storage.get("encounter");
-    if (!encounter) return response({ error: "encounter_not_found" }, 404);
-    if (encounter.freeze_result) return response(encounter.freeze_result);
-    const workItems = await Promise.all(encounter.work_ids.map(async (workId) => workSummary(await this.state.storage.get(workKey(workId)))));
-    const freezeResult = { encounter_id: encounter.encounter_id, state: "frozen", frozen_at: new Date().toISOString(), work_items: workItems };
-    await this.state.storage.put("encounter", { ...encounter, state: "frozen", freeze_result: freezeResult });
-    return response(freezeResult, 201);
+  async freeze(value) {
+    const frozen = await this.transaction(async (storage) => {
+      const encounter = await storage.get("encounter");
+      if (!encounter) return { value: { error: "encounter_not_found" }, status: 404 };
+      if (encounter.freeze_result) return { value: encounter.freeze_result, status: 200 };
+      const candidate = value?.package;
+      if (!validPlayablePackage(candidate) || !["candidate", "preloading", "ready", "frozen"].includes(candidate.state)) return { value: { error: "invalid_playable_encounter_package" }, status: 400 };
+      if (candidate.encounter_id !== encounter.encounter_id) return { value: { error: "package_encounter_mismatch" }, status: 409 };
+      const freezeResult = candidate.state === "frozen" ? candidate : { ...candidate, state: "frozen", frozen_at: new Date().toISOString() };
+      await storage.put("encounter", { ...encounter, state: "frozen", freeze_result: freezeResult });
+      return { value: freezeResult, status: 201 };
+    });
+    return response(frozen.value, frozen.status);
   }
 
   async fetch(request) {
-    const operation = this.operationQueue.then(() => this.handleFetch(request));
-    this.operationQueue = operation.catch(() => undefined);
-    return operation;
-  }
-
-  async handleFetch(request) {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/status") return response(await this.encounterStatus());
     if (request.method === "POST" && url.pathname === "/work-items") return this.submit(await requestBody(request));
-    if (request.method === "POST" && url.pathname === "/freeze") return this.freeze();
+    if (request.method === "POST" && url.pathname === "/freeze") return this.freeze(await requestBody(request));
     const eventMatch = url.pathname.match(/^\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/events$/);
     if (eventMatch && request.method === "POST") return this.appendEvent(eventMatch[1], await requestBody(request));
     if (eventMatch && request.method === "GET") {
@@ -337,7 +381,13 @@ export default {
       return coordinator.fetch("https://encounter-coordinator/work-items", { method: "POST", headers: { "content-type": "application/json" }, body: requestText });
     }
     if (eventMatch && request.method === "POST") return coordinator.fetch(`https://encounter-coordinator/work-items/${eventMatch[2]}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: await request.text() });
-    if (freezeMatch && request.method === "POST") return coordinator.fetch("https://encounter-coordinator/freeze", { method: "POST" });
+    if (freezeMatch && request.method === "POST") {
+      const requestText = await request.text();
+      let requestValue;
+      try { requestValue = JSON.parse(requestText); } catch { requestValue = null; }
+      if (requestValue?.package?.encounter_id !== undefined && requestValue.package.encounter_id !== encounterId) return response({ error: "encounter_path_mismatch" }, 409);
+      return coordinator.fetch("https://encounter-coordinator/freeze", { method: "POST", headers: { "content-type": "application/json" }, body: requestText });
+    }
     if (statusMatch && request.method === "GET") return coordinator.fetch("https://encounter-coordinator/status");
     return response({ error: "not_found" }, 404);
   },
