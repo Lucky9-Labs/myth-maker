@@ -3,6 +3,9 @@
 `v1/` is the first stable interchange boundary between the coordinator,
 generation workers, artifact builders, and the Unity host. The schemas describe
 encounters generically; no actor shape, scale, genre, or objective is privileged.
+`v2/` publishes the planner and work-order evolution that requires a
+concept-first dispatch gate, while leaving every v1 schema unchanged for its
+existing producers.
 
 The firm contracts are:
 
@@ -33,15 +36,17 @@ The firm contracts are:
   it only after the target player has passed a dynamic assembly-loading spike.
 - Unknown or unsupported execution kinds fail compatibility checks; they never
   prevent selection of a declared fallback module.
-- A future production worker dispatch must carry a `concept_lineage` with exact
-  immutable `EncounterIntent`, `ArtDirectionRevision`, and
-  `ConceptReferenceRevision` references. The only exception is an explicit,
-  time-bounded `reuse` or `maintenance` waiver with a bounded reason, approver,
-  and named asset scope.
-- `ConceptFirstAssetProductionGate` is an adoption contract, not a claim that
-  the active V1 dispatcher already enforces the gate. It records source and
-  runtime acceptance separately, and it makes selection, rejection, deviation,
-  and fallback decisions inspectable before a package is chosen.
+- Every published v2 work order carries a dispatch gate: full immutable
+  `EncounterIntent`, `ArtDirectionRevision`, and `ConceptReferenceRevision`
+  lineage, or a scoped, time-bounded reuse/maintenance waiver. The dispatcher
+  validates it before launch and preserves it in its worker receipt.
+- The D0 local path uses a distinct explicit bootstrap waiver marked
+  `not_concept_compliant`; it preserves compatibility without claiming that
+  bootstrap artifacts satisfy concept-first production.
+- `ConceptFirstAssetProductionGate` records source and runtime acceptance
+  separately, and it makes selection, rejection, deviation, and fallback
+  decisions inspectable before a package is chosen. Catalog/assembler selection
+  enforcement remains a later slice.
 
 These schemas intentionally do not standardize the internal Unity command API,
 artifact file formats, scoring algorithm, or coordinator persistence layout.

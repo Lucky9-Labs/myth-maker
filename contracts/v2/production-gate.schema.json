@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v2/production-gate.schema.json",
+  "title": "ProductionDispatchGate",
+  "$defs": {
+    "conceptDispatchGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "encounter_intent", "art_direction_revision", "concept_reference_revision", "lineage"],
+      "properties": {
+        "kind": { "const": "concept_lineage" },
+        "encounter_intent": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/encounterIntent" },
+        "art_direction_revision": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/artDirectionRevision" },
+        "concept_reference_revision": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/conceptReferenceRevision" },
+        "lineage": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/conceptLineage" }
+      }
+    },
+    "bootstrapDispatchWaiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "bounded_reason", "approver", "approved_at", "expires_at", "requested_provides", "not_concept_compliant"],
+      "properties": {
+        "kind": { "const": "bootstrap_waiver" },
+        "bounded_reason": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "approver": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/id" },
+        "approved_at": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/timestamp" },
+        "expires_at": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/timestamp" },
+        "requested_provides": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,95}$" } },
+        "not_concept_compliant": { "const": true }
+      }
+    },
+    "bootstrapDispatchGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "waiver"],
+      "properties": {
+        "kind": { "const": "bootstrap_waiver" },
+        "waiver": { "$ref": "#/$defs/bootstrapDispatchWaiver" }
+      }
+    },
+    "reuseMaintenanceDispatchGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "waiver", "requested_provides"],
+      "properties": {
+        "kind": { "const": "reuse_maintenance_waiver" },
+        "waiver": { "$ref": "../v1/concept-first-asset-production-gate.schema.json#/$defs/reuseMaintenanceWaiver" },
+        "requested_provides": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,95}$" } }
+      }
+    },
+    "dispatchGate": {
+      "oneOf": [
+        { "$ref": "#/$defs/conceptDispatchGate" },
+        { "$ref": "#/$defs/reuseMaintenanceDispatchGate" },
+        { "$ref": "#/$defs/bootstrapDispatchGate" }
+      ]
+    }
+  }
+}

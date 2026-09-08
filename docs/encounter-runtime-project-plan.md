@@ -83,9 +83,11 @@ brief cites the exact immutable intent, direction, and concept revisions plus
 its acceptance constraints; a worker may not replace those with an unpinned
 summary or a new styling decision.
 
-The only dispatch exception is an explicitly recorded `reuse` or `maintenance`
-waiver. It has a named asset scope, a bounded reason, an approver, and a
-time-bound expiry. It is not an informal route around the concept gate.
+The normal dispatch exception is an explicitly recorded `reuse` or
+`maintenance` waiver. It has a named asset scope, a bounded reason, an
+approver, and a time-bound expiry. The existing D0 path uses a distinct,
+scoped `bootstrap_waiver` that declares itself not concept-compliant; neither
+waiver is an informal route around the concept gate.
 
 Every immutable asset revision records its lineage or waiver, interpretation
 constraints, provenance, and independent source- and runtime-acceptance
@@ -102,10 +104,13 @@ reports, and simulation. The closed, type-neutral adoption schema is
 [`concept-first-asset-production-gate.schema.json`](../contracts/v1/concept-first-asset-production-gate.schema.json);
 it intentionally contains no genre, actor, or demo-specific fields.
 
-The current D0 body outputs predate this gate. They remain useful bootstrap
-evidence for a local Blender artifact path, but do **not** prove that the
-concept-first gate exists or is enforced. Adopting it requires a later,
-separately validated dispatcher/catalog/assembler implementation.
+The generic planner and dispatcher now carry the full immutable intent,
+direction, concept, and exact lineage—or a bounded waiver—on every v2 work
+order. They reject missing, mismatched, and expired gate payloads before a
+backend launch, and preserve the gate in each worker receipt. Catalog and
+assembler lineage selection remain later slices. Current D0 body outputs remain
+pre-gate bootstrap evidence: their explicit bootstrap waiver preserves the
+bounded local path without relabeling any artifact as concept-first compliant.
 
 ### Follow-on material and arena workstreams
 
