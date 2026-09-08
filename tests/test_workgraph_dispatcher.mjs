@@ -128,8 +128,8 @@ test("assembly inputs retain a valid baseline when a horizontal lane is missing"
 
   const withoutMaterial = assembleEncounterInputs(graph, completedExcept("material-binding"));
   const withoutArena = assembleEncounterInputs(graph, completedExcept("arena-envelope"));
-  assert.equal(withoutMaterial.valid, true);
-  assert.equal(withoutArena.valid, true);
+  assert.equal(withoutMaterial.planning_valid, true);
+  assert.equal(withoutArena.planning_valid, true);
   assert.equal(withoutMaterial.baseline_id, withoutArena.baseline_id);
   assert.ok(withoutMaterial.selections.some((selection) => selection.lane === "material-binding" && selection.source === "fallback"));
   assert.ok(withoutArena.selections.some((selection) => selection.lane === "arena-envelope" && selection.source === "fallback"));
@@ -165,8 +165,22 @@ test("assembly inputs are deterministic regardless of receipt delivery order", (
   const first = assembleEncounterInputs(graph, receipts);
   const second = assembleEncounterInputs(graph, [...receipts].reverse());
   assert.deepEqual(second, first);
-  assert.equal(first.valid, true);
+  assert.equal(first.planning_valid, true);
   assert.ok(first.selections.every((selection) => selection.source === "candidate"));
+});
+
+test("planner rejects tampered component revisions, sockets, and duplicate delivery receipts", () => {
+  const graph = structuredClone(planEncounterWork(fixture));
+  graph.component_graph.components[0].component_revision.content_sha256 = "f".repeat(64);
+  assert.throws(() => assembleEncounterInputs(graph), /invalid component contract/);
+
+  const socketTampered = structuredClone(planEncounterWork(fixture));
+  socketTampered.component_graph.components.find((component) => component.kind === "motion-clip").attachment_contract.consumes[0].socket_id = "socket-missing";
+  assert.throws(() => assembleEncounterInputs(socketTampered), /invalid component contract|socket consumers/);
+
+  const planned = planEncounterWork(fixture);
+  const workId = planned.work_orders[0].work_id;
+  assert.throws(() => assembleEncounterInputs(planned, [{ work_id: workId, status: "completed" }, { work_id: workId, status: "failed" }]), /duplicate stable work IDs/);
 });
 
 test("dispatcher blocks missing, mismatched, and expired production lineage before backend launch", async () => {
@@ -249,7 +263,7 @@ test("dispatcher preserves accepted concept lineage and explicit bootstrap waive
 test("dispatcher launches independent lanes in concurrent local processes and deduplicates receipts", async () => {
   const graph = planEncounterWork(fixture);
   const dispatcher = new EncounterDispatcher({
-    backend: new LocalWorkerBackend({ workDurationMs: 180 }),
+    backend: new LocalWorkerBackend({ workDurationMs: 800 }),
   });
 
   const result = await dispatcher.dispatch(graph);

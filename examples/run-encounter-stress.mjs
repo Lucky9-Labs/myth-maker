@@ -39,7 +39,9 @@ const spec = {
 };
 
 const graph = planEncounterWork(spec);
-const result = await new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 180 }) }).dispatch(graph);
+// The longer observed window keeps overlap measurable when all 16 independent
+// local child processes start under a loaded host.
+const result = await new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 800 }) }).dispatch(graph);
 const roots = graph.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
 const rootEvents = roots.map((order) => result.events.filter((event) => event.work_id === order.work_id));
 const starts = rootEvents.map((events) => Date.parse(events.find((event) => event.kind === "started").occurred_at));
@@ -65,7 +67,7 @@ const receipt = {
     modal_remote: "not_run",
   },
   remaining_gaps: [
-    "Local Node worker receipts are a dispatcher simulation, not Blender output receipts.",
+    "Local Node worker receipts and assembly input plan are a dispatcher simulation, not Blender output or package-assembly receipts.",
     "No Blender GUI worker, Modal remote job, cloud provider work ID, Unity import, or host-game combat was observed.",
     "The bootstrap waiver is explicitly not concept-first compliant.",
   ],

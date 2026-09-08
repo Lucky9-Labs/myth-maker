@@ -56,9 +56,9 @@ export function planEncounterWork(spec) {
 }
 
 /**
- * Select immutable component revisions or their declared fallbacks at the
- * assembler seam. This stays independent from delivery order and from any
- * particular worker or asset format.
+ * Prepare deterministic assembly inputs from planned component revisions.
+ * This is deliberately not an AssemblyReceipt or a compatibility decision:
+ * completed worker status is not evidence of an EncounterModule or artifact.
  */
 export function assembleEncounterInputs(graph, receipts = []) {
   assertEncounterWorkGraph(graph);
@@ -75,15 +75,15 @@ export function assembleEncounterInputs(graph, receipts = []) {
       component_revision_id: component.component_revision.revision_id,
       lane: component.lane,
       source,
-      selected_module_id: source === "candidate" ? component.candidate_module_id : component.fallback.module_id,
+      planned_module_id: source === "candidate" ? component.candidate_module_id : component.fallback.module_id,
       fallback_reason: source === "fallback" ? receipt?.status || "missing-receipt" : undefined,
     };
   });
   return deepFreeze({
-    format: "encounter-assembly-inputs.v1",
+    format: "encounter-assembly-input-plan.v1",
     encounter_id: graph.encounter_id,
     baseline_id: graph.component_graph.baseline_id,
-    valid: true,
+    planning_valid: true,
     selections,
     assembly_input_sha256: digestCanonical({ encounter_id: graph.encounter_id, baseline_id: graph.component_graph.baseline_id, selections }),
   });
@@ -135,22 +135,26 @@ function assertEncounterSpec(spec) {
 
 function planComponentGraph(spec) {
   const roles = [...spec.desired_roles].sort();
+  const planning_input = componentSpecProjection(spec);
   const centralSocket = (role, ordinal) => socketId(spec.encounter_id, "central-body", role, ordinal);
   const components = [];
   const add = ({ slot, kind, lane, requestedProvides, attachmentContract = { consumes: [], provides: [] }, role = undefined }) => {
     const component_id = componentId(spec.encounter_id, slot);
-    const component_revision = immutableRevision({ component_id, slot, kind, lane, requestedProvides, attachmentContract, role, spec: componentSpecProjection(spec) });
-    components.push({
+    const contract = {
       component_id,
-      component_revision,
-      candidate_module_id: moduleId(component_id, component_revision.revision_id, "candidate"),
-      fallback: { module_id: moduleId(component_id, component_revision.revision_id, "fallback"), requested_provides: [...requestedProvides] },
       slot,
       kind,
       lane,
-      role,
       requested_provides: [...requestedProvides],
       attachment_contract: attachmentContract,
+    };
+    if (role !== undefined) contract.role = role;
+    const component_revision = immutableRevision({ ...contract, planning_input });
+    components.push({
+      ...contract,
+      component_revision,
+      candidate_module_id: moduleId(component_id, component_revision.revision_id, "candidate"),
+      fallback: { module_id: moduleId(component_id, component_revision.revision_id, "fallback"), requested_provides: [...requestedProvides] },
     });
   };
 
@@ -214,7 +218,7 @@ function planComponentGraph(spec) {
   });
   add({ slot: "combat-recipe", kind: "combat-recipe", lane: "combat-recipe", requestedProvides: ["encounter.combat.recipe"] });
   const baseline_id = `baseline-${digestCanonical({ encounter_id: spec.encounter_id, components: components.map((component) => component.fallback.module_id) }).slice(0, 32)}`;
-  return { format: "encounter-component-graph.v1", baseline_id, components };
+  return { format: "encounter-component-graph.v1", planning_input, baseline_id, components };
 }
 
 function componentSpecProjection(spec) {
@@ -240,19 +244,24 @@ function socketContract(socket_id, kind, role) { return { socket_id, kind, role 
 
 function assertComponentGraph(graph) {
   const componentGraph = graph.component_graph;
-  if (!componentGraph || componentGraph.format !== "encounter-component-graph.v1" || !ID.test(componentGraph.baseline_id)
+  if (!componentGraph || componentGraph.format !== "encounter-component-graph.v1" || !componentGraph.planning_input || !ID.test(componentGraph.baseline_id)
       || !Array.isArray(componentGraph.components) || componentGraph.components.length === 0) {
     throw new TypeError("component graph must contain immutable generic components");
   }
   const seenComponents = new Set();
   const seenRevisions = new Set();
+  const providedSockets = new Set();
+  const consumedSockets = [];
   for (const component of componentGraph.components) {
     if (!component || !ID.test(component.component_id) || !component.component_revision
         || !ID.test(component.component_revision.revision_id) || !sha256(component.component_revision.content_sha256)
         || !ID.test(component.candidate_module_id) || !ID.test(component.fallback?.module_id)
         || !SEMANTIC_TAG.test(component.kind) || !SEMANTIC_TAG.test(component.lane)
         || !uniqueTags(component.requested_provides)
-        || !validAttachmentContract(component.attachment_contract)) {
+        || !sameTagSet(component.fallback.requested_provides || [], component.requested_provides)
+        || !validAttachmentContract(component.attachment_contract)
+        || component.component_revision.content_sha256 !== digestCanonical(componentRevisionContract(component, componentGraph.planning_input))
+        || component.component_revision.revision_id !== `revision-${component.component_revision.content_sha256.slice(0, 32)}`) {
       throw new TypeError("component graph contains an invalid component contract");
     }
     if (seenComponents.has(component.component_id) || seenRevisions.has(component.component_revision.revision_id)) {
@@ -260,7 +269,28 @@ function assertComponentGraph(graph) {
     }
     seenComponents.add(component.component_id);
     seenRevisions.add(component.component_revision.revision_id);
+    for (const socket of component.attachment_contract.provides) {
+      if (providedSockets.has(socket.socket_id)) throw new TypeError("component graph socket providers must be unique");
+      providedSockets.add(socket.socket_id);
+    }
+    consumedSockets.push(...component.attachment_contract.consumes);
   }
+  if (consumedSockets.some((socket) => !providedSockets.has(socket.socket_id))) throw new TypeError("component graph socket consumers must name a declared provider");
+  const expectedBaseline = `baseline-${digestCanonical({ encounter_id: graph.encounter_id, components: componentGraph.components.map((component) => component.fallback.module_id) }).slice(0, 32)}`;
+  if (componentGraph.baseline_id !== expectedBaseline) throw new TypeError("component graph baseline must derive from immutable fallbacks");
+}
+
+function componentRevisionContract(component, planningInput) {
+  const contract = {
+    component_id: component.component_id,
+    slot: component.slot,
+    kind: component.kind,
+    lane: component.lane,
+    requested_provides: component.requested_provides,
+    attachment_contract: component.attachment_contract,
+  };
+  if (component.role !== undefined) contract.role = component.role;
+  return { ...contract, planning_input: planningInput };
 }
 
 function validAttachmentContract(contract) {
@@ -463,7 +493,13 @@ function digestCanonical(value) { return createHash("sha256").update(canonicalJs
 function receiptIndex(receipts) {
   if (receipts instanceof Map) return receipts;
   if (!Array.isArray(receipts)) throw new TypeError("assembly receipts must be an array or Map");
-  return new Map(receipts.filter((receipt) => receipt && typeof receipt.work_id === "string").map((receipt) => [receipt.work_id, receipt]));
+  const indexed = new Map();
+  for (const receipt of receipts) {
+    if (!receipt || typeof receipt.work_id !== "string") continue;
+    if (indexed.has(receipt.work_id)) throw new TypeError("assembly receipts must not duplicate stable work IDs");
+    indexed.set(receipt.work_id, receipt);
+  }
+  return indexed;
 }
 
 function deepFreeze(value) {

@@ -13,9 +13,13 @@ immutable revision, and explicit attachment/socket contracts. Workers receive
 that contract in their closed v2 `instruction` field; the published work-order
 schema is unchanged. Independent component work orders have no dependencies.
 Assembly depends on their terminal receipts, then validation depends on
-assembly. `assembleEncounterInputs(graph, receipts)` deterministically selects
-a completed candidate or that component's named fallback, so a failed or absent
-horizontal lane does not deadlock the baseline package contract.
+assembly. `assembleEncounterInputs(graph, receipts)` is a planning-only,
+delivery-order-independent input plan: it names a completed component's
+*planned* module or that component's named fallback, so a failed or absent
+horizontal lane does not deadlock later assembly. It is not an
+`AssemblyReceipt`, does not treat a worker status as artifact acceptance, and
+must be passed through the existing module/package assembler once workers emit
+real candidate modules.
 
 `EncounterDispatcher` accepts an injected worker backend and receipt store.
 It launches ready work concurrently, preserves each worker's ordered v1 events,
@@ -59,4 +63,5 @@ npm run demo:encounter-stress -- --output .local-stress-artifacts/one-shot.json
 That command records observed local Node-process overlap and immutable
 component-plan/dispatcher receipts. It explicitly records Blender GUI, local
 Blender CLI, Modal remote, Unity import, and host combat as `not_run`; it is a
-planning/dispatch simulation, not generated-asset or player-facing proof.
+planning/dispatch simulation, not generated-asset, package-assembly, or
+player-facing proof.
