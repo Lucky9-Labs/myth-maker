@@ -42,12 +42,50 @@ The following observable chain is the exact D0 acceptance chain, in order:
    assembler selects the compatible successor and produces a new receipt.
 8. In the host demo, simple runtime combat proves that both player and
    encounter can damage one another.
+9. Build Room visibly reports the material and arena work orders, their worker
+   IDs, dependencies, receipts, artifacts, and revision counts; it also shows
+   the compatible selection, fallback, or rejection outcome for each. Its
+   evidence tier must remain honest about what was observed, reported, or only
+   simulated.
 
 "Actual" in D0 means locally produced during the demonstrated request. A
 synthetic catalog entry, pre-existing file, receipt-shaped event, static image,
 or simulated fixture cannot substitute for any link in the chain. The render
 and selected package must be tied to the same request, catalog revision, and
 assembly receipt by stable IDs and hashes.
+
+### Follow-on material and arena workstreams
+
+These are explicit generic workstreams for the post-D0 path. They define
+ownership and acceptance only; neither worker is implemented or implied by the
+current D0 evidence.
+
+**Texture/Material Worker.** This worker owns immutable texture-set and
+material-binding revisions. A texture-set revision records albedo, normal,
+roughness/metallic, emissive, and mask artifacts; each artifact records
+provenance and a SHA-256. A material-binding revision records the compatible
+scale profile, material slots, semantic tags, and the texture-set revisions it
+binds. Source acceptance verifies the declared sources, provenance, hashes,
+and compatibility metadata. Runtime acceptance separately verifies that the
+host can bind the revision to the intended scale and material slots. A revision
+that fails either acceptance remains a candidate with a visible rejection,
+rather than becoming a package fragment.
+
+**Arena Worker.** This worker owns immutable arena revisions linked to the
+encounter's semantic entity. Each revision carries arena geometry, collision,
+navigation data, lighting and dressing, spawn and critical-spot markers, and
+deterministic play-envelope metadata. Source acceptance verifies the immutable
+revision, its semantic-entity link, provenance, hashes, and declared
+dependencies. Runtime acceptance separately verifies the host's collision,
+navigation, marker, and play-envelope compatibility. Dressing can be absent or
+rejected without invalidating a deterministic playable envelope.
+
+The catalog stores semantic metadata, revision manifests, compatibility data,
+and acceptance receipts. It is **not** a blob store: immutable artifact bytes
+belong behind a separately addressed blob-store seam, with manifests pointing
+to them by stable reference and SHA-256. “Alien-oceanic” and similar styling
+may appear only as aesthetic demo data in semantic tags; they never become
+schema, endpoint, catalog-type, or runtime special cases.
 
 Until D0 is demonstrated end to end, unrelated speculative expansion—including
 production-infrastructure polish, broad taxonomy work, and advanced
