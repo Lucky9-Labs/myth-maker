@@ -391,8 +391,92 @@ function topology(run, catalogProjection, observedAt) {
         evidence_kind: last.evidence.kind,
       };
     }),
+    map: buildTopologyMap(run, observedAt),
+    asset_inventory: buildAssetInventory(run),
     catalog: catalogTopology(catalogProjection, run),
   };
+}
+
+/** Asset viewer gate: a revision alone never authorizes a fabricated preview. */
+export function glbPreviewEligibility(artifact, evidenceKind) {
+  const record = artifact?.artifact || {};
+  const runtime = record.runtimeArtifact || record;
+  const observed = ["local_process", "modal_remote", "blender_window"].includes(evidenceKind);
+  const mediaType = runtime.mediaType || runtime.media_type;
+  const acceptedRuntime = record.runtimeAcceptanceState === "accepted"
+    || record.runtime_acceptance_state === "accepted"
+    // A closed v1 artifact reference is itself an observed runtime receipt;
+    // catalog records still require their explicit acceptance state above.
+    || (typeof runtime.sha256 === "string" && typeof runtime.media_type === "string");
+  const compatible = acceptedRuntime
+    && mediaType === "model/gltf-binary"
+    && typeof runtime.uri === "string"
+    && /\.glb(?:[?#].*)?$/i.test(runtime.uri);
+  return {
+    eligible: observed && compatible,
+    source_state: observed ? "observed" : evidenceKind === "fixture" ? "fixture" : "unverified",
+    runtime_state: record.runtimeAcceptanceState || record.runtime_acceptance_state
+      || (typeof runtime.media_type === "string" ? "observed v1 artifact" : "not reported"),
+    player_ready: "not observed",
+    reason: !observed ? "revision is not backed by an observed receipt"
+      : !compatible ? "no accepted compatible GLB runtime artifact" : "observed compatible GLB",
+    uri: compatible ? runtime.uri : undefined,
+  };
+}
+
+export function buildAssetInventory(run) {
+  return revisions(run.artifacts).map((artifact) => {
+    const event = [...run.events].reverse().find((entry) => entry.artifact?.artifact_id === artifact.artifact_id
+      && entry.artifact?.revision === artifact.revision);
+    return {
+      artifact_id: artifact.artifact_id,
+      revision: artifact.revision,
+      evidence_kind: event?.evidence?.kind || "adapter_reported",
+      ...glbPreviewEligibility(artifact, event?.evidence?.kind),
+    };
+  });
+}
+
+/**
+ * A deliberately read-only map for visual clients.  These structural stages
+ * describe the local projection, while work nodes and their edges come only
+ * from received work-order metadata.  In particular, the coordinator node is
+ * not evidence that Cloudflare was contacted.
+ */
+export function buildTopologyMap(run, observedAt = new Date().toISOString()) {
+  const work = [...run.workGraph.values()].sort((a, b) => a.work_id.localeCompare(b.work_id));
+  const validationWork = work.find((item) => item.lane === "validation");
+  const validationId = validationWork?.work_id || "validation";
+  const nodes = [
+    { id: "request", label: "Request", family: "intake", status: "accepted", evidence_kind: "local_process", detail: run.ids.requestId },
+    { id: "planner", label: "Planner", family: "control", status: work.length ? "completed" : "pending", evidence_kind: work.length ? "local_process" : "adapter_reported", detail: "Local work-graph planner" },
+    { id: "coordinator", label: "Coordinator", family: "control", status: "absent", evidence_kind: "absent", detail: "Cloudflare coordinator not contacted" },
+    { id: "dispatcher", label: "Dispatcher", family: "control", status: work.length ? "completed" : "pending", evidence_kind: work.length ? "local_process" : "adapter_reported", detail: "Local dispatcher" },
+    ...work.map((item) => ({
+      id: item.work_id,
+      label: item.lane,
+      family: "worker",
+      status: item.status,
+      evidence_kind: item.evidence_kind,
+      worker_id: item.worker_id,
+      elapsed_seconds: elapsedSeconds(item, observedAt),
+      detail: item.work_id,
+    })),
+    ...(!validationWork ? [{ id: validationId, label: "Validation", family: "finish", status: "pending", evidence_kind: "adapter_reported", detail: "Validation work order not yet projected" }] : []),
+    { id: "composer", label: "Composer", family: "finish", status: run.packages.size ? "completed" : "pending", evidence_kind: run.packages.size ? "local_process" : "adapter_reported", detail: "Encounter package assembler" },
+    { id: "package", label: "Package", family: "finish", status: run.packages.size ? "completed" : "pending", evidence_kind: run.packages.size ? "local_process" : "adapter_reported", detail: run.packages.size ? "Observed package revision" : "No observed package revision" },
+  ];
+  const edges = [
+    { id: "request-planner", from: "request", to: "planner", kind: "request", label: "submitted" },
+    { id: "planner-coordinator", from: "planner", to: "coordinator", kind: "absence", label: "not contacted" },
+    { id: "coordinator-dispatcher", from: "coordinator", to: "dispatcher", kind: "absence", label: "no remote dispatch" },
+    { id: "planner-dispatcher", from: "planner", to: "dispatcher", kind: "spawn", label: "planned locally" },
+    ...work.filter((item) => !item.depends_on_work_ids.length).map((item) => ({ id: `spawn-${item.work_id}`, from: "dispatcher", to: item.work_id, kind: "spawn", label: "dispatched" })),
+    ...work.flatMap((item) => item.depends_on_work_ids.map((dependency) => ({ id: `dependency-${dependency}-${item.work_id}`, from: dependency, to: item.work_id, kind: "dependency", label: "depends on" }))),
+    { id: "validation-composer", from: validationId, to: "composer", kind: "compose", label: "validated input" },
+    { id: "composer-package", from: "composer", to: "package", kind: "package", label: "assembled" },
+  ];
+  return { nodes, edges };
 }
 
 function elapsedSeconds(work, observedAt) {

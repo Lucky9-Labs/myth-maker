@@ -5,7 +5,9 @@ import { once } from "node:events";
 import {
   BuildRoom,
   CoordinatorEventAdapter,
+  buildTopologyMap,
   evidenceLabel,
+  glbPreviewEligibility,
 } from "../src/build-room.js";
 import { createBuildRoomServer } from "../src/build-room-server.js";
 import { createSqliteCatalog } from "../src/catalog-sqlite.js";
@@ -23,6 +25,57 @@ test("a local submission creates distinct inspectable IDs and an honest local re
   assert.equal(run.events[0].evidence.kind, "local_process");
   assert.equal(evidenceLabel(run.events[0].evidence), "Local process receipt (observed)");
   assert.equal(run.events.length, 1);
+});
+
+test("topology map keeps spawned work, dependencies, and absent coordinator provenance explicit", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Map local provenance" });
+  const rootEvent = room.record(run.ids.encounterId, { workerId: "local-body", sequence: 1, kind: "completed", message: "body finished", evidence: { kind: "local_process", receipt: { observed_at: "2026-09-08T12:00:00.000Z" } } });
+  room.upsertWork(run.ids.encounterId, { work_id: "work-root", lane: "body-source", depends_on_work_ids: [] }, rootEvent);
+  const validationEvent = room.record(run.ids.encounterId, { workerId: "local-validation", sequence: 1, kind: "completed", message: "validated", evidence: { kind: "local_process", receipt: { observed_at: "2026-09-08T12:00:00.000Z" } } });
+  room.upsertWork(run.ids.encounterId, { work_id: "work-validation", lane: "validation", depends_on_work_ids: ["work-root"] }, validationEvent);
+
+  const map = buildTopologyMap(room.requireRun(run.ids.encounterId), "2026-09-08T12:00:01.000Z");
+  assert.deepEqual(map.nodes.find((node) => node.id === "coordinator"), {
+    id: "coordinator", label: "Coordinator", family: "control", status: "absent", evidence_kind: "absent", detail: "Cloudflare coordinator not contacted",
+  });
+  assert.ok(map.edges.some((edge) => edge.from === "dispatcher" && edge.to === "work-root" && edge.kind === "spawn"));
+  assert.ok(map.edges.some((edge) => edge.from === "work-root" && edge.to === "work-validation" && edge.kind === "dependency"));
+  assert.ok(map.edges.some((edge) => edge.from === "work-validation" && edge.to === "composer" && edge.kind === "compose"));
+  assert.ok(map.edges.some((edge) => edge.from === "planner" && edge.to === "coordinator" && edge.kind === "absence"));
+  assert.ok(map.edges.some((edge) => edge.from === "coordinator" && edge.to === "dispatcher" && edge.kind === "absence"));
+});
+
+test("GLB previews require receipt-backed accepted compatible runtime artifacts", () => {
+  const candidate = { artifact: { uri: "https://assets.example.test/creature.glb", sha256: "a".repeat(64), media_type: "model/gltf-binary" } };
+  assert.equal(glbPreviewEligibility(candidate, "adapter_reported").eligible, false);
+  assert.equal(glbPreviewEligibility({ artifact: { ...candidate.artifact, media_type: "application/octet-stream" } }, "local_process").eligible, false);
+  assert.deepEqual(glbPreviewEligibility(candidate, "local_process"), {
+    eligible: true, source_state: "observed", runtime_state: "observed v1 artifact", player_ready: "not observed", reason: "observed compatible GLB", uri: "https://assets.example.test/creature.glb",
+  });
+});
+
+test("build room page exposes keyboard-operable topology and no-preview empty state", async () => {
+  const server = createBuildRoomServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
+    const client = page.match(/<script>([\s\S]*)<\/script>/)?.[1];
+    assert.ok(client);
+    assert.doesNotThrow(() => new Function(client));
+    assert.match(page, /aria-label=\\"Encounter assembly topology\\"/);
+    assert.match(page, /data-edge=\\"/);
+    assert.match(page, /prefers-reduced-motion/);
+    assert.match(page, /A model is never invented for catalog counts alone/);
+    assert.match(page, /Preview withheld/);
+    assert.match(page, /function layoutRoutes/);
+    assert.match(page, /Target owner/);
+    assert.match(page, /if \(active\) return/);
+    assert.doesNotMatch(page, /d=\\"M 55/);
+  } finally {
+    server.close();
+  }
 });
 
 test("projection orders cross-worker events by receipt time and stable cursor, while retaining replay after reconnect", () => {
