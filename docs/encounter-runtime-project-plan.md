@@ -54,6 +54,46 @@ or simulated fixture cannot substitute for any link in the chain. The render
 and selected package must be tied to the same request, catalog revision, and
 assembly receipt by stable IDs and hashes.
 
+### Concept-first asset-production gate
+
+Every new production dispatch for every asset type—model, material/texture,
+animation, arena, audio, effects, and a future type—must be derived from one
+immutable `EncounterIntent`, one immutable `ArtDirectionRevision`, and one
+immutable `ConceptReferenceRevision`. The concept reference can be generated
+or selected, but it is always revisioned before production begins. This is an
+architecture invariant, not a preferred worker prompt.
+
+`ArtDirectionRevision` is a player-facing contract. It must state the intended
+player-facing beat, silhouette, scale, palette/material cues, arena
+relationship, animation/combat beats, and non-negotiable constraints. A worker
+brief cites the exact immutable intent, direction, and concept revisions plus
+its acceptance constraints; a worker may not replace those with an unpinned
+summary or a new styling decision.
+
+The only dispatch exception is an explicitly recorded `reuse` or `maintenance`
+waiver. It has a named asset scope, a bounded reason, an approver, and a
+time-bound expiry. It is not an informal route around the concept gate.
+
+Every immutable asset revision records its lineage or waiver, interpretation
+constraints, provenance, and independent source- and runtime-acceptance
+statuses. Before selection, the assembler verifies that the candidate carries
+compatible lineage. It rejects an absent or incompatible lineage rather than
+selecting the candidate, then records a selection, rejection, deviation, or
+fallback receipt against the package revision.
+
+Build Room is an inspection surface for this relationship, not evidence that a
+cloud worker ran: it must be able to show **visual concept → asset candidate →
+assembled package** and the supporting immutable receipts. Its labels continue
+to distinguish local observed evidence, remote observed evidence, translated
+reports, and simulation. The closed, type-neutral adoption schema is
+[`concept-first-asset-production-gate.schema.json`](../contracts/v1/concept-first-asset-production-gate.schema.json);
+it intentionally contains no genre, actor, or demo-specific fields.
+
+The current D0 body outputs predate this gate. They remain useful bootstrap
+evidence for a local Blender artifact path, but do **not** prove that the
+concept-first gate exists or is enforced. Adopting it requires a later,
+separately validated dispatcher/catalog/assembler implementation.
+
 ### Follow-on material and arena workstreams
 
 These are explicit generic workstreams for the post-D0 path. They define
@@ -133,6 +173,10 @@ EncounterFragment
 PlayableEncounterPackage
   encounter spec version, selected fragments, combat recipe, arena recipe,
   manifest hash, fallback provenance
+
+ConceptFirstAssetProductionGate
+  immutable intent + art direction + concept -> worker brief -> asset candidate
+  -> assembly selection, rejection, deviation, or fallback receipt
 ```
 
 Compatibility keys initially cover scale, rig/model binding, collision profile,
@@ -231,7 +275,10 @@ door.
 
 **Done when:** the UI or inspection route shows workers and the current best
 package; a steering request changes a worker's next priority; freezing a job
-returns one immutable package.
+returns one immutable package. For production candidates, the inspection route
+also shows the pinned concept → candidate → package relationship and whether
+each evidence item was locally observed, remotely observed, reported, or
+simulated.
 
 ### C4 — Horizontal draft lanes
 

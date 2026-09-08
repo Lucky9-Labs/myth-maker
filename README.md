@@ -46,6 +46,33 @@ packages. These contracts deliberately support recipe, runtime-asset, managed
 plugin, and remote-logic execution without encoding any particular encounter
 shape or genre.
 
+## Concept-first production gate
+
+The canonical future production boundary is the closed, generic
+[`ConceptFirstAssetProductionGate`](contracts/v1/concept-first-asset-production-gate.schema.json).
+Before a new model, material/texture, animation, arena, audio, effect, or any
+future asset type is dispatched, its worker brief must pin immutable
+`EncounterIntent`, `ArtDirectionRevision`, and generated-or-selected
+`ConceptReferenceRevision` records plus acceptance constraints. Art direction
+defines the player-facing beat, silhouette, scale, palette/material cues, arena
+relationship, animation/combat beats, and constraints—not merely an aesthetic
+prompt.
+
+An immutable candidate records that lineage, interpretation constraints,
+provenance, and source/runtime acceptance independently. The assembler must
+reject missing or incompatible lineage before selection and leave an
+inspectable selection, rejection, deviation, or fallback receipt. The one
+exception is a recorded, time-bounded reuse or maintenance waiver with a
+bounded reason, approver, and asset scope.
+
+This is an adoption contract and architectural gate, not a claim about the
+currently active Build Room or worker implementation. The current D0 local
+Blender body output is explicitly **pre-gate bootstrap evidence**: it proves a
+bounded local artifact path, not that concept-first dispatch, assembly, or
+cloud execution exists. When adopted, Build Room must expose the visual concept
+→ candidate → assembled-package lineage while preserving its existing honest
+local, remote, reported, and simulated evidence labels.
+
 ## Implemented starting architecture
 
 ```text
