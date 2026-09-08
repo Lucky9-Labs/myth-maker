@@ -65,6 +65,11 @@ binaries. They never create remote resources. See
 [`infra/terraform/README.md`](infra/terraform/README.md) for the explicit
 credentialed bootstrap and remote-state guidance.
 
+The internal, generic V0 catalog persistence seam is documented in
+[`docs/catalog-v0.md`](docs/catalog-v0.md). It uses one SQLite database for
+semantic entities, source/runtime assets, and animations, while encounter hit
+evidence remains an operational projection rather than a fourth catalog.
+
 ## Architecture reference and engineering audit
 
 The intended end-state is documented in Miro as [Boss Encounter Generation —
@@ -80,8 +85,8 @@ product-flow sketch, but not yet an executable architecture.
 | --- | --- | --- |
 | Encounter intake and scoped ownership | `POST /v1/encounters` routes work to a Durable Object named by `project_id:component_id`. | Implemented, with a clear concurrency seam. |
 | Job submission and external work dispatch | `EncounterCoordinator` validates a small submission, records a job, and sends the opaque `computer_use` request to one dispatcher. | Implemented as a narrow ingress adapter. |
-| Collector planning and semantic inventory | No collector implementation, entity schema, query adapter, or inventory store. | Not implemented. |
-| Asset/animation swarm and artifact stores | No worker protocol, artifact manifest, asset database, animation database, or provenance/version model. | Not implemented. |
+| Collector planning and semantic inventory | Internal V0 SQLite catalog stores append-only semantic entities, relationships, and affordances; `findCompatibleParts()` is the planner-facing query seam. | Implemented as a local catalog proof; no collector scheduler yet. |
+| Asset/animation swarm and artifact stores | Internal V0 SQLite catalog stores source receipts separately from runtime artifacts, compatibility/binding metadata, acceptance states, immutable revisions, and provenance parents. | Implemented as a synthetic local persistence proof; no worker protocol or verified host import yet. |
 | Worker inspection and steering | No `GET/POST /worker/[id]`, callback, event stream, or state transition beyond `queued`/`blocked`. | Not implemented. |
 | Unity import, review, and acceptance | Deliberately outside this repository; the README correctly treats generated output as untrusted. | Correctly deferred to the host game. |
 
