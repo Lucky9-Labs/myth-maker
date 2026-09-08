@@ -21,8 +21,10 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
 from draft_support import blender_launch_args, budget_phase, classify_model_stop, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, read_stable, sha256, validate_native, write_json_atomic
+from infrastructure import runtime
 
-app = modal.App("myth-maker-encounter-draft")
+RUNTIME = runtime()
+app = modal.App(RUNTIME.app_name)
 BLENDER_VERSION = "5.2.1"
 BLENDER_ARCHIVE_URL = "https://download.blender.org/release/Blender5.2/blender-5.2.1-linux-x64.tar.xz"
 BLENDER_ARCHIVE_SHA256 = "a31f524fa99a527d3d52b7f5aaa68c34e1a19d5a1c9473f79c5cc610fd5b10e9"
@@ -39,16 +41,20 @@ image = (modal.Image.debian_slim(python_version="3.12")
          .add_local_file(HERE / "draft_prompt.md", "/opt/draft_prompt.md")
          .add_local_file(HERE / "draft_resume.md", "/opt/draft_resume.md")
          .add_local_file(HERE / "draft_support.py", "/opt/draft_support.py")
+         .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py")
          .add_local_file(HERE / "desktop_readiness.py", "/opt/desktop_readiness.py")
          .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py"))
-volume = modal.Volume.from_name("myth-maker-encounter-submissions")
-# The existing credential is deliberately adopted by reference. Modal's CLI
-# cannot rename or export secret values for a replacement resource.
-secret = modal.Secret.from_name("mech-asset-swarm-openai")
+volume = modal.Volume.from_name(RUNTIME.volume_name)
+secret = modal.Secret.from_name(
+    RUNTIME.openai_secret_name,
+    required_keys=list(RUNTIME.openai_secret_keys),
+)
 MAX_ACTIONS = 350
 MAX_TURNS = 40
 MAX_SECONDS = 12 * 60
-part_leases = modal.Dict.from_name("myth-maker-encounter-component-leases", create_if_missing=True)
+part_leases = modal.Dict.from_name(
+    RUNTIME.lease_dict_name,
+)
 
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()

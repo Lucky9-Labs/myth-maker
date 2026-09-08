@@ -1,0 +1,13 @@
+# This file is safe to copy for a local plan. It does not enable provider writes
+# and it contains no account IDs, endpoints, tokens, image references, or domains.
+environment  = "dev"
+project_slug = "myth-maker"
+
+manage_cloudflare                 = false
+manage_cloudflare_worker_versions = false
+manage_railway                    = false
+manage_railway_dispatcher_configuration = false
+
+# Keep null for the existing Wrangler v1 migration. Set only for a separately
+# reviewed, migration-only first Cloudflare version; see README.md.
+cloudflare_do_migration_tag = null
