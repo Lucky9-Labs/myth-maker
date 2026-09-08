@@ -115,6 +115,49 @@ test("chooses one deterministic provider per capability regardless of candidate 
   }]);
 });
 
+test("rejects ambiguous duplicate stable module IDs instead of silently dropping a revision", () => {
+  const result = assembleEncounterPackage({
+    host,
+    encounterId: "encounter-identity-collision",
+    packageId: "package-identity-collision",
+    baselineModules: [recipe("baseline-body", { provides: ["body.core"] })],
+    candidateModules: [
+      recipe("duplicate-upgrade", { provides: ["body.core"], quality: { tier: 0, score: 5 } }),
+      recipe("duplicate-upgrade", { revision: 2, provides: ["combat.core"], quality: { tier: 0, score: 4 } }),
+      recipe("baseline-body", { revision: 2, provides: ["body.core"], quality: { tier: 0, score: 8 } }),
+    ],
+    assembledAt: "2026-09-08T00:00:00.000Z",
+  });
+
+  assert.deepEqual(result.package.module_ids, ["baseline-body"]);
+  assert.deepEqual(result.rejections, [
+    { module_id: "baseline-body", revision: 2, reasons: ["module id collides with baseline baseline-body"] },
+    { module_id: "duplicate-upgrade", revision: 1, reasons: ["duplicate candidate module id duplicate-upgrade"] },
+    { module_id: "duplicate-upgrade", revision: 2, reasons: ["duplicate candidate module id duplicate-upgrade"] },
+  ]);
+});
+
+test("rejects malformed candidates before ranking the remaining candidates", () => {
+  const result = assembleEncounterPackage({
+    host,
+    encounterId: "encounter-malformed-candidate",
+    packageId: "package-malformed-candidate",
+    baselineModules: [recipe("baseline-body", { provides: ["body.core"] })],
+    candidateModules: [null, recipe("valid-upgrade", {
+      provides: ["body.core"],
+      quality: { tier: 0, score: 2 },
+    })],
+    assembledAt: "2026-09-08T00:00:00.000Z",
+  });
+
+  assert.deepEqual(result.package.module_ids, ["valid-upgrade"]);
+  assert.deepEqual(result.rejections, [{
+    module_id: "invalid-candidate",
+    revision: 0,
+    reasons: ["invalid encounter module"],
+  }]);
+});
+
 test("keeps a multi-capability baseline when it still owns an uncovered capability", () => {
   const result = assembleEncounterPackage({
     host,
