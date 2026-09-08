@@ -15,3 +15,5 @@ review-package/
 crash.log
 *.tfvars
 !*.tfvars.example
+.build-room-state.json
+.build-room-state.json.next

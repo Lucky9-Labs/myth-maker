@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build-room": "node --watch --watch-preserve-output src/build-room-server.js",
     "example:assembler": "node examples/assemble-encounter-package.mjs",
     "example:catalog": "node examples/catalog-v0.mjs",
     "example:workgraph": "node examples/run-workgraph.mjs",

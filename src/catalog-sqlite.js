@@ -86,8 +86,24 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
         effectTag: row.effect_tag, payloadSha256: row.payload_sha256, payload: JSON.parse(row.payload_json),
       }));
     },
+    /** Read-only counts for build-room projection through this SQLite port. */
+    projectionSummary() {
+      return {
+        semantic_entities: count("semantic_entity_revisions", "entity_id"),
+        assets: count("asset_revisions", "asset_id"),
+        animations: count("animation_revisions", "animation_id"),
+        semantic_entity_revisions: count("semantic_entity_revisions"),
+        asset_revisions: count("asset_revisions"),
+        animation_revisions: count("animation_revisions"),
+      };
+    },
     close() { db.close(); },
   };
+
+  function count(table, distinctColumn = undefined) {
+    const expression = distinctColumn ? `COUNT(DISTINCT ${distinctColumn})` : "COUNT(*)";
+    return db.prepare(`SELECT ${expression} AS count FROM ${table}`).get().count;
+  }
 
   function transaction(action) {
     db.exec("BEGIN IMMEDIATE");

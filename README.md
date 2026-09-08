@@ -140,3 +140,64 @@ npm test
 
 The suite covers Cloudflare request routing, idempotent dispatch, and structural
 contract integrity. It does not make cloud calls or prove a deployed account.
+
+## Local encounter build room
+
+Run the dependency-free inspection viewer with:
+
+```sh
+npm run build-room
+```
+
+It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
+restarts it when its source changes, so the local viewer remains easy to patch;
+the projection and replay log are persisted to `.build-room-state.json` across
+those restarts. The browser creates local encounter, request, and
+worker-correlation IDs and shows elapsed time, an event-driven directed topology
+(request/encounter → planner → coordinator → dispatcher → worker lanes),
+sequence-ordered worker events, catalog counters, and artifact/package revisions.
+
+The evidence label is deliberate:
+
+- **Simulated fixture (not live)** is a UI preview only.
+- **Local process receipt (observed)** means this local Node process accepted a
+  browser submission; it does not imply an external coordinator was called.
+- **Coordinator/dispatcher report (unverified)** is a translated event with no
+  claim that Modal or Blender was observed.
+- **Modal remote receipt (observed)** requires `source: "modal_remote"` plus a
+  receipt with `request_id` and `observed_at`.
+- **Blender window/screenshot/stream (observed)** requires
+  `source: "blender_window"` plus an observed screenshot path or stream URL and
+  an observation timestamp. Both Modal and Blender labels also require a local
+  bridge to present the configured `x-build-room-observer-token`; otherwise
+  receipt-shaped input is rejected rather than displayed as observed.
+
+The adapter seam is `POST /api/ingest/coordinator` or
+`POST /api/ingest/dispatcher`. It accepts the coordinator's worker-event fields
+(`encounter_id`, `worker_id`, `sequence`, `occurred_at`, `kind`, and optional
+`module`), projects `module_id` and `revision` as an artifact revision, and
+defaults its evidence to unverified. It does not connect to a deployed
+coordinator or synthesize Modal/Blender receipts. A thin authenticated bridge
+may relay real `GET /v1/encounters/:encounterId`, work-item event, and freeze
+responses into that seam once those endpoints and credentials are actually in
+scope. The browser uses Server-Sent Events for projection updates; it does not
+poll and requires no rebuild or page refresh after a trusted adapter event.
+
+`GET /api/builds` returns active builds plus a bounded (20-entry) recent terminal
+history. Each live derived record includes request/encounter IDs, the directed
+work-graph worker summaries and evidence tiers, timestamps, catalog counters,
+revision totals, and a navigation URL. `GET /api/builds/:requestId` is the
+request-keyed detail projection. The root page lists these live records and
+opens detail at `/?build=:requestId`; the detail view always links back to the
+dashboard. The index receives an SSE projection stream, so local submissions
+and adapter updates appear without a manual refresh. Catalog zeroes are labeled
+`not_connected`; revision counts are `reported` until a source-specific receipt
+establishes stronger evidence.
+
+Active detail views include **Steer active build**. `POST /api/builds/:requestId/steer`
+queues an optional instruction through the local adapter and returns a `steer_id`.
+The corresponding adapter ingress is `POST /api/ingest/steering`. Receipts may
+be `queued`, `accepted`, `pending`, `failed`, or `committed`; **accepted is never
+shown as applied**. A receipt is only committed when it includes
+`successor_response.created: true`, preserving the gateway's successor-response
+commit boundary without an approval gate.
