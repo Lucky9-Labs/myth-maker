@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/worker-event.schema.json",
+  "title": "WorkerEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "work_id", "encounter_id", "worker_id", "sequence", "occurred_at", "kind"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "event_id": { "$ref": "common.schema.json#/$defs/id" },
+    "work_id": { "$ref": "common.schema.json#/$defs/id" },
+    "encounter_id": { "$ref": "common.schema.json#/$defs/id" },
+    "worker_id": { "$ref": "common.schema.json#/$defs/id" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "kind": { "enum": ["accepted", "started", "heartbeat", "progress", "candidate_produced", "completed", "failed", "cancelled"] },
+    "module": { "$ref": "encounter-module.schema.json" },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "message": { "type": "string", "maxLength": 2000 },
+    "error_code": { "$ref": "common.schema.json#/$defs/semanticTag" },
+    "retryable": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "candidate_produced" } } },
+      "then": { "required": ["module"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "failed" } } },
+      "then": { "required": ["error_code", "retryable"] }
+    }
+  ]
+}

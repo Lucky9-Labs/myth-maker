@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/host-capability-manifest.schema.json",
+  "title": "HostCapabilityManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "host_id", "host_build", "platform", "scripting_backend", "execution_kinds", "loaders", "contracts", "limits"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "host_id": { "$ref": "common.schema.json#/$defs/id" },
+    "host_build": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "platform": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "scripting_backend": { "enum": ["mono", "il2cpp"] },
+    "execution_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["recipe", "runtime_asset", "managed_plugin", "remote_logic"] }
+    },
+    "loaders": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/semanticTag" }
+    },
+    "contracts": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "common.schema.json#/$defs/contractName" }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory_mb", "preload_seconds"],
+      "properties": {
+        "memory_mb": { "type": "integer", "minimum": 1 },
+        "preload_seconds": { "type": "integer", "minimum": 0 },
+        "artifact_bytes": { "type": "integer", "minimum": 0 },
+        "actors": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}
