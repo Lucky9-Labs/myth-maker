@@ -97,7 +97,7 @@ test("projection state survives a local persistence round-trip for replay after 
   const firstCursor = run.events[0].cursor;
   const restored = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z" }).restore(room.exportState());
   assert.equal(restored.replay(run.ids.encounterId, firstCursor)[0].evidence.kind, "fixture");
-  assert.equal(restored.snapshot(run.ids.encounterId).topology.workers.length, 1);
+  assert.equal(restored.snapshot(run.ids.encounterId).topology.workers.length, 0);
 });
 
 test("Blender evidence is absent until an observed screenshot or stream receipt arrives", () => {
@@ -228,6 +228,8 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
     work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
     status: "running", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported",
   }]);
+  const restored = new BuildRoom().restore(room.exportState());
+  assert.equal(restored.snapshot(run.ids.encounterId).topology.work_graph[0].work_id, "work-001");
 });
 
 function sequenceIds() {

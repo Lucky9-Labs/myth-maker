@@ -166,12 +166,20 @@ export class BuildRoom {
     const run = this.requireRunByRequest(input?.request_id);
     const status = input?.status;
     if (!input.steer_id || !["queued", "accepted", "pending", "failed", "committed"].includes(status)) throw new TypeError("invalid steering receipt");
-    if (["accepted", "committed"].includes(status) && !trusted) throw new TypeError("accepted or committed steering requires trusted observer provenance");
+    if (!trusted) throw new TypeError("external steering lifecycle updates require trusted observer provenance");
     if (status === "committed" && !input.successor_response?.created) throw new TypeError("committed steering requires successor response.created");
     const prior = run.steering.find((receipt) => receipt.steer_id === input.steer_id);
-    if (prior && !validSteeringTransition(prior.status, status)) throw new TypeError("illegal steering receipt transition");
-    const receipt = { ...prior, ...input, received_at: this.now() };
-    if (prior) Object.assign(prior, receipt); else run.steering.push(receipt);
+    if (!prior) throw new TypeError("unknown steering receipt");
+    if (!validSteeringTransition(prior.status, status)) throw new TypeError("illegal steering receipt transition");
+    const receipt = {
+      ...prior,
+      status,
+      ...(input.response_id ? { response_id: input.response_id } : {}),
+      ...(input.successor_response ? { successor_response: input.successor_response } : {}),
+      received_at: this.now(),
+      observer: "trusted",
+    };
+    Object.assign(prior, receipt);
     this.notify(run.ids.encounterId);
     return receipt;
   }
@@ -193,6 +201,7 @@ export class BuildRoom {
         ...run,
         artifacts: [...run.artifacts.entries()],
         packages: [...run.packages.entries()],
+        workGraph: [...run.workGraph.entries()],
       })),
     };
   }
@@ -206,7 +215,7 @@ export class BuildRoom {
         ...stored,
         artifacts: new Map(stored.artifacts || []),
         packages: new Map(stored.packages || []),
-        workGraph: new Map(stored.workGraph || []),
+        workGraph: new Map(Array.isArray(stored.workGraph) ? stored.workGraph : []),
         steering: stored.steering || [],
       });
     }
@@ -344,7 +353,7 @@ function topology(run) {
   }
   return {
     work_graph: [...run.workGraph.values()].sort((a, b) => a.work_id.localeCompare(b.work_id)),
-    workers: [...workers.values()].map((worker) => {
+    workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process"].includes(event.evidence.kind))).map((worker) => {
       const last = worker.events.at(-1);
       return {
         worker_id: worker.workerId,
@@ -373,10 +382,7 @@ function workerStatus(kind) {
 function buildSummary(run) {
   const events = run.events;
   const updatedAt = events.at(-1)?.occurredAt || run.submittedAt;
-  const workers = run.topology.workers.map((worker) => ({
-    ...worker,
-    updated_at: events.filter((event) => event.workerId === worker.worker_id).at(-1)?.occurredAt || run.submittedAt,
-  }));
+  const workers = run.topology.work_graph;
   const terminal = workers.length > 0 && workers.every((worker) => ["completed", "failed"].includes(worker.status));
   return {
     encounter_id: run.ids.encounterId,
@@ -396,8 +402,8 @@ function validSteeringTransition(from, to) {
   if (from === to) return true;
   return {
     queued: new Set(["accepted", "pending", "failed"]),
-    accepted: new Set(["pending", "committed", "failed"]),
-    pending: new Set(["accepted", "committed", "failed"]),
+    accepted: new Set(["committed", "failed"]),
+    pending: new Set(["committed", "failed"]),
     failed: new Set(),
     committed: new Set(),
   }[from]?.has(to) || false;
