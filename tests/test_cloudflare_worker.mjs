@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 import worker, { EncounterCoordinator } from "../src/worker.js";
+import { ResponsesSteeringGateway } from "../src/responses-steering.js";
 
 const baseWorkOrder = {
   schema_version: "1",
@@ -65,11 +66,11 @@ function storage() {
   };
 }
 
-function coordinator() {
+function coordinator(steeringGateway) {
   return new EncounterCoordinator({ storage: storage() }, {
     WORK_DISPATCH_URL: "https://workers.example/dispatch",
     WORK_DISPATCH_TOKEN: "dispatch",
-  });
+  }, { steeringGateway });
 }
 
 function submit(instance, order, idempotencyKey = "encounter-work-0001") {
@@ -157,6 +158,69 @@ test("the coordinator dispatches a v1 work item through the adapter", async () =
     assert.deepEqual(dispatches[0].body, workOrder());
     assert.equal(dispatches[0].headers.authorization, "Bearer dispatch");
     assert.equal(dispatches[0].headers["x-work-id"], "arena-shell");
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("steering routes expose a durable-looking receipt but do not treat accepted as committed", async () => {
+  const oldFetch = globalThis.fetch;
+  const frames = [];
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const gateway = new ResponsesSteeringGateway();
+    const instance = coordinator(gateway);
+    await submit(instance, workOrder());
+    await appendEvent(instance, event("arena-shell", 0, "accepted"));
+    instance.attachResponsesWebSocket("lane-alpha", { send(frame) { frames.push(JSON.parse(frame)); } });
+    const attempt = {
+      attempt_id: "attempt-alpha", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one",
+      lane_id: "lane-alpha", response_id: "resp-original", mode: "single_agent", model_supports_steering: true,
+    };
+    const registered = await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steering-attempts", { method: "POST", body: JSON.stringify(attempt) }));
+    assert.equal(registered.status, 201);
+    const request = new Request("https://coordinator/work-items/arena-shell/steers", {
+      method: "POST",
+      body: JSON.stringify({ attempt_id: "attempt-alpha", client_steering_id: "steer-alpha", input: [{ role: "user", content: [{ type: "input_text", text: "Use more cover." }] }] }),
+    });
+    const queued = await instance.fetch(request);
+    assert.equal(queued.status, 202);
+    assert.equal((await body(queued)).receipt.status, "queued");
+    assert.equal(frames[0].type, "response.steer");
+    await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", previous_response_id: "resp-original" });
+    const afterAcceptance = await body(await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steers/steer-alpha")));
+    assert.equal(afterAcceptance.receipt.status, "accepted");
+    await gateway.handleServerEvent("lane-alpha", { type: "response.created", response: { id: "resp-next", previous_response_id: "resp-original" } });
+    const listed = await body(await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steers")));
+    assert.equal(listed.receipts[0].status, "committed");
+    assert.equal(listed.receipts[0].successor_response_id, "resp-next");
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("encounter steering appends a planner revision and creates fresh work instead of mutating prior work", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder());
+    const result = await instance.fetch(new Request("https://coordinator/steers", {
+      method: "POST",
+      body: JSON.stringify({
+        client_steering_id: "planner-steer-01",
+        directive: "Prioritize readable cover routes.",
+        work_submissions: [{ idempotency_key: "encounter-work-0003", work_order: workOrder({ work_id: "cover-plan", lane: "combat", requested_provides: ["combat.cover"], attempt: 2 }) }],
+      }),
+    }));
+    assert.equal(result.status, 202);
+    const bodyValue = await body(result);
+    assert.equal(bodyValue.planner_directive.revision, 1);
+    assert.equal(bodyValue.work_items[0].work_id, "cover-plan");
+    const directives = await body(await instance.fetch(new Request("https://coordinator/steers")));
+    assert.deepEqual(directives.planner_directives.map((item) => item.work_ids), [["cover-plan"]]);
+    const status = await body(await instance.fetch(new Request("https://coordinator/status")));
+    assert.deepEqual(status.work_items.map((item) => item.work_id).sort(), ["arena-shell", "cover-plan"]);
   } finally {
     globalThis.fetch = oldFetch;
   }

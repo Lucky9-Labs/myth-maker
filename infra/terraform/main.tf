@@ -106,6 +106,10 @@ resource "cloudflare_worker_version" "coordinator" {
     name         = "encounter-package-assembler.js"
     content_type = "application/javascript+module"
     content_file = "${path.module}/../../src/encounter-package-assembler.js"
+    }, {
+    name         = "responses-steering.js"
+    content_type = "application/javascript+module"
+    content_file = "${path.module}/../../src/responses-steering.js"
   }]
   bindings = local.cloudflare_bindings
   migrations = var.cloudflare_do_migration_tag == null ? null : {

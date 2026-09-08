@@ -1,4 +1,5 @@
 import { freezeEncounterPackage } from "./encounter-package-assembler.js";
+import { ResponsesSteeringGateway } from "./responses-steering.js";
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._-]{8,128}$/;
@@ -196,6 +197,38 @@ async function requestBody(request) {
 
 function workKey(workId) { return `work:${workId}`; }
 function eventKey(workId) { return `events:${workId}`; }
+function steeringAttemptKey(attemptId) { return `steering-attempt:${attemptId}`; }
+function steeringReceiptKey(steeringId) { return `steering-receipt:${steeringId}`; }
+function steeringEventKey(steeringId) { return `steering-events:${steeringId}`; }
+function steeringWorkIndexKey(workId) { return `steering-work:${workId}`; }
+const steeringAllReceiptsKey = "steering-all-receipts";
+const steeringAllAttemptsKey = "steering-all-attempts";
+const plannerDirectivesKey = "planner-directives";
+
+class DurableObjectSteeringStore {
+  constructor(storage) { this.storage = storage; }
+  async getAttempt(id) { return this.storage.get(steeringAttemptKey(id)); }
+  async putAttempt(attempt) {
+    await this.storage.put(steeringAttemptKey(attempt.attempt_id), attempt);
+    const ids = (await this.storage.get(steeringAllAttemptsKey)) || [];
+    if (!ids.includes(attempt.attempt_id)) await this.storage.put(steeringAllAttemptsKey, [...ids, attempt.attempt_id]);
+  }
+  async listAttempts() { return Promise.all(((await this.storage.get(steeringAllAttemptsKey)) || []).map((id) => this.getAttempt(id))); }
+  async getReceipt(id) { return this.storage.get(steeringReceiptKey(id)); }
+  async putReceipt(receipt) {
+    await this.storage.put(steeringReceiptKey(receipt.client_steering_id), receipt);
+    const workIds = (await this.storage.get(steeringWorkIndexKey(receipt.work_id))) || [];
+    if (!workIds.includes(receipt.client_steering_id)) await this.storage.put(steeringWorkIndexKey(receipt.work_id), [...workIds, receipt.client_steering_id]);
+    const allIds = (await this.storage.get(steeringAllReceiptsKey)) || [];
+    if (!allIds.includes(receipt.client_steering_id)) await this.storage.put(steeringAllReceiptsKey, [...allIds, receipt.client_steering_id]);
+  }
+  async listReceipts(workId) {
+    const ids = workId === undefined ? (await this.storage.get(steeringAllReceiptsKey)) || [] : (await this.storage.get(steeringWorkIndexKey(workId))) || [];
+    return Promise.all(ids.map((id) => this.getReceipt(id)));
+  }
+  async appendEvent(id, event) { await this.storage.put(steeringEventKey(id), [...((await this.storage.get(steeringEventKey(id))) || []), event]); }
+  async listEvents(id) { return (await this.storage.get(steeringEventKey(id))) || []; }
+}
 
 function workSummary(work) {
   return {
@@ -247,9 +280,10 @@ export class WorkDispatcherAdapter {
 }
 
 export class EncounterCoordinator {
-  constructor(state, env) {
+  constructor(state, env, { steeringGateway } = {}) {
     this.state = state;
     this.dispatcher = new WorkDispatcherAdapter(env);
+    this.steering = steeringGateway || new ResponsesSteeringGateway({ store: new DurableObjectSteeringStore(state.storage) });
     this.dispatches = new Map();
   }
 
@@ -432,6 +466,70 @@ export class EncounterCoordinator {
     return response(appended.value, appended.status);
   }
 
+  async recordSteeringAttempt(workId, attempt) {
+    const encounter = await this.state.storage.get("encounter");
+    const work = await this.state.storage.get(workKey(workId));
+    if (!encounter) return response({ error: "encounter_not_found" }, 404);
+    if (!work) return response({ error: "work_item_not_found" }, 404);
+    if (encounter.state === "frozen" || TERMINAL_WORK_STATUSES.has(work.status)) return response({ error: "work_item_not_steerable" }, 409);
+    if (!work.worker_id) return response({ error: "worker_not_attributed" }, 409);
+    if (!isObject(attempt) || attempt.encounter_id !== encounter.encounter_id || attempt.work_id !== workId || attempt.worker_id !== work.worker_id) return response({ error: "steering_attempt_scope_mismatch" }, 409);
+    try { return response({ attempt: await this.steering.recordAttempt(attempt) }, 201); }
+    catch (error) { return response({ error: error.message || "invalid_steering_attempt" }, 400); }
+  }
+
+  // The single-agent worker calls this from the same process that owns its
+  // upgraded Responses WebSocket; an HTTP request never transfers a socket.
+  attachResponsesWebSocket(laneId, webSocket) { this.steering.attachLane(laneId, webSocket); }
+
+  async requestSteer(workId, request) {
+    const encounter = await this.state.storage.get("encounter");
+    const work = await this.state.storage.get(workKey(workId));
+    if (!encounter) return response({ error: "encounter_not_found" }, 404);
+    if (!work) return response({ error: "work_item_not_found" }, 404);
+    if (encounter.state === "frozen" || TERMINAL_WORK_STATUSES.has(work.status)) return response({ error: "work_item_not_steerable" }, 409);
+    const attempt = await this.steering.store.getAttempt(request?.attempt_id);
+    if (!attempt || attempt.work_id !== workId || attempt.encounter_id !== encounter.encounter_id) return response({ error: "steering_attempt_scope_mismatch" }, 409);
+    try { return response({ receipt: await this.steering.requestSteer(attempt.attempt_id, request) }, 202); }
+    catch (error) { return response({ error: error.message || "invalid_steering_request" }, 400); }
+  }
+
+  async steeringReceipts(workId, steeringId) {
+    const work = await this.state.storage.get(workKey(workId));
+    if (!work) return response({ error: "work_item_not_found" }, 404);
+    const receipt = steeringId ? await this.steering.getReceipt(steeringId) : null;
+    if (steeringId && (!receipt || receipt.work_id !== workId)) return response({ error: "steering_receipt_not_found" }, 404);
+    return response(steeringId ? { receipt } : { work_item: workSummary(work), receipts: await this.steering.listReceipts(workId) });
+  }
+
+  async steerEncounter(value) {
+    const fields = new Set(["client_steering_id", "directive", "work_submissions"]);
+    if (!isObject(value) || !hasOnly(value, fields) || !ID.test(value.client_steering_id || "") || typeof value.directive !== "string" || value.directive.length < 1 || value.directive.length > 12000 || !Array.isArray(value.work_submissions) || value.work_submissions.length < 1 || value.work_submissions.length > 32 || !value.work_submissions.every(validSubmission)) return response({ error: "invalid_encounter_steer" }, 400);
+    const requestFingerprint = await fingerprint(value);
+    const recorded = await this.transaction(async (storage) => {
+      const encounter = await storage.get("encounter");
+      if (!encounter) return { error: { error: "encounter_not_found" }, status: 404 };
+      if (encounter.state === "frozen") return { error: { error: "encounter_frozen", encounter_id: encounter.encounter_id }, status: 409 };
+      if (!value.work_submissions.every((submission) => submission.work_order.encounter_id === encounter.encounter_id)) return { error: { error: "encounter_path_mismatch" }, status: 409 };
+      const directives = (await storage.get(plannerDirectivesKey)) || [];
+      const prior = directives.find((directive) => directive.client_steering_id === value.client_steering_id);
+      if (prior) return prior.request_fingerprint === requestFingerprint ? { directive: prior, replay: true } : { error: { error: "planner_steering_id_reused_with_different_request" }, status: 409 };
+      const directive = { schema_version: "1", client_steering_id: value.client_steering_id, request_fingerprint: requestFingerprint, revision: directives.length + 1, directive: value.directive, requested_at: new Date().toISOString(), work_ids: value.work_submissions.map((submission) => submission.work_order.work_id) };
+      await storage.put(plannerDirectivesKey, [...directives, directive]);
+      return { directive };
+    });
+    if (recorded.error) return response(recorded.error, recorded.status);
+    if (recorded.replay) return response({ planner_directive: recorded.directive, idempotent_replay: true }, 200);
+    const work_items = [];
+    for (const submission of value.work_submissions) {
+      const submitted = await this.submit(submission);
+      const item = await submitted.json();
+      if (!submitted.ok) return response({ error: "planner_work_attempt_rejected", planner_directive: recorded.directive, work_result: item }, submitted.status);
+      work_items.push(item.work_item);
+    }
+    return response({ planner_directive: recorded.directive, work_items }, 202);
+  }
+
   async freeze(value) {
     const frozen = await this.transaction(async (storage) => {
       const encounter = await storage.get("encounter");
@@ -459,8 +557,15 @@ export class EncounterCoordinator {
     await this.recoverDispatches();
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/status") return response(await this.encounterStatus());
+    if (request.method === "POST" && url.pathname === "/steers") return this.steerEncounter(await requestBody(request));
+    if (request.method === "GET" && url.pathname === "/steers") return response({ planner_directives: (await this.state.storage.get(plannerDirectivesKey)) || [] });
     if (request.method === "POST" && url.pathname === "/work-items") return this.submit(await requestBody(request));
     if (request.method === "POST" && url.pathname === "/freeze") return this.freeze(await requestBody(request));
+    const steeringAttemptMatch = url.pathname.match(/^\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/steering-attempts$/);
+    if (steeringAttemptMatch && request.method === "POST") return this.recordSteeringAttempt(steeringAttemptMatch[1], await requestBody(request));
+    const steerMatch = url.pathname.match(/^\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/steers(?:\/([a-z0-9][a-z0-9-]{0,63}))?$/);
+    if (steerMatch && request.method === "POST" && !steerMatch[2]) return this.requestSteer(steerMatch[1], await requestBody(request));
+    if (steerMatch && request.method === "GET") return this.steeringReceipts(steerMatch[1], steerMatch[2]);
     const eventMatch = url.pathname.match(/^\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/events$/);
     if (eventMatch && request.method === "POST") return this.appendEvent(eventMatch[1], await requestBody(request));
     if (eventMatch && request.method === "GET") {
@@ -478,9 +583,12 @@ export default {
     if (!authorized(request, env)) return response({ error: "unauthorized" }, 401);
     const workMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/work-items$/);
     const eventMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/events$/);
+    const steeringAttemptMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/steering-attempts$/);
+    const steerMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/steers(?:\/([a-z0-9][a-z0-9-]{0,63}))?$/);
+    const encounterSteerMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/steers$/);
     const freezeMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/freeze$/);
     const statusMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})$/);
-    const encounterId = workMatch?.[1] || eventMatch?.[1] || freezeMatch?.[1] || statusMatch?.[1];
+    const encounterId = workMatch?.[1] || eventMatch?.[1] || steeringAttemptMatch?.[1] || steerMatch?.[1] || encounterSteerMatch?.[1] || freezeMatch?.[1] || statusMatch?.[1];
     if (!encounterId) return response({ error: "not_found" }, 404);
     const coordinator = env.ENCOUNTER_COORDINATOR.get(env.ENCOUNTER_COORDINATOR.idFromName(encounterId));
     if (workMatch && request.method === "POST") {
@@ -491,6 +599,11 @@ export default {
       return coordinator.fetch("https://encounter-coordinator/work-items", { method: "POST", headers: { "content-type": "application/json" }, body: requestText });
     }
     if (eventMatch && request.method === "POST") return coordinator.fetch(`https://encounter-coordinator/work-items/${eventMatch[2]}/events`, { method: "POST", headers: { "content-type": "application/json" }, body: await request.text() });
+    if (steeringAttemptMatch && request.method === "POST") return coordinator.fetch(`https://encounter-coordinator/work-items/${steeringAttemptMatch[2]}/steering-attempts`, { method: "POST", headers: { "content-type": "application/json" }, body: await request.text() });
+    if (steerMatch && request.method === "POST" && !steerMatch[3]) return coordinator.fetch(`https://encounter-coordinator/work-items/${steerMatch[2]}/steers`, { method: "POST", headers: { "content-type": "application/json" }, body: await request.text() });
+    if (steerMatch && request.method === "GET") return coordinator.fetch(`https://encounter-coordinator/work-items/${steerMatch[2]}/steers${steerMatch[3] ? `/${steerMatch[3]}` : ""}`);
+    if (encounterSteerMatch && request.method === "POST") return coordinator.fetch("https://encounter-coordinator/steers", { method: "POST", headers: { "content-type": "application/json" }, body: await request.text() });
+    if (encounterSteerMatch && request.method === "GET") return coordinator.fetch("https://encounter-coordinator/steers");
     if (freezeMatch && request.method === "POST") {
       const requestText = await request.text();
       let requestValue;

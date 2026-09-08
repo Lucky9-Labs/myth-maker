@@ -51,7 +51,7 @@ class InfrastructureContractTests(unittest.TestCase):
 
     def test_cloudflare_bundle_resolves_imports_and_matches_runtime_bindings(self):
         modules = configured_module_sources()
-        self.assertEqual(set(modules), {"worker.js", "encounter-package-assembler.js"})
+        self.assertEqual(set(modules), {"worker.js", "encounter-package-assembler.js", "responses-steering.js"})
         for name, source in modules.items():
             self.assertTrue(source.is_file(), f"configured module {name} must exist")
             for relative_import in re.findall(r'from\s+["\'](\.[^"\']+)["\']', source.read_text()):
