@@ -6,8 +6,10 @@ import { BuildRoom, CoordinatorEventAdapter } from "./build-room.js";
 export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {} } = {}) {
   const adapter = new CoordinatorEventAdapter(room, { trustedObservation: (_input, request) => trustedObserver(request) });
   const streams = new Map();
+  const buildStreams = new Set();
   room.subscribe((encounterId, snapshot) => {
     for (const response of streams.get(encounterId) || []) stream(response, snapshot);
+    for (const response of buildStreams) stream(response, room.buildIndex());
   });
   return createServer(async (request, response) => {
     try {
@@ -15,8 +17,26 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
       if (request.method === "GET" && url.pathname === "/") return html(response);
       if (request.method === "GET" && url.pathname === "/api/health") return json(response, 200, { status: "ok", encounters: room.list().length });
       if (request.method === "GET" && url.pathname === "/api/builds") return json(response, 200, room.buildIndex());
+      if (request.method === "GET" && url.pathname === "/api/builds/stream") {
+        response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+        buildStreams.add(response);
+        stream(response, room.buildIndex());
+        request.on("close", () => buildStreams.delete(response));
+        return;
+      }
       const buildMatch = url.pathname.match(/^\/api\/builds\/([^/]+)$/);
       if (request.method === "GET" && buildMatch) return json(response, 200, room.buildDetail(buildMatch[1]));
+      const steerMatch = url.pathname.match(/^\/api\/builds\/([^/]+)\/steer$/);
+      if (request.method === "POST" && steerMatch) {
+        const receipt = room.steer(steerMatch[1], await body(request));
+        persist(room);
+        return json(response, 202, receipt);
+      }
+      if (request.method === "POST" && url.pathname === "/api/ingest/steering") {
+        const receipt = room.recordSteering(await body(request));
+        persist(room);
+        return json(response, 201, receipt);
+      }
       if (request.method === "POST" && url.pathname === "/api/encounters") {
         const run = room.submit(await body(request));
         persist(room);
@@ -127,6 +147,7 @@ const PAGE = String.raw`<!doctype html>
 const CLIENT_SCRIPT = String.raw`
   const main = document.querySelector("main");
   let active;
+  let activeRequest;
   const labels = {
     fixture: "Simulated fixture (not live)",
     local_process: "Local process receipt (observed)",
@@ -144,6 +165,7 @@ const CLIENT_SCRIPT = String.raw`
     const run = await response.json();
     if (!response.ok) return alert(run.error);
     active = run.ids.encounterId;
+    activeRequest = run.ids.requestId;
     history.pushState({}, "", "/?build=" + encodeURIComponent(run.ids.requestId));
     render(run);
     watch(active);
@@ -161,21 +183,26 @@ const CLIENT_SCRIPT = String.raw`
   function evidenceClass(kind) { return ({ local_process: "observed-local", fixture: "fixture", modal_remote: "observed-modal", blender_window: "observed-blender" })[kind] || "absent"; }
   function buildCard(build) { return "<li><a href=\"" + esc(build.navigation_url) + "\"><code>" + esc(build.request_id) + "</code></a><br>encounter: <code>" + esc(build.encounter_id) + "</code><br>" + esc(build.terminal ? "terminal" : "active") + " · workers: " + build.work_graph.workers.length + " · revisions: " + build.revisions.artifacts + "/" + build.revisions.packages + "</li>"; }
   function renderDashboard(index) { main.innerHTML = "<section class=\"card\"><h2>Live builds</h2><p class=\"muted\">Active builds are projected from current local state; terminal history is bounded to " + index.terminal_limit + ".</p><h3>Active</h3>" + (index.active.length ? "<ul>" + index.active.map(buildCard).join("") + "</ul>" : "<p class=\"muted\">No active builds.</p>") + "<h3>Recent terminal</h3>" + (index.recent_terminal.length ? "<ul>" + index.recent_terminal.map(buildCard).join("") + "</ul>" : "<p class=\"muted\">No terminal builds.</p>") + "</section>"; }
+  function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> — " + esc(row.status) + (row.status === "accepted" ? " (not applied)" : "") + (row.status === "committed" ? " (successor response committed)" : "") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }
+  async function submitSteer(event) { event.preventDefault(); const instruction = document.querySelector("#steer-instruction").value; const response = await fetch("/api/builds/" + encodeURIComponent(activeRequest) + "/steer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction }) }); if (!response.ok) alert((await response.json()).error); }
   function render(run) {
     const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(run.submittedAt)) / 1000));
     const modal = run.evidence.modal.length ? "observed receipt" : "no observed remote receipt";
     const blender = run.evidence.blender.length ? "observed visual evidence" : "no observed window, screenshot, or stream";
     const packageRevision = run.packages.length ? "revision observed" : "no observed package revision";
     const catalog = run.topology.catalog;
-    main.innerHTML = "<p><a href=\"/\">← All builds</a></p><section class=\"grid\"><div class=\"card\"><h2>Identity</h2><p>Encounter<br><code>" + esc(run.ids.encounterId) + "</code></p><p>Request<br><code>" + esc(run.ids.requestId) + "</code></p><p>Worker correlation<br><code>" + esc(run.ids.workerId) + "</code></p><p>Timer <strong>" + elapsed + "s</strong></p></div><div class=\"card\"><h2>Evidence legend</h2><p class=\"fixture\">Fixture — simulated only</p><p class=\"observed-local\">Local — observed process receipt</p><p class=\"observed-modal\">Modal — only observed with trusted receipt</p><p class=\"observed-blender\">Blender — only observed with trusted visual receipt</p><p class=\"absent\">Gray — absent / unobserved</p></div></section><section class=\"card\"><h2>Directed encounter topology</h2><div class=\"topology\"><div class=\"node observed-local\">Request<br>↓<br>Encounter</div><div class=\"arrow\">→</div><div class=\"node fixture\">Planner<br>fixture preview</div><div class=\"arrow\">→</div><div class=\"node absent\">Coordinator<br>no observed receipt</div><div class=\"arrow\">→</div><div class=\"node absent\">Dispatcher<br>" + modal + "</div></div><div class=\"topology\">" + workerLanes(run, elapsed) + "</div><p class=\"muted\">Directed edges are the intended dispatch/dependency route; gray nodes have no observed execution evidence.</p></section><section class=\"grid\"><div class=\"card\"><h2>Catalog counters</h2><p>Semantic entities: " + catalog.semantic_entities + " (observed)</p><p>Assets: " + catalog.assets + " (observed)</p><p>Animations: " + catalog.animations + " (observed)</p><p>Artifact revisions: " + catalog.observed_artifact_revisions + "</p><p>Package revisions: " + catalog.observed_package_revisions + "</p></div><div class=\"card\"><h2>Pipeline / work graph</h2><div class=\"stage live\">Local intake — observed receipt</div><div class=\"stage fixture\">Preview fixture — simulated only</div><div class=\"stage absent\">Coordinator adapter — no observed receipt</div><div class=\"stage absent\">Dispatcher / Modal — " + modal + "</div><div class=\"stage absent\">Blender — " + blender + "</div><div class=\"stage absent\">Package — " + packageRevision + "</div></div></section><section class=\"card\"><h2>Ordered worker events</h2><table><thead><tr><th>Sequence</th><th>Event</th><th>Evidence source</th><th>Message</th></tr></thead><tbody>" + eventRows(run.events) + "</tbody></table></section><section class=\"grid\"><div class=\"card\"><h2>Artifact revisions</h2>" + revisionList(run.artifacts, "artifact_id") + "</div><div class=\"card\"><h2>Package revisions</h2>" + revisionList(run.packages, "package_id") + "</div></section>";
+    main.innerHTML = "<p><a href=\"/\">← All builds</a></p><section class=\"grid\"><div class=\"card\"><h2>Identity</h2><p>Encounter<br><code>" + esc(run.ids.encounterId) + "</code></p><p>Request<br><code>" + esc(run.ids.requestId) + "</code></p><p>Worker correlation<br><code>" + esc(run.ids.workerId) + "</code></p><p>Timer <strong>" + elapsed + "s</strong></p></div><div class=\"card\"><h2>Evidence legend</h2><p class=\"fixture\">Fixture — simulated only</p><p class=\"observed-local\">Local — observed process receipt</p><p class=\"observed-modal\">Modal — only observed with trusted receipt</p><p class=\"observed-blender\">Blender — only observed with trusted visual receipt</p><p class=\"absent\">Gray — absent / unobserved</p></div></section><section class=\"card\"><h2>Directed encounter topology</h2><div class=\"topology\"><div class=\"node observed-local\">Request<br>↓<br>Encounter</div><div class=\"arrow\">→</div><div class=\"node fixture\">Planner<br>fixture preview</div><div class=\"arrow\">→</div><div class=\"node absent\">Coordinator<br>no observed receipt</div><div class=\"arrow\">→</div><div class=\"node absent\">Dispatcher<br>" + modal + "</div></div><div class=\"topology\">" + workerLanes(run, elapsed) + "</div><p class=\"muted\">Directed edges are the intended dispatch/dependency route; gray nodes have no observed execution evidence.</p></section><section class=\"grid\"><div class=\"card\"><h2>Catalog counters</h2><p>Semantic entities: " + catalog.semantic_entities.count + " (" + catalog.semantic_entities.evidence + ")</p><p>Assets: " + catalog.assets.count + " (" + catalog.assets.evidence + ")</p><p>Animations: " + catalog.animations.count + " (" + catalog.animations.evidence + ")</p><p>Artifact revisions: " + catalog.artifact_revisions.count + " (" + catalog.artifact_revisions.evidence + ")</p><p>Package revisions: " + catalog.package_revisions.count + " (" + catalog.package_revisions.evidence + ")</p></div><div class=\"card\"><h2>Steer active build</h2><form id=\"steer\"><textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea><button>Queue steer</button></form>" + steerRows(run.steering) + "</div><div class=\"card\"><h2>Pipeline / work graph</h2><div class=\"stage live\">Local intake — observed receipt</div><div class=\"stage fixture\">Preview fixture — simulated only</div><div class=\"stage absent\">Coordinator adapter — no observed receipt</div><div class=\"stage absent\">Dispatcher / Modal — " + modal + "</div><div class=\"stage absent\">Blender — " + blender + "</div><div class=\"stage absent\">Package — " + packageRevision + "</div></div></section><section class=\"card\"><h2>Ordered worker events</h2><table><thead><tr><th>Sequence</th><th>Event</th><th>Evidence source</th><th>Message</th></tr></thead><tbody>" + eventRows(run.events) + "</tbody></table></section><section class=\"grid\"><div class=\"card\"><h2>Artifact revisions</h2>" + revisionList(run.artifacts, "artifact_id") + "</div><div class=\"card\"><h2>Package revisions</h2>" + revisionList(run.packages, "package_id") + "</div></section>";
+    document.querySelector("#steer").addEventListener("submit", submitSteer);
   }
 
   function watch(encounterId) { const source = new EventSource("/api/encounters/" + encodeURIComponent(encounterId) + "/stream"); source.addEventListener("projection", (event) => render(JSON.parse(event.data))); }
+  function watchDashboard() { const source = new EventSource("/api/builds/stream"); source.addEventListener("projection", (event) => renderDashboard(JSON.parse(event.data))); }
   async function start() {
     const requestId = new URLSearchParams(location.search).get("build");
-    if (requestId) { const response = await fetch("/api/builds/" + encodeURIComponent(requestId)); if (response.ok) { const run = await response.json(); active = run.ids.encounterId; render(run); watch(active); return; } }
+    if (requestId) { const response = await fetch("/api/builds/" + encodeURIComponent(requestId)); if (response.ok) { const run = await response.json(); active = run.ids.encounterId; activeRequest = run.ids.requestId; render(run); watch(active); return; } }
     const response = await fetch("/api/builds");
     renderDashboard(await response.json());
+    watchDashboard();
   }
   start();
 `;

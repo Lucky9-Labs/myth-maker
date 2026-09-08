@@ -39,6 +39,7 @@ export class BuildRoom {
       artifacts: new Map(),
       packages: new Map(),
       evidence: { local: [], modal: [], blender: [] },
+      steering: [],
       nextCursor: 1,
     });
 
@@ -92,6 +93,7 @@ export class BuildRoom {
         modal: [...run.evidence.modal],
         blender: [...run.evidence.blender],
       },
+      steering: [...run.steering],
       topology: topology(run),
     };
   }
@@ -120,6 +122,34 @@ export class BuildRoom {
     const run = this.list().find((candidate) => candidate.ids.requestId === requestId);
     if (!run) throw new RangeError(`unknown request ${requestId}`);
     return { ...run, navigation_url: `/?build=${encodeURIComponent(requestId)}` };
+  }
+
+  steer(requestId, input) {
+    const run = this.requireRunByRequest(requestId);
+    if (typeof input?.instruction !== "string" || !input.instruction.trim()) throw new TypeError("steer instruction is required");
+    const receipt = {
+      steer_id: this.id("steer"),
+      status: "queued",
+      instruction: input.instruction.trim(),
+      work_id: input.work_id || undefined,
+      created_at: this.now(),
+      source: "local_adapter",
+    };
+    run.steering.push(receipt);
+    this.notify(run.ids.encounterId);
+    return receipt;
+  }
+
+  recordSteering(input) {
+    const run = this.requireRunByRequest(input?.request_id);
+    const status = input?.status;
+    if (!input.steer_id || !["queued", "accepted", "pending", "failed", "committed"].includes(status)) throw new TypeError("invalid steering receipt");
+    if (status === "committed" && !input.successor_response?.created) throw new TypeError("committed steering requires successor response.created");
+    const prior = run.steering.find((receipt) => receipt.steer_id === input.steer_id);
+    const receipt = { ...prior, ...input, received_at: this.now() };
+    if (prior) Object.assign(prior, receipt); else run.steering.push(receipt);
+    this.notify(run.ids.encounterId);
+    return receipt;
   }
 
   subscribe(listener) {
@@ -160,6 +190,12 @@ export class BuildRoom {
   requireRun(encounterId) {
     const run = this.runs.get(encounterId);
     if (!run) throw new RangeError(`unknown encounter ${encounterId}`);
+    return run;
+  }
+
+  requireRunByRequest(requestId) {
+    const run = [...this.runs.values()].find((candidate) => candidate.ids.requestId === requestId);
+    if (!run) throw new RangeError(`unknown request ${requestId}`);
     return run;
   }
 }
@@ -289,11 +325,11 @@ function topology(run) {
       };
     }),
     catalog: {
-      semantic_entities: 0,
-      assets: run.artifacts.size,
-      animations: 0,
-      observed_artifact_revisions: run.artifacts.size,
-      observed_package_revisions: run.packages.size,
+      semantic_entities: { count: 0, evidence: "not_connected" },
+      assets: { count: run.artifacts.size, evidence: "reported" },
+      animations: { count: 0, evidence: "not_connected" },
+      artifact_revisions: { count: run.artifacts.size, evidence: "reported" },
+      package_revisions: { count: run.packages.size, evidence: "reported" },
     },
   };
 }
@@ -314,7 +350,7 @@ function buildSummary(run) {
     terminal,
     work_graph: { stages: ["request", "planner", "coordinator", "dispatcher", "workers"], workers },
     catalog: run.topology.catalog,
-    revisions: { artifacts: run.artifacts.length, packages: run.packages.length },
+    revisions: { artifacts: run.artifacts.length, packages: run.packages.length, evidence: "reported" },
     evidence_tier: workers.map((worker) => worker.evidence_kind),
     navigation_url: `/?build=${encodeURIComponent(run.ids.requestId)}`,
   };

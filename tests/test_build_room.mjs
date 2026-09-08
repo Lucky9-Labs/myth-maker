@@ -155,7 +155,34 @@ test("the live builds index and request-keyed detail are projections, not a fixt
     assert.equal(index.active[0].navigation_url, `/?build=${encodeURIComponent(run.ids.requestId)}`);
     const detail = await (await fetch(`${base}/api/builds/${run.ids.requestId}`)).json();
     assert.equal(detail.ids.encounterId, run.ids.encounterId);
-    assert.equal(detail.topology.catalog.observed_package_revisions, 0);
+    assert.deepEqual(detail.topology.catalog.package_revisions, { count: 0, evidence: "reported" });
+  } finally {
+    server.close();
+  }
+});
+
+test("steering stays queued or accepted until a successor response commits it", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Steer me" });
+  const queued = room.steer(run.ids.requestId, { instruction: "prefer cover" });
+  assert.equal(queued.status, "queued");
+  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" });
+  assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "accepted");
+  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed" }), /successor response.created/);
+  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed", successor_response: { created: true, response_id: "response-2" } });
+  assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "committed");
+});
+
+test("the optional HTTP steer route queues a receipt without an approval state", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "HTTP steer" }) })).json();
+    const response = await fetch(`${base}/api/builds/${run.ids.requestId}/steer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction: "hold the arena" }) });
+    assert.equal(response.status, 202);
+    assert.equal((await response.json()).status, "queued");
   } finally {
     server.close();
   }
@@ -178,5 +205,6 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
 
 function sequenceIds() {
   const values = ["encounter-001", "request-001", "worker-001"];
-  return () => values.shift();
+  let extra = 0;
+  return () => values.shift() || `generated-${++extra}`;
 }

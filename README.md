@@ -189,4 +189,15 @@ work-graph worker summaries and evidence tiers, timestamps, catalog counters,
 revision totals, and a navigation URL. `GET /api/builds/:requestId` is the
 request-keyed detail projection. The root page lists these live records and
 opens detail at `/?build=:requestId`; the detail view always links back to the
-dashboard.
+dashboard. The index receives an SSE projection stream, so local submissions
+and adapter updates appear without a manual refresh. Catalog zeroes are labeled
+`not_connected`; revision counts are `reported` until a source-specific receipt
+establishes stronger evidence.
+
+Active detail views include **Steer active build**. `POST /api/builds/:requestId/steer`
+queues an optional instruction through the local adapter and returns a `steer_id`.
+The corresponding adapter ingress is `POST /api/ingest/steering`. Receipts may
+be `queued`, `accepted`, `pending`, `failed`, or `committed`; **accepted is never
+shown as applied**. A receipt is only committed when it includes
+`successor_response.created: true`, preserving the gateway's successor-response
+commit boundary without an approval gate.
