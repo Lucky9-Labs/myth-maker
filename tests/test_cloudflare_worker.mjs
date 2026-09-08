@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 import worker, { EncounterCoordinator } from "../src/worker.js";
 
 const baseWorkOrder = {
@@ -24,17 +25,27 @@ const baseWorkOrder = {
   attempt: 1,
 };
 
-const playablePackage = {
-  schema_version: "1",
-  package_id: "package-alpha",
-  encounter_id: "encounter-alpha",
-  revision: 1,
-  state: "ready",
-  assembled_at: "2026-09-08T19:30:00.000Z",
-  module_ids: ["baseline-core"],
-  manifest_sha256: "a".repeat(64),
-  fallback_provenance: { used_fallback: true, module_ids: ["baseline-core"] },
-};
+function playablePackage() {
+  return assembleEncounterPackage({
+    host: baseWorkOrder.host_capabilities,
+    encounterId: "encounter-alpha",
+    packageId: "package-alpha",
+    baselineModules: [{
+      schema_version: "1",
+      module_id: "baseline-core",
+      revision: 1,
+      execution_kind: "recipe",
+      provides: ["combat.core"],
+      requires: [],
+      conflicts: [],
+      compatibility: { host_contract_version: "1" },
+      quality: { tier: 0, score: 1 },
+      inline_recipe: { kind: "baseline" },
+      fallback_module_ids: [],
+    }],
+    assembledAt: "2026-09-08T19:30:00.000Z",
+  }).package;
+}
 
 function workOrder(overrides = {}) {
   return { ...structuredClone(baseWorkOrder), ...overrides };
@@ -224,10 +235,15 @@ test("a restarted coordinator recovers a journaled dispatch with the stable work
   const oldFetch = globalThis.fetch;
   let dispatches = 0;
   let releaseFirstDispatch;
-  const firstDispatchStarted = new Promise((resolve) => { releaseFirstDispatch = resolve; });
+  const firstDispatchResponse = new Promise((resolve) => { releaseFirstDispatch = resolve; });
+  let markFirstDispatch;
+  const firstDispatchStarted = new Promise((resolve) => { markFirstDispatch = resolve; });
   globalThis.fetch = async () => {
     dispatches += 1;
-    if (dispatches === 1) return firstDispatchStarted;
+    if (dispatches === 1) {
+      markFirstDispatch();
+      return firstDispatchResponse;
+    }
     return new Response("accepted", { status: 202 });
   };
   try {
@@ -237,7 +253,7 @@ test("a restarted coordinator recovers a journaled dispatch with the stable work
       WORK_DISPATCH_TOKEN: "dispatch",
     });
     const interrupted = submit(original, workOrder());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await firstDispatchStarted;
     const restarted = new EncounterCoordinator(state, {
       WORK_DISPATCH_URL: "https://workers.example/dispatch",
       WORK_DISPATCH_TOKEN: "dispatch",
@@ -268,7 +284,9 @@ test("dependencies and resource leases defer work until the prerequisite complet
     }), "encounter-work-0002");
     assert.equal((await body(dependent)).work_item.status, "waiting");
     assert.deepEqual(dispatched, ["arena-shell"]);
-    await appendEvent(instance, event("arena-shell", 0, "completed"));
+    await appendEvent(instance, event("arena-shell", 0, "accepted"));
+    await appendEvent(instance, event("arena-shell", 1, "started"));
+    await appendEvent(instance, event("arena-shell", 2, "completed"));
     assert.deepEqual(dispatched.sort(), ["arena-shell", "combat-plan"]);
     const status = await body(await instance.fetch(new Request("https://coordinator/status")));
     assert.equal(status.work_items.find((item) => item.work_id === "combat-plan").status, "queued");
@@ -291,6 +309,28 @@ test("worker events are append-only, ordered, and observable", async () => {
     const events = await body(await instance.fetch(new Request("https://coordinator/work-items/arena-shell/events")));
     assert.deepEqual(events.events.map((item) => item.kind), ["accepted", "started"]);
     assert.equal(events.work_item.status, "running");
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("worker lifecycle prevents regressions and binds event attribution to the accepted worker", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder());
+    const premature = await appendEvent(instance, event("arena-shell", 0, "progress"));
+    assert.equal(premature.status, 409);
+    assert.equal((await body(premature)).error, "illegal_worker_event_transition");
+    await appendEvent(instance, event("arena-shell", 0, "accepted"));
+    const wrongWorker = await appendEvent(instance, event("arena-shell", 1, "started", { worker_id: "worker-two" }));
+    assert.equal(wrongWorker.status, 409);
+    assert.equal((await body(wrongWorker)).error, "worker_identity_mismatch");
+    await appendEvent(instance, event("arena-shell", 1, "started"));
+    const regression = await appendEvent(instance, event("arena-shell", 2, "accepted"));
+    assert.equal(regression.status, 409);
+    assert.equal((await body(regression)).error, "illegal_worker_event_transition");
   } finally {
     globalThis.fetch = oldFetch;
   }
@@ -319,17 +359,46 @@ test("freezing persists one immutable assembler-supplied package", async () => {
   try {
     const instance = coordinator();
     await submit(instance, workOrder());
-    const firstFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST", body: JSON.stringify({ package: playablePackage }) }));
+    const packageToFreeze = playablePackage();
+    const tampered = await instance.fetch(new Request("https://coordinator/freeze", {
+      method: "POST",
+      body: JSON.stringify({ package: { ...packageToFreeze, manifest_sha256: "0".repeat(64) } }),
+    }));
+    assert.equal(tampered.status, 400);
+    const firstFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST", body: JSON.stringify({ package: packageToFreeze }) }));
     const frozen = await body(firstFreeze);
     const replayFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST" }));
     assert.equal(firstFreeze.status, 201);
     assert.equal(replayFreeze.status, 200);
     assert.deepEqual(await body(replayFreeze), frozen);
     assert.equal(frozen.state, "frozen");
-    assert.equal(frozen.package_id, playablePackage.package_id);
+    assert.equal(frozen.package_id, packageToFreeze.package_id);
     assert.ok(frozen.frozen_at);
     assert.equal((await submit(instance, workOrder({ work_id: "late-work" }), "encounter-work-late")).status, 409);
     assert.equal((await appendEvent(instance, event("arena-shell", 0, "accepted"))).status, 409);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("freezing accepts only a hash-valid pre-frozen assembler package", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder());
+    const frozenPackage = freezeEncounterPackage(playablePackage(), "2026-09-08T19:35:00.000Z");
+    const tampered = await instance.fetch(new Request("https://coordinator/freeze", {
+      method: "POST",
+      body: JSON.stringify({ package: { ...frozenPackage, manifest_sha256: "0".repeat(64) } }),
+    }));
+    assert.equal(tampered.status, 400);
+    const accepted = await instance.fetch(new Request("https://coordinator/freeze", {
+      method: "POST",
+      body: JSON.stringify({ package: frozenPackage }),
+    }));
+    assert.equal(accepted.status, 201);
+    assert.deepEqual(await body(accepted), frozenPackage);
   } finally {
     globalThis.fetch = oldFetch;
   }

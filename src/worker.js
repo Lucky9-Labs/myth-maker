@@ -1,3 +1,5 @@
+import { freezeEncounterPackage } from "./encounter-package-assembler.js";
+
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._-]{8,128}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -173,6 +175,12 @@ async function fingerprint(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+async function hasValidFrozenManifest(value) {
+  const packageWithoutHash = { ...value };
+  delete packageWithoutHash.manifest_sha256;
+  return value.manifest_sha256 === await fingerprint(packageWithoutHash);
+}
+
 function authorized(request, env) {
   return Boolean(env.AGENT_INGRESS_TOKEN) && request.headers.get("authorization") === `Bearer ${env.AGENT_INGRESS_TOKEN}`;
 }
@@ -194,17 +202,26 @@ function workSummary(work) {
     last_event_sequence: work.last_event_sequence,
     created_at: work.created_at,
     updated_at: work.updated_at,
+    ...(work.worker_id ? { worker_id: work.worker_id } : {}),
     ...(work.failure ? { failure: work.failure } : {}),
   };
 }
 
 function eventStatus(current, event) {
-  if (event.kind === "accepted") return "accepted";
-  if (event.kind === "started") return "running";
-  if (event.kind === "completed") return "completed";
-  if (event.kind === "failed") return "failed";
-  if (event.kind === "cancelled") return "cancelled";
-  return current;
+  const transitions = {
+    dispatching: { accepted: "accepted", failed: "failed", cancelled: "cancelled" },
+    queued: { accepted: "accepted", failed: "failed", cancelled: "cancelled" },
+    accepted: { started: "running", failed: "failed", cancelled: "cancelled" },
+    running: {
+      heartbeat: "running",
+      progress: "running",
+      candidate_produced: "running",
+      completed: "completed",
+      failed: "failed",
+      cancelled: "cancelled",
+    },
+  };
+  return transitions[current]?.[event.kind] || null;
 }
 
 export class WorkDispatcherAdapter {
@@ -385,13 +402,17 @@ export class EncounterCoordinator {
         : { value: { error: "event_id_reused_with_different_event" }, status: 409 };
       if (TERMINAL_WORK_STATUSES.has(work.status)) return { value: { error: "work_item_terminal", work_id: workId }, status: 409 };
       if (event.sequence <= work.last_event_sequence) return { value: { error: "worker_event_out_of_order", expected_sequence_after: work.last_event_sequence }, status: 409 };
+      if (work.worker_id && work.worker_id !== event.worker_id) return { value: { error: "worker_identity_mismatch", work_id: workId }, status: 409 };
+      const nextStatus = eventStatus(work.status, event);
+      if (!nextStatus) return { value: { error: "illegal_worker_event_transition", work_id: workId, status: work.status, kind: event.kind }, status: 409 };
       const events = (await storage.get(eventKey(workId))) || [];
       const updated = {
         ...work,
-        status: eventStatus(work.status, event),
+        status: nextStatus,
         event_count: work.event_count + 1,
         last_event_sequence: event.sequence,
         updated_at: new Date().toISOString(),
+        ...(event.kind === "accepted" ? { worker_id: event.worker_id } : {}),
         ...(event.kind === "failed" ? { failure: { error_code: event.error_code, retryable: event.retryable } } : {}),
       };
       await storage.put(workKey(workId), updated);
@@ -412,9 +433,17 @@ export class EncounterCoordinator {
       if (!encounter) return { value: { error: "encounter_not_found" }, status: 404 };
       if (encounter.freeze_result) return { value: encounter.freeze_result, status: 200 };
       const candidate = value?.package;
-      if (!validPlayablePackage(candidate) || !["candidate", "preloading", "ready", "frozen"].includes(candidate.state)) return { value: { error: "invalid_playable_encounter_package" }, status: 400 };
+      if (!validPlayablePackage(candidate) || !["ready", "frozen"].includes(candidate.state)) return { value: { error: "invalid_playable_encounter_package" }, status: 400 };
       if (candidate.encounter_id !== encounter.encounter_id) return { value: { error: "package_encounter_mismatch" }, status: 409 };
-      const freezeResult = candidate.state === "frozen" ? candidate : { ...candidate, state: "frozen", frozen_at: new Date().toISOString() };
+      let freezeResult;
+      try {
+        freezeResult = candidate.state === "ready"
+          ? freezeEncounterPackage(candidate, new Date().toISOString())
+          : await hasValidFrozenManifest(candidate) ? candidate : null;
+      } catch {
+        freezeResult = null;
+      }
+      if (!freezeResult) return { value: { error: "invalid_playable_encounter_package" }, status: 400 };
       await storage.put("encounter", { ...encounter, state: "frozen", freeze_result: freezeResult });
       return { value: freezeResult, status: 201 };
     });
