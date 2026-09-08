@@ -1,4 +1,4 @@
-import { assertEncounterWorkGraph } from "./workgraph-planner.js";
+import { assertEncounterWorkGraph, assertEncounterWorkOrder } from "./workgraph-planner.js";
 
 /**
  * Dispatch a graph through a pluggable worker backend.
@@ -18,6 +18,17 @@ export class EncounterDispatcher {
 
   lookup(workId) {
     return clone(this.receiptStore.get(workId));
+  }
+
+  async dispatchWorkOrder(order) {
+    assertEncounterWorkOrder(order);
+    const events = [];
+    const result = await this.#dispatchWork(order, events);
+    return {
+      receipt: clone(result.receipt),
+      events: events.map(clone),
+      deduplicated: result.deduplicated,
+    };
   }
 
   async dispatch(graph) {

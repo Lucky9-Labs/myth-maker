@@ -70,6 +70,15 @@ export function assertEncounterWorkGraph(graph) {
   return graph;
 }
 
+/** Validate one published v1 work order at an external-dispatch boundary. */
+export function assertEncounterWorkOrder(order) {
+  if (!order || !ID.test(order.encounter_id)) {
+    throw new TypeError("work order must name a v1 encounter");
+  }
+  assertWorkOrder(order, order.encounter_id);
+  return order;
+}
+
 function assertEncounterSpec(spec) {
   if (!spec || spec.schema_version !== "1" || !ID.test(spec.encounter_id)
       || !Number.isInteger(spec.seed) || spec.seed < 0 || !validTimestamp(spec.deadline_at)

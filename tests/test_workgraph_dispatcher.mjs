@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { planEncounterWork } from "../src/workgraph-planner.js";
 import { EncounterDispatcher } from "../src/encounter-dispatcher.js";
 import { LocalWorkerBackend } from "../src/local-worker-backend.js";
+import { createRailwayDispatchHandler } from "../src/railway-dispatcher.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -96,4 +97,26 @@ test("runnable CLI prints a graph, ordered events, receipts, and overlap evidenc
   assert.equal(proof.receipts.length, 4);
   assert.equal(proof.overlap.observed, true);
   assert.ok(proof.events.length >= 12);
+});
+
+test("Railway control-plane handler matches Cloudflare's stable x-work-id delivery and replays receipts", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  const handler = createRailwayDispatchHandler({
+    dispatcher: new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 20 }) }),
+  });
+  const request = () => new Request("https://railway.example/dispatch", {
+    method: "POST", headers: { "content-type": "application/json", "x-work-id": order.work_id }, body: JSON.stringify(order),
+  });
+
+  const first = await handler(request());
+  const replay = await handler(request());
+  assert.equal(first.status, 202);
+  assert.equal(replay.status, 200);
+  assert.equal((await first.json()).events.length, 3);
+  assert.equal((await replay.json()).events.length, 0);
+
+  const mismatch = await handler(new Request("https://railway.example/dispatch", {
+    method: "POST", headers: { "content-type": "application/json", "x-work-id": "wrong-work-id" }, body: JSON.stringify(order),
+  }));
+  assert.equal(mismatch.status, 409);
 });
