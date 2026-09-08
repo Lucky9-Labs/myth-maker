@@ -2,6 +2,10 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { BuildRoom, CoordinatorEventAdapter } from "./build-room.js";
+import { planEncounterWork } from "./workgraph-planner.js";
+import { EncounterDispatcher } from "./encounter-dispatcher.js";
+import { LocalWorkerBackend } from "./local-worker-backend.js";
+import { assembleEncounterPackage } from "./encounter-package-assembler.js";
 
 export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {} } = {}) {
   const adapter = new CoordinatorEventAdapter(room, { trustedObservation: (_input, request) => trustedObserver(request) });
@@ -41,6 +45,7 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
       if (request.method === "POST" && url.pathname === "/api/encounters") {
         const run = room.submit(await body(request));
         persist(room);
+        launchLocalBuild(room, run, persist).catch((error) => recordLocalFailure(room, run, error, persist));
         return json(response, 201, run);
       }
       const streamMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/stream$/);
@@ -73,6 +78,48 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
       return json(response, error instanceof RangeError ? 404 : 400, { error: error.message });
     }
   });
+}
+
+async function launchLocalBuild(room, run, persist) {
+  const graph = planEncounterWork(localSpec(run.ids.encounterId));
+  const dispatcher = new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 5 }) });
+  const result = await dispatcher.dispatch(graph);
+  for (const order of graph.work_orders) {
+    for (const event of result.events.filter((candidate) => candidate.work_id === order.work_id)) {
+      const projected = room.record(run.ids.encounterId, {
+        eventId: event.event_id, workerId: event.worker_id, sequence: event.sequence, occurredAt: event.occurred_at,
+        kind: event.kind, message: event.message, evidence: { kind: "local_process", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at } },
+      });
+      room.upsertWork(run.ids.encounterId, order, projected);
+    }
+  }
+  const packageResult = assembleEncounterPackage({
+    host: localSpec(run.ids.encounterId).host_capabilities,
+    encounterId: run.ids.encounterId,
+    packageId: `package-${run.ids.encounterId.slice(-24)}`,
+    baselineModules: [baselineModule(run.ids.encounterId)],
+    assembledAt: new Date().toISOString(),
+  });
+  room.record(run.ids.encounterId, {
+    workerId: "local-assembler", sequence: 0, kind: "completed", occurredAt: new Date().toISOString(),
+    message: "Local assembler produced a compatible baseline package after terminal worker receipts.",
+    package: { package_id: packageResult.package.package_id, revision: packageResult.package.revision, state: packageResult.package.state, selection: packageResult.package.module_ids, fallback: packageResult.package.fallback_provenance, rejections: packageResult.rejections },
+    evidence: { kind: "local_process", receipt: { process: "encounter-package-assembler", observed_at: new Date().toISOString() } },
+  });
+  persist(room);
+}
+
+function recordLocalFailure(room, run, error, persist) {
+  room.record(run.ids.encounterId, { workerId: "local-dispatcher", sequence: 0, kind: "failed", occurredAt: new Date().toISOString(), message: `Local dispatcher failed: ${error.message}`, evidence: { kind: "local_process", receipt: { process: "encounter-dispatcher", observed_at: new Date().toISOString() } } });
+  persist(room);
+}
+
+function localSpec(encounterId) {
+  return { schema_version: "1", encounter_id: encounterId, seed: 1, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe"], loaders: [], contracts: [], limits: { memory_mb: 128, preload_seconds: 1 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
+}
+
+function baselineModule(encounterId) {
+  return { schema_version: "1", module_id: `baseline-${encounterId.slice(-24)}`, revision: 1, execution_kind: "recipe", provides: ["encounter.baseline"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "known-playable-baseline" }, fallback_module_ids: [] };
 }
 
 export function loadBuildRoom(statePath) {

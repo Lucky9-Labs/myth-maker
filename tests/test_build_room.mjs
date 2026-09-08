@@ -21,7 +21,7 @@ test("a local submission creates distinct inspectable IDs and an honest local re
   });
   assert.equal(run.events[0].evidence.kind, "local_process");
   assert.equal(evidenceLabel(run.events[0].evidence), "Local process receipt (observed)");
-  assert.match(run.events[1].message, /Simulated fixture/);
+  assert.equal(run.events.length, 1);
 });
 
 test("projection orders events by sequence, then receipt time, while retaining replay after reconnect", () => {
@@ -96,7 +96,7 @@ test("projection state survives a local persistence round-trip for replay after 
   const run = room.submit({ prompt: "Persist replay" });
   const firstCursor = run.events[0].cursor;
   const restored = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z" }).restore(room.exportState());
-  assert.equal(restored.replay(run.ids.encounterId, firstCursor)[0].evidence.kind, "fixture");
+  assert.deepEqual(restored.replay(run.ids.encounterId, firstCursor), []);
   assert.equal(restored.snapshot(run.ids.encounterId).topology.workers.length, 0);
 });
 
@@ -134,8 +134,24 @@ test("the local HTTP submit path returns a replayable room projection", async ()
     assert.equal(created.status, 201);
     const replay = await fetch(`${base}/api/encounters/${run.ids.encounterId}?after=${encodeURIComponent(run.events[0].cursor)}`);
     const projection = await replay.json();
-    assert.equal(projection.events.length, 1);
-    assert.equal(projection.events[0].evidence.kind, "fixture");
+    assert.equal(projection.events.length, 0);
+  } finally {
+    server.close();
+  }
+});
+
+test("HTTP submission executes the local planner-dispatcher path and projects terminal receipts plus a package", async () => {
+  const server = createBuildRoomServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Real local path" }) })).json();
+    const final = await eventually(async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()), (value) => value.work_graph.length === 4 && value.packages.length === 1);
+    assert.equal(final.work_graph.length, 4);
+    assert.ok(final.work_graph.every((work) => work.status === "completed"));
+    assert.equal(final.packages[0].revision, 1);
+    assert.ok(final.events.some((event) => event.evidence.kind === "local_process" && event.workerId.startsWith("local-")));
   } finally {
     server.close();
   }
@@ -236,4 +252,13 @@ function sequenceIds() {
   const values = ["encounter-001", "request-001", "worker-001"];
   let extra = 0;
   return () => values.shift() || `generated-${++extra}`;
+}
+
+async function eventually(read, predicate) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const value = await read();
+    if (predicate(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for local live path");
 }

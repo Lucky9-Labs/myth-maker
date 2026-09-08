@@ -53,15 +53,6 @@ export class BuildRoom {
       message: "The local build-room accepted this request. No coordinator was contacted.",
       evidence: { kind: "local_process", receipt: { request_id: ids.requestId, observed_at: submittedAt } },
     });
-    this.record(ids.encounterId, {
-      eventId: this.id("event"),
-      workerId: ids.workerId,
-      sequence: 1,
-      occurredAt: submittedAt,
-      kind: "progress",
-      message: "Simulated fixture: previewing the pipeline only; no remote worker was started.",
-      evidence: { kind: "fixture" },
-    });
     const snapshot = this.snapshot(ids.encounterId);
     this.notify(ids.encounterId);
     return snapshot;
