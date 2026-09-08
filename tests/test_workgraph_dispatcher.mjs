@@ -171,6 +171,18 @@ test("dispatcher rejects malformed closed-v1 backend events before recording a r
   assert.equal((await dispatcher.lookup(order.work_id)).status, "invalid");
 });
 
+test("dispatcher rejects malformed partial events when a backend throws", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  const dispatcher = new EncounterDispatcher({ backend: { async launch(received, { onEvent }) {
+    onEvent({ schema_version: "1", event_id: "evt-bad-partial", work_id: received.work_id, encounter_id: received.encounter_id, worker_id: "test-worker", sequence: 0, occurred_at: "not-a-time", kind: "accepted", unknown: true });
+    throw new Error("worker crashed");
+  } } });
+  await assert.rejects(dispatcher.dispatchWorkOrder(order), /closed v1 WorkerEvent/);
+  const receipt = await dispatcher.lookup(order.work_id);
+  assert.equal(receipt.status, "invalid");
+  assert.deepEqual(receipt.outbox, []);
+});
+
 test("an atomic receipt claim prevents duplicate launches across dispatcher instances", async () => {
   const order = planEncounterWork(fixture).work_orders[0];
   const store = new InMemoryReceiptStore();

@@ -39,7 +39,13 @@ export class EncounterDispatcher {
         throw error;
       }
       const failure = failureEvent(order, observed, error);
-      const receipt = makeReceipt(order, failure.worker_id, [...observed, failure]);
+      const events = [...observed, failure];
+      try { validateEvents(order, events); }
+      catch (validationError) {
+        await this.receiptStore.finish(order.work_id, invalidReceipt(order, validationError.message));
+        throw validationError;
+      }
+      const receipt = makeReceipt(order, failure.worker_id, events);
       await this.receiptStore.finish(order.work_id, receipt);
       return { receipt: clone(receipt), events: receipt.events.map(clone), deduplicated: false };
     }
