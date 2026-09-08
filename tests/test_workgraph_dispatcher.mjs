@@ -159,6 +159,18 @@ test("dispatcher stores terminal failed receipts instead of relaunching stable w
   assert.equal(launches, 1);
 });
 
+test("dispatcher rejects malformed closed-v1 backend events before recording a receipt", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  const dispatcher = new EncounterDispatcher({ backend: { async launch(received) {
+    return { worker_id: "test-worker", events: [
+      { schema_version: "1", event_id: "evt-bad-accepted", work_id: received.work_id, encounter_id: received.encounter_id, worker_id: "test-worker", sequence: 0, occurred_at: "not-a-time", kind: "accepted", unknown: true },
+      { schema_version: "1", event_id: "evt-bad-completed", work_id: received.work_id, encounter_id: received.encounter_id, worker_id: "test-worker", sequence: 1, occurred_at: "2026-09-08T20:00:00Z", kind: "completed" },
+    ] };
+  } } });
+  await assert.rejects(dispatcher.dispatchWorkOrder(order), /closed v1 WorkerEvent/);
+  assert.equal((await dispatcher.lookup(order.work_id)).status, "invalid");
+});
+
 test("an atomic receipt claim prevents duplicate launches across dispatcher instances", async () => {
   const order = planEncounterWork(fixture).work_orders[0];
   const store = new InMemoryReceiptStore();

@@ -111,8 +111,9 @@ stable `work_id`-derived `part` and `draft-gui-<work_id>-a<attempt>` job ID. It
 does not import Modal, inspect credentials, create resources, launch a
 container, or make a paid/cloud call.
 
-`run(work_order, allow_cloud_launch=True)` is the only code path that resolves
-the existing Modal remote function. That explicit opt-in remains subject to the
-runtime's separate credential, spend-limit, volume, and GUI-output review
-checks. The local workgraph example does not exercise this backend and is not
+`run(work_order)` resolves the existing Modal remote function only when the
+backend's deployed `cloud_execution_enabled` policy is true. This is a service
+configuration decision, not a per-call human approval gate. Tests and local
+workgraphs keep it false. Runtime credentials, spend limits, volume access, and
+GUI-output review remain separate operational checks; the local example is not
 evidence that Modal is deployable or that a Blender candidate is accepted.

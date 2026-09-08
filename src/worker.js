@@ -142,6 +142,11 @@ function validWorkerEvent(value) {
   return value.kind !== "failed" || (SEMANTIC_TAG.test(value.error_code) && typeof value.retryable === "boolean");
 }
 
+// External worker adapters use the coordinator's complete closed-v1 envelope
+// check before recording an event locally, rather than maintaining a drift-prone
+// partial copy of this contract validation.
+export function isV1WorkerEvent(value) { return validWorkerEvent(value); }
+
 function validPlayablePackage(value) {
   const fields = new Set(["schema_version", "package_id", "encounter_id", "revision", "state", "assembled_at", "frozen_at", "module_ids", "manifest_sha256", "fallback_provenance", "rejection_reasons"]);
   if (!isObject(value) || !hasOnly(value, fields) || value.schema_version !== "1"

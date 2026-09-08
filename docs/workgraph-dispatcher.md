@@ -7,6 +7,10 @@ have no dependencies and the validation order depends on all three. It uses
 only the supplied `EncounterSpec` fields; fixture aesthetics are not planner
 inputs or schema branches.
 
+V0 emits one `body-source` work item only. It does not yet split geometry into
+multiple body parts or provide a stitch/join lane; that remains a planner
+extension rather than an implied capability.
+
 `EncounterDispatcher` accepts an injected worker backend and receipt store.
 It launches ready work concurrently, preserves each worker's ordered v1 events,
 and retains a terminal receipt under the stable `work_id`. A repeated delivery
@@ -24,6 +28,11 @@ stored receipt for a deduplicated retry. Its required event sink posts each
 stored event in sequence to coordinator #6's authenticated worker-event route;
 the coordinator's event IDs make a replay safe after a callback interruption.
 The coordinator remains responsible for dependencies and event persistence.
+
+The standalone dispatcher validates closed v1 WorkerEvents and preserves their
+per-worker order, but deliberately does **not** enforce `resource_leases`.
+Coordinator PR #6 owns lease admission before it delivers a work order; do not
+expose this adapter directly to uncoordinated lease-bearing work.
 
 Run the offline concurrency proof:
 

@@ -53,10 +53,12 @@ class ModalDraftBackendTests(unittest.TestCase):
                 "tideglass-body-source.blend": {"sha256": digest, "bytes": len(native)}}}
 
         backend = ModalDraftBackend(project_id="myth-maker", inputs=inputs(), provenance={"source": "test"}, invoke=invoke)
-        with self.assertRaisesRegex(PermissionError, "explicit cloud opt-in"):
+        with self.assertRaisesRegex(PermissionError, "backend policy"):
             backend.run(work_order())
 
-        result = backend.run(work_order(), allow_cloud_launch=True)
+        backend = ModalDraftBackend(project_id="myth-maker", inputs=inputs(), provenance={"source": "test"}, invoke=invoke,
+                                    cloud_execution_enabled=True)
+        result = backend.run(work_order())
         self.assertEqual(captured["args"][0], "draft-gui-tideglass-body-source-a2")
         self.assertEqual(captured["args"][3:5], ("myth-maker", "tideglass-body-source"))
         self.assertEqual(result.events[-1]["kind"], "completed")

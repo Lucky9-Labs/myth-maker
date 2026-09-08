@@ -29,7 +29,7 @@ class ModalDraftBackend:
     """
 
     def __init__(self, *, project_id: str, inputs: Mapping[str, bytes], provenance: Mapping[str, Any],
-                 invoke: Callable[..., Mapping[str, Any]] | None = None):
+                 invoke: Callable[..., Mapping[str, Any]] | None = None, cloud_execution_enabled: bool = False):
         if not isinstance(project_id, str) or not project_id:
             raise ValueError("project_id is required for the existing draft entrypoint")
         if set(inputs) != REQUIRED_INPUTS or not all(isinstance(data, bytes) and data for data in inputs.values()):
@@ -40,6 +40,7 @@ class ModalDraftBackend:
         self.inputs = dict(inputs)
         self.provenance = dict(provenance)
         self._invoke = invoke
+        self.cloud_execution_enabled = cloud_execution_enabled
 
     def preflight(self, work_order: Mapping[str, Any]) -> dict[str, Any]:
         """Return the exact no-cloud invocation plan for operator inspection."""
@@ -54,10 +55,10 @@ class ModalDraftBackend:
             "cloud_launch": False,
         }
 
-    def run(self, work_order: Mapping[str, Any], *, allow_cloud_launch: bool = False) -> BlenderDraftRunResult:
-        """Run only after a caller has explicitly authorized a cloud launch."""
-        if not allow_cloud_launch:
-            raise PermissionError("Modal execution requires explicit cloud opt-in; use preflight for dry-run")
+    def run(self, work_order: Mapping[str, Any]) -> BlenderDraftRunResult:
+        """Run when the deployed policy enables this backend; tests stay off by default."""
+        if not self.cloud_execution_enabled:
+            raise PermissionError("Modal execution is disabled by backend policy; use preflight for dry-run")
         invoke = self._invoke or self._load_existing_remote_entrypoint()
         runner = ModalDraftRunner(invoke, project_id=self.project_id, inputs=self.inputs, provenance=self.provenance)
         return BlenderDraftWorkerAdapter("modal-draft", runner).run(work_order)
