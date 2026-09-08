@@ -1,0 +1,141 @@
+name: Apply reviewed Terraform foundation
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+      reviewed_plan_sha256:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment }}
+    concurrency:
+      group: myth-maker-terraform-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Derive and validate the trusted immutable main revision in the Terraform executor
+        id: preflight
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_SHA" = "$GITHUB_SHA"
+          node scripts/deployment/controller.mjs assert-github-deployment
+          printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - name: Initialize approved remote state, review the exact plan, then apply it
+        id: foundation
+        shell: bash
+        env:
+          TF_BACKEND_CONFIG: ${{ secrets.TF_BACKEND_CONFIG }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
+          TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
+          TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
+          TF_VAR_cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          TF_VAR_work_dispatch_url: ${{ vars.WORK_DISPATCH_URL }}
+          TF_VAR_railway_workspace_id: ${{ vars.RAILWAY_WORKSPACE_ID }}
+          TF_VAR_manage_cloudflare: ${{ vars.MANAGE_CLOUDFLARE }}
+          # Worker version promotion is blocked until Railway's dispatcher
+          # acknowledgement adapter exists; Terraform may only establish the
+          # non-version foundation in this release phase.
+          TF_VAR_manage_cloudflare_worker_versions: "false"
+          TF_VAR_manage_railway: ${{ vars.MANAGE_RAILWAY }}
+          TF_VAR_manage_railway_dispatcher_configuration: ${{ vars.MANAGE_RAILWAY_DISPATCHER_CONFIGURATION }}
+          TF_VAR_environment: ${{ inputs.environment }}
+          TF_VAR_release_revision: ${{ inputs.source_sha }}
+          EXPECTED_PLAN_SHA256: ${{ inputs.reviewed_plan_sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "$TF_BACKEND_CONFIG"
+          for required in TF_VAR_manage_cloudflare TF_VAR_manage_railway TF_VAR_manage_railway_dispatcher_configuration; do
+            test -n "${!required}" || { echo "missing required GitHub Environment variable: $required" >&2; exit 1; }
+          done
+          if [[ "$TF_VAR_manage_cloudflare" == true ]]; then
+            test -n "$TF_VAR_cloudflare_account_id"
+            test -n "$TF_VAR_work_dispatch_url"
+          fi
+          printf '%s' "$TF_BACKEND_CONFIG" > "$RUNNER_TEMP/backend.hcl"
+          terraform -chdir=infra/terraform init -reconfigure -input=false -backend-config="$RUNNER_TEMP/backend.hcl"
+          terraform -chdir=infra/terraform validate
+          terraform -chdir=infra/terraform plan -input=false -out="$RUNNER_TEMP/reviewed.tfplan"
+          actual_digest="$(sha256sum "$RUNNER_TEMP/reviewed.tfplan" | awk '{print $1}')"
+          if [[ -n "$EXPECTED_PLAN_SHA256" ]]; then
+            test "$actual_digest" = "$EXPECTED_PLAN_SHA256"
+          fi
+          terraform -chdir=infra/terraform apply -input=false "$RUNNER_TEMP/reviewed.tfplan"
+          terraform -chdir=infra/terraform output -json deployment_receipt_facts > "$RUNNER_TEMP/terraform-receipt-facts.json"
+          printf 'plan_digest=%s\n' "$actual_digest" >> "$GITHUB_OUTPUT"
+          printf 'completed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Write non-secret Terraform foundation receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p receipts
+          node -e '
+            const fs = require("node:fs");
+            const facts = fs.existsSync(process.env.FACTS)
+              ? JSON.parse(fs.readFileSync(process.env.FACTS, "utf8"))
+              : {};
+            const succeeded = process.env.OUTCOME === "success";
+            const artifactIds = ["git:" + process.env.SOURCE_SHA];
+            if (succeeded) {
+              if (!/^[a-f0-9]{64}$/.test(process.env.PLAN_DIGEST)) {
+                throw new Error("successful Terraform receipt requires a SHA-256 plan digest");
+              }
+              artifactIds.push("terraform-plan:" + process.env.PLAN_DIGEST);
+            }
+            const completedAt = process.env.COMPLETED_AT || new Date().toISOString();
+            const startedAt = process.env.STARTED_AT || completedAt;
+            fs.writeFileSync(process.env.OUTPUT, JSON.stringify({
+              format: "myth-maker.deployment-receipt/v1",
+              provider: "terraform-foundation",
+              environment: process.env.ENVIRONMENT,
+              source_sha: process.env.SOURCE_SHA,
+              artifact_version_ids: artifactIds,
+              status: succeeded ? "success" : "failure",
+              started_at: startedAt,
+              completed_at: completedAt,
+              verification: process.env.OUTCOME === "success"
+                ? {remote_backend_reconfigured: true, reviewed_plan_applied: true}
+                : {remote_backend_reconfigured: false, reviewed_plan_applied: false},
+              provider_facts: facts,
+            }, null, 2) + "\\n");
+          '
+        env:
+          FACTS: ${{ runner.temp }}/terraform-receipt-facts.json
+          OUTPUT: receipts/terraform-foundation-${{ inputs.environment }}.json
+          ENVIRONMENT: ${{ inputs.environment }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PLAN_DIGEST: ${{ steps.foundation.outputs.plan_digest }}
+          STARTED_AT: ${{ steps.preflight.outputs.started_at }}
+          COMPLETED_AT: ${{ steps.foundation.outputs.completed_at }}
+          OUTCOME: ${{ steps.foundation.outcome }}
+      - name: Upload non-secret Terraform foundation receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deployment-receipt-terraform-foundation-${{ inputs.environment }}-${{ inputs.source_sha }}
+          path: receipts/terraform-foundation-${{ inputs.environment }}.json
+          if-no-files-found: error
+          retention-days: 30
