@@ -81,6 +81,7 @@ jobs:
     # CI-owned; the broader gate below still controls Worker promotion.
     needs: assert-deployment-input
     uses: ./.github/workflows/provider-railway.yml
+    secrets: inherit
     with:
       environment: ${{ inputs.environment || 'dev' }}
       source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
