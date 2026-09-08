@@ -211,6 +211,8 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.doesNotMatch(deployWorkflow, /release-readiness/);
   assert.doesNotMatch(deployWorkflow, /DEPLOYMENT_READY/);
   assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
+  assert.match(deployWorkflow, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
+  assert.doesNotMatch(deployWorkflow, /uses: \.\/\.github\/workflows\/provider-modal\.yml/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
@@ -291,18 +293,18 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("Modal activation consumes environment secrets in its direct executor, not a nested reusable workflow", () => {
+test("Modal activation consumes environment secrets in the top-level deployment job", () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
-    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-modal.yml"],
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
     { encoding: "utf8" },
   ));
-  const direct = workflow.jobs.activate;
+  const direct = workflow.jobs.modal;
   const steps = direct.steps;
   const modal = steps.find((step) => step.id === "modal").env;
   const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt")).env;
-  assert.equal(direct.environment.name, "${{ inputs.environment }}");
-  assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment }}");
+  assert.equal(direct.environment.name, "${{ inputs.environment || 'dev' }}");
+  assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment || 'dev' }}");
   assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
   assert.doesNotMatch(JSON.stringify(receipt), /TOKEN|OPENAI/);
