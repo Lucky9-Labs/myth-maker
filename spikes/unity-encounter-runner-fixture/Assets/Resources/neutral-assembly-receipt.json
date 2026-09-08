@@ -1,0 +1,24 @@
+{
+  "schema_version": "1",
+  "assembly_id": "neutral-chamber-assembly",
+  "encounter_id": "neutral-chamber",
+  "frozen_package": {
+    "schema_version": "1",
+    "package_id": "neutral-chamber-package",
+    "encounter_id": "neutral-chamber",
+    "revision": 1,
+    "state": "frozen",
+    "assembled_at": "2026-09-08T12:00:00.000Z",
+    "module_ids": ["neutral-combat-recipe"],
+    "fallback_provenance": { "used_fallback": false, "module_ids": [] },
+    "rejection_reasons": [],
+    "frozen_at": "2026-09-08T12:01:00.000Z",
+    "manifest_sha256": "681f87585152958f32df579ad14f8deb73cfaf3236f60cb7eed391520f99c1e0"
+  },
+  "package_manifest_sha256": "681f87585152958f32df579ad14f8deb73cfaf3236f60cb7eed391520f99c1e0",
+  "selected_assets": [{ "asset_id": "neutral-target", "revision": 3, "sha256": "22c54720541aa51d9ba4e4461912bdf0d913c989be9f4010ba26b5441ce57f3a", "uri": "artifact://neutral-target.prefab" }],
+  "selected_animations": [{ "animation_id": "neutral-strike", "revision": 2, "sha256": "8b98b1f4f496a242995c36d3bf0024649a5b85a62fd32b9578d16faa350300b5", "uri": "artifact://neutral-strike.anim" }],
+  "assembled_at": "2026-09-08T12:02:00.000Z",
+  "provenance": { "producer": "neutral-fixture", "observed_at": "2026-09-08T12:02:00.000Z" },
+  "assembly_sha256": "b9c657b540e1fe43dcd6becd0fbaa8922f6a5a01434cc0d71783710980432d21"
+}

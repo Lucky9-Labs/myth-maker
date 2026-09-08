@@ -21,5 +21,6 @@
     "failure_codes": { "type": "array", "items": { "$ref": "common.schema.json#/$defs/semanticTag" } },
     "provenance": { "type": "object", "additionalProperties": false, "required": ["assembly_id", "selected_assets", "selected_animations"], "properties": { "assembly_id": { "$ref": "common.schema.json#/$defs/id" }, "selected_assets": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["asset_id", "revision", "sha256"], "properties": { "asset_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" } } } }, "selected_animations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["animation_id", "revision", "sha256"], "properties": { "animation_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" } } } } } },
     "frame_or_clip_artifact": { "$ref": "common.schema.json#/$defs/artifactReference" }
-  }
+  },
+  "allOf": [{ "if": { "properties": { "evidence_tiers": { "properties": { "player": { "const": "not_observed" } } } } }, "then": { "not": { "required": ["frame_or_clip_artifact"] } } }]
 }

@@ -27,5 +27,6 @@
       "items": { "type": "object", "additionalProperties": false, "required": ["animation_id", "revision", "sha256", "uri"], "properties": { "animation_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "uri": { "type": "string", "format": "uri", "maxLength": 2048 } } }
     },
     "provenance": { "type": "object", "additionalProperties": false, "required": ["producer", "observed_at"], "properties": { "producer": { "type": "string", "minLength": 1, "maxLength": 128 }, "observed_at": { "type": "string", "format": "date-time" } } }
-  }
+  },
+  "allOf": [{ "if": { "properties": { "frozen_package": { "properties": { "state": { "const": "frozen" } } } } }, "then": true, "else": false }]
 }

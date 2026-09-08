@@ -17,9 +17,6 @@ The firm contracts are:
 | `AssemblyReceipt` | Assembly/runner boundary | Binds a frozen package to the exact selected asset and animation revisions before execution. |
 | `EncounterRuntimeProfile` | Runner owner | Closes the Unity/runtime/build configuration and names its evidence tier. |
 | `SimulationReceipt` | Runner/Build Room boundary | Records deterministic execution, bidirectional hit telemetry, evidence tier, artifacts only when observed, timing, failures, and provenance. |
-| `AssemblyReceipt` | Assembly/runner boundary | Binds a frozen package to the exact selected asset and animation revisions before execution. |
-| `EncounterRuntimeProfile` | Runner owner | Closes the Unity/runtime/build configuration and names its evidence tier. |
-| `SimulationReceipt` | Runner/Build Room boundary | Records deterministic execution, bidirectional hit telemetry, evidence tier, artifacts only when observed, timing, failures, and provenance. |
 
 ## Stability rules
 

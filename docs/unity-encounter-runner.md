@@ -4,7 +4,7 @@ The encounter runner is generic: it is not the host game and does not import, mu
 
 ## Closed profile for this local proof
 
-`unity-neutral-headless@1` means Unity **6000.6.0f1**, macOS, Mono, development batch execution, and `-nographics`. This is an installed-editor fixture, not a shipping player, license grant, or host-game compatibility approval. Its use is subject to the editor installation's existing Unity license; no Unity Cloud, streaming provider, credentials, resources, or provider mutations are included.
+`unity-neutral-headless@1` means Unity **6000.6.0f1**, macOS, Mono, `editor-macos-mono-batch`, and `-nographics`. This is an installed-editor fixture, not a shipping player, license grant, or host-game compatibility approval. Its use is subject to the editor installation's existing Unity license; no Unity Cloud, streaming provider, credentials, resources, or provider mutations are included.
 
 Evidence is intentionally tiered:
 

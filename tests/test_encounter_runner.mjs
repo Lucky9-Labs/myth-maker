@@ -7,19 +7,9 @@ import {
   validateAssemblyReceipt,
   validateSimulationReceipt,
 } from "../src/encounter-runner.js";
+import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 
-const frozenPackage = Object.freeze({
-  schema_version: "1",
-  package_id: "neutral-chamber-package",
-  encounter_id: "neutral-chamber",
-  revision: 1,
-  state: "frozen",
-  assembled_at: "2026-09-08T12:00:00.000Z",
-  frozen_at: "2026-09-08T12:01:00.000Z",
-  module_ids: ["neutral-combat-recipe"],
-  manifest_sha256: "a".repeat(64),
-  fallback_provenance: { used_fallback: false, module_ids: [] },
-});
+const frozenPackage = frozenNeutralPackage();
 
 const selected = {
   assets: [{ asset_id: "neutral-target", revision: 3, sha256: "b".repeat(64), uri: "artifact://neutral-target.prefab" }],
@@ -32,7 +22,7 @@ const profile = {
   profile_revision: 1,
   runner_id: "myth-maker-unity-encounter-runner",
   runtime_id: "unity-6000.6.0f1",
-  build_profile_id: "standalone-macos-mono-development",
+  build_profile_id: "editor-macos-mono-batch",
   evidence_tier: "local_unity_runner",
   execution_mode: "headless",
   unity: { editor_version: "6000.6.0f1", scripting_backend: "mono", platform: "macos" },
@@ -99,3 +89,21 @@ test("the runner fails closed when the package, profile, or exchange proof is in
     startedAt: "2026-09-08T12:03:00.000Z",
   }), /closed local runtime profile/);
 });
+
+test("receipt validation rejects a tampered package and any undeclared nested data", () => {
+  assert.throws(() => createAssemblyReceipt({
+    assemblyId: "tampered-assembly", frozenPackage: { ...frozenPackage, module_ids: ["other-module"] }, selected,
+    assembledAt: "2026-09-08T12:02:00.000Z", provenance: { producer: "test", observed_at: "2026-09-08T12:02:00.000Z" },
+  }), /immutable frozen/);
+  const assembly = createAssemblyReceipt({ assemblyId: "neutral-chamber-assembly", frozenPackage, selected, assembledAt: "2026-09-08T12:02:00.000Z", provenance: { producer: "test", observed_at: "2026-09-08T12:02:00.000Z" } });
+  const receipt = runDeterministicEncounter({ assemblyReceipt: assembly, runtimeProfile: profile, seed: 41, script: [{ at_ms: 100, actor: "player", target: "encounter-target", damage: 9 }, { at_ms: 250, actor: "encounter-target", target: "player", damage: 4 }], startedAt: "2026-09-08T12:03:00.000Z" });
+  assert.throws(() => validateSimulationReceipt({ ...receipt, evidence_tiers: { ...receipt.evidence_tiers, invented: true } }), /evidence tiers/);
+  assert.throws(() => validateSimulationReceipt({ ...receipt, telemetry: { ...receipt.telemetry, hit_exchange: { verified: true, events: [] } } }), /hit events/);
+});
+
+function frozenNeutralPackage() {
+  const host = { schema_version: "1", host_id: "neutral-host", host_build: "fixture-1", platform: "macos", scripting_backend: "mono", execution_kinds: ["recipe"], loaders: [], contracts: [], limits: { memory_mb: 128, preload_seconds: 1 } };
+  const module = { schema_version: "1", module_id: "neutral-combat-recipe", revision: 1, execution_kind: "recipe", provides: ["encounter.baseline"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "neutral-scripted-exchange" }, fallback_module_ids: [] };
+  const ready = assembleEncounterPackage({ host, encounterId: "neutral-chamber", packageId: "neutral-chamber-package", baselineModules: [module], assembledAt: "2026-09-08T12:00:00.000Z" }).package;
+  return freezeEncounterPackage(ready, "2026-09-08T12:01:00.000Z");
+}

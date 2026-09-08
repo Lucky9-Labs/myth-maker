@@ -10,6 +10,7 @@ import {
 import { createBuildRoomServer } from "../src/build-room-server.js";
 import { createSqliteCatalog } from "../src/catalog-sqlite.js";
 import { createAssemblyReceipt, runDeterministicEncounter } from "../src/encounter-runner.js";
+import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 
 test("a local submission creates distinct inspectable IDs and an honest local receipt", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
@@ -367,11 +368,7 @@ function adapterEvent(run, overrides = {}) {
 }
 
 function neutralSimulationReceipt(encounterId) {
-  const frozenPackage = {
-    schema_version: "1", package_id: "neutral-chamber-package", encounter_id: encounterId, revision: 1, state: "frozen",
-    assembled_at: "2026-09-08T12:00:00.000Z", frozen_at: "2026-09-08T12:01:00.000Z", module_ids: ["neutral-combat-recipe"],
-    manifest_sha256: "a".repeat(64), fallback_provenance: { used_fallback: false, module_ids: [] },
-  };
+  const frozenPackage = frozenNeutralPackage(encounterId);
   const assembly = createAssemblyReceipt({
     assemblyId: "neutral-chamber-assembly", frozenPackage,
     selected: { assets: [{ asset_id: "neutral-target", revision: 3, sha256: "b".repeat(64), uri: "artifact://neutral-target.prefab" }], animations: [{ animation_id: "neutral-strike", revision: 2, sha256: "c".repeat(64), uri: "artifact://neutral-strike.anim" }] },
@@ -383,6 +380,13 @@ function neutralSimulationReceipt(encounterId) {
     seed: 41, script: [{ at_ms: 100, actor: "player", target: "encounter-target", damage: 9 }, { at_ms: 250, actor: "encounter-target", target: "player", damage: 4 }],
     startedAt: "2026-09-08T12:03:00.000Z",
   });
+}
+
+function frozenNeutralPackage(encounterId) {
+  const host = { schema_version: "1", host_id: "neutral-host", host_build: "fixture-1", platform: "macos", scripting_backend: "mono", execution_kinds: ["recipe"], loaders: [], contracts: [], limits: { memory_mb: 128, preload_seconds: 1 } };
+  const module = { schema_version: "1", module_id: "neutral-combat-recipe", revision: 1, execution_kind: "recipe", provides: ["encounter.baseline"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "neutral-scripted-exchange" }, fallback_module_ids: [] };
+  const ready = assembleEncounterPackage({ host, encounterId, packageId: "neutral-chamber-package", baselineModules: [module], assembledAt: "2026-09-08T12:00:00.000Z" }).package;
+  return freezeEncounterPackage(ready, "2026-09-08T12:01:00.000Z");
 }
 
 async function eventually(read, predicate) {

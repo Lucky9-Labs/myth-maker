@@ -1,6 +1,6 @@
 # Neutral Unity encounter-runner fixture
 
-This disposable Unity 6000.6.0f1 fixture loads no host-game project, package, asset, or animation. It instantiates a neutral player proxy and encounter target, runs a deterministic two-event damage exchange, and writes a `SimulationReceipt` to `../../artifacts/encounter-runner/unity-simulation-receipt.json`.
+This disposable Unity 6000.6.0f1 fixture loads no host-game project, package, asset, or animation. It reads its immutable neutral `AssemblyReceipt` from `Assets/Resources/neutral-assembly-receipt.json` (a frozen package hash plus exact asset/animation revisions), instantiates a neutral player proxy and encounter target, runs a deterministic two-event damage exchange, and writes a `SimulationReceipt` to `../../artifacts/encounter-runner/unity-simulation-receipt.json`.
 
 Run it with the installed editor:
 

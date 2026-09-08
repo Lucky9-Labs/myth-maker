@@ -170,6 +170,17 @@ export function freezeEncounterPackage(readyPackage, frozenAt) {
   });
 }
 
+/** Validate an immutable frozen package before a runtime consumes it. */
+export function verifyFrozenEncounterPackage(packageRecord) {
+  if (!packageRecord || packageRecord.state !== "frozen" || packageShapeReasons(packageRecord).length) {
+    throw new TypeError("only a valid frozen package can be consumed");
+  }
+  if (packageRecord.manifest_sha256 !== manifestSha256(withoutManifestHash(packageRecord))) {
+    throw new TypeError("frozen package manifest_sha256 does not match its contents");
+  }
+  return true;
+}
+
 function selectDeclaredFallback(module, selectedIds, usedFallbackIds) {
   for (const fallbackId of [...(module.fallback_module_ids || [])]) {
     if (selectedIds.has(fallbackId)) {
