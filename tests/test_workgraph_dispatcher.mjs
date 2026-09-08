@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { planEncounterWork } from "../src/workgraph-planner.js";
+import { assembleEncounterInputs, planEncounterWork } from "../src/workgraph-planner.js";
 import { EncounterDispatcher, InMemoryReceiptStore, JsonReceiptStore } from "../src/encounter-dispatcher.js";
 import { LocalWorkerBackend } from "../src/local-worker-backend.js";
 import { createRailwayDispatchHandler } from "../src/railway-dispatcher.js";
@@ -89,17 +89,27 @@ function refOf(record, idField) {
   return { id: record[idField], revision: record.revision, content_sha256: record.content_sha256 };
 }
 
-test("planner deterministically produces generic dependency-aware v2 lanes", () => {
+test("planner deterministically produces a generic parameterized component graph", () => {
   const first = planEncounterWork(fixture);
   const second = planEncounterWork(structuredClone(fixture));
 
   assert.deepEqual(second, first);
-  assert.deepEqual(first.work_orders.map((order) => order.lane), [
-    "body-source", "animation-recipe", "combat-recipe", "validation",
-  ]);
-  assert.ok(first.work_orders.slice(0, 3).every((order) => order.depends_on_work_ids.length === 0));
-  assert.deepEqual(first.work_orders.at(-1).depends_on_work_ids,
-                   first.work_orders.slice(0, 3).map((order) => order.work_id));
+  assert.ok(first.component_graph.components.some((component) => component.kind === "central-body"));
+  assert.equal(first.component_graph.components.filter((component) => component.kind === "body-segment").length, fixture.desired_roles.length * 2);
+  assert.equal(first.component_graph.components.filter((component) => component.kind === "critical-spot").length, fixture.desired_roles.length);
+  assert.equal(first.component_graph.components.filter((component) => component.kind === "motion-clip").length, fixture.desired_roles.length);
+  assert.ok(first.component_graph.components.some((component) => component.kind === "material-binding"));
+  assert.ok(first.component_graph.components.some((component) => component.kind === "arena-envelope"));
+  assert.ok(first.component_graph.components.some((component) => component.kind === "combat-recipe"));
+  assert.ok(first.component_graph.components.every((component) => component.component_revision.content_sha256.length === 64));
+  assert.ok(first.component_graph.components.every((component) => Object.isFrozen(component.component_revision)));
+  assert.ok(first.component_graph.components.filter((component) => component.kind === "central-body").every((component) => component.attachment_contract.provides.length >= fixture.desired_roles.length * 3));
+  const roots = first.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
+  assert.ok(roots.every((order) => order.depends_on_work_ids.length === 0));
+  const assembly = first.work_orders.find((order) => order.lane === "assembly");
+  const validation = first.work_orders.find((order) => order.lane === "validation");
+  assert.deepEqual(assembly.depends_on_work_ids, roots.map((order) => order.work_id));
+  assert.deepEqual(validation.depends_on_work_ids, [assembly.work_id]);
   assert.ok(first.work_orders.every((order) => order.schema_version === "2"));
   assert.ok(first.work_orders.every((order) => order.production_gate.kind === "concept_lineage"));
   assert.deepEqual(first.work_orders[0].production_gate, fixture.production_gate);
@@ -107,6 +117,56 @@ test("planner deterministically produces generic dependency-aware v2 lanes", () 
   revised.objective.parameters.seconds = 120;
   assert.notDeepEqual(planEncounterWork(revised).work_orders.map((order) => order.work_id),
                       first.work_orders.map((order) => order.work_id));
+});
+
+test("assembly inputs retain a valid baseline when a horizontal lane is missing", () => {
+  const graph = planEncounterWork(fixture);
+  const roots = graph.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
+  const completedExcept = (missingLane) => roots
+    .filter((order) => order.lane !== missingLane)
+    .map((order) => ({ work_id: order.work_id, status: "completed" }));
+
+  const withoutMaterial = assembleEncounterInputs(graph, completedExcept("material-binding"));
+  const withoutArena = assembleEncounterInputs(graph, completedExcept("arena-envelope"));
+  assert.equal(withoutMaterial.valid, true);
+  assert.equal(withoutArena.valid, true);
+  assert.equal(withoutMaterial.baseline_id, withoutArena.baseline_id);
+  assert.ok(withoutMaterial.selections.some((selection) => selection.lane === "material-binding" && selection.source === "fallback"));
+  assert.ok(withoutArena.selections.some((selection) => selection.lane === "arena-envelope" && selection.source === "fallback"));
+});
+
+test("dispatcher reaches validation after a failed horizontal lane so assembly can select its fallback", async () => {
+  const graph = planEncounterWork(fixture);
+  const dispatcher = new EncounterDispatcher({
+    backend: {
+      async launch(order) {
+        if (order.lane === "material-binding") throw new Error("simulated absent material lane");
+        const worker_id = `test-${order.work_id.slice(3)}`;
+        return { worker_id, events: [
+          { schema_version: "1", event_id: `evt-${order.work_id.slice(3)}-accepted`, work_id: order.work_id, encounter_id: order.encounter_id, worker_id, sequence: 0, occurred_at: "2026-09-08T20:00:00.000Z", kind: "accepted" },
+          { schema_version: "1", event_id: `evt-${order.work_id.slice(3)}-started`, work_id: order.work_id, encounter_id: order.encounter_id, worker_id, sequence: 1, occurred_at: "2026-09-08T20:00:00.001Z", kind: "started" },
+          { schema_version: "1", event_id: `evt-${order.work_id.slice(3)}-completed`, work_id: order.work_id, encounter_id: order.encounter_id, worker_id, sequence: 2, occurred_at: "2026-09-08T20:00:00.002Z", kind: "completed" },
+        ] };
+      },
+    },
+  });
+  const result = await dispatcher.dispatch(graph);
+  assert.equal(result.receipts.find((receipt) => receipt.work_id === graph.work_orders.find((order) => order.lane === "material-binding").work_id).status, "failed");
+  assert.equal(result.receipts.at(-1).status, "completed");
+  const inputs = assembleEncounterInputs(graph, result.receipts);
+  assert.ok(inputs.selections.some((selection) => selection.lane === "material-binding" && selection.source === "fallback"));
+});
+
+test("assembly inputs are deterministic regardless of receipt delivery order", () => {
+  const graph = planEncounterWork(fixture);
+  const receipts = graph.work_orders
+    .filter((order) => !["assembly", "validation"].includes(order.lane))
+    .map((order) => ({ work_id: order.work_id, status: "completed" }));
+  const first = assembleEncounterInputs(graph, receipts);
+  const second = assembleEncounterInputs(graph, [...receipts].reverse());
+  assert.deepEqual(second, first);
+  assert.equal(first.valid, true);
+  assert.ok(first.selections.every((selection) => selection.source === "candidate"));
 });
 
 test("dispatcher blocks missing, mismatched, and expired production lineage before backend launch", async () => {
@@ -193,7 +253,7 @@ test("dispatcher launches independent lanes in concurrent local processes and de
   });
 
   const result = await dispatcher.dispatch(graph);
-  const roots = graph.work_orders.slice(0, 3);
+  const roots = graph.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
   const eventsByWork = new Map(roots.map((order) => [
     order.work_id,
     result.events.filter((event) => event.work_id === order.work_id),
@@ -201,14 +261,14 @@ test("dispatcher launches independent lanes in concurrent local processes and de
   const started = [...eventsByWork.values()].map((events) => Date.parse(events.find((event) => event.kind === "started").occurred_at));
   const completed = [...eventsByWork.values()].map((events) => Date.parse(events.find((event) => event.kind === "completed").occurred_at));
 
-  assert.equal(result.receipts.length, 4);
+  assert.equal(result.receipts.length, graph.work_orders.length);
   assert.ok(Math.max(...started) < Math.min(...completed), "root worker timestamps must overlap");
   for (const events of eventsByWork.values()) {
     assert.deepEqual(events.map((event) => event.sequence), [0, 1, 2]);
   }
 
   const duplicate = await dispatcher.dispatch(graph);
-  assert.equal(duplicate.deduplicated_work_ids.length, 4);
+  assert.equal(duplicate.deduplicated_work_ids.length, graph.work_orders.length);
   assert.equal(duplicate.events.length, 0);
   assert.deepEqual(duplicate.receipts.map((receipt) => receipt.work_id).sort(),
                    result.receipts.map((receipt) => receipt.work_id).sort());
@@ -227,8 +287,8 @@ test("runnable CLI prints a graph, ordered events, receipts, and overlap evidenc
 
   assert.equal(code, 0, stderr);
   const proof = JSON.parse(stdout);
-  assert.equal(proof.graph.work_orders.length, 4);
-  assert.equal(proof.receipts.length, 4);
+  assert.ok(proof.graph.work_orders.length > 10);
+  assert.equal(proof.receipts.length, proof.graph.work_orders.length);
   assert.equal(proof.overlap.observed, true);
   assert.ok(proof.events.length >= 12);
 });

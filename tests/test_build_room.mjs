@@ -173,8 +173,8 @@ test("HTTP submission executes the local planner-dispatcher path and projects te
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Real local path" }) })).json();
-    const final = await eventually(async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()), (value) => value.work_graph.length === 4 && value.packages.length === 1);
-    assert.equal(final.work_graph.length, 4);
+    const final = await eventually(async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()), (value) => value.work_graph.length >= 10 && value.packages.length === 1);
+    assert.ok(final.work_graph.length >= 10);
     assert.ok(final.work_graph.every((work) => work.status === "completed"));
     assert.equal(final.packages[0].revision, 1);
     assert.ok(final.events.some((event) => event.evidence.kind === "local_process" && event.workerId.startsWith("local-")));

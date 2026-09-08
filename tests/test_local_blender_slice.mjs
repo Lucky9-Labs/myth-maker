@@ -189,7 +189,7 @@ test("a failed local Blender worker leaves an observed failure and assembles the
     assert.ok(finished.packages[0].selection.includes(`baseline-${run.ids.encounterId.slice(-24)}`));
     assert.ok(finished.packages[0].selection.includes(`baseline-animation-${run.ids.encounterId.slice(-14)}`));
     assert.equal(finished.events.find((event) => event.kind === "failed")?.evidence.kind, "local_blender_cli_failed");
-    assert.equal(finished.work_graph.find((work) => work.lane === "validation")?.status, "failed");
+    assert.equal(finished.work_graph.find((work) => work.lane === "validation")?.status, "completed");
   } finally {
     server.close();
     catalog.close();

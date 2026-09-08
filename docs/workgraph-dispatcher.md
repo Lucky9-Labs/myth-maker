@@ -1,15 +1,21 @@
 # Generic WorkGraph dispatcher
 
 `planEncounterWork(spec)` produces deterministic, published-v2
-`EncounterWorkOrder` records for four generic lanes: a source fragment, an
-animation recipe, a combat recipe, and a validation report. The first three
-have no dependencies and the validation order depends on all three. It uses
-only the supplied `EncounterSpec` fields; fixture aesthetics are not planner
-inputs or schema branches.
+`EncounterWorkOrder` records plus a planning-only `component_graph`. The graph
+is parameterized solely by the supplied `EncounterSpec`: one central body,
+two body segments per desired role, one critical-spot module and motion clip
+per desired role, then material binding, arena envelope, combat recipe,
+assembly, and validation. No lane, identifier, or fallback refers to a
+particular creature or genre.
 
-V0 emits one `body-source` work item only. It does not yet split geometry into
-multiple body parts or provide a stitch/join lane; that remains a planner
-extension rather than an implied capability.
+Every component has a stable encounter-and-slot identity, a content-addressed
+immutable revision, and explicit attachment/socket contracts. Workers receive
+that contract in their closed v2 `instruction` field; the published work-order
+schema is unchanged. Independent component work orders have no dependencies.
+Assembly depends on their terminal receipts, then validation depends on
+assembly. `assembleEncounterInputs(graph, receipts)` deterministically selects
+a completed candidate or that component's named fallback, so a failed or absent
+horizontal lane does not deadlock the baseline package contract.
 
 `EncounterDispatcher` accepts an injected worker backend and receipt store.
 It launches ready work concurrently, preserves each worker's ordered v1 events,
@@ -40,6 +46,17 @@ Run the offline concurrency proof:
 npm run example:workgraph
 ```
 
-It launches three real local Node child processes for the independent lanes and
+It launches real local Node child processes for every independent lane and
 prints the graph, events, receipts, and start/complete timestamps. This is not
 Modal, GPU, Blender, Cloudflare, or deployed-Railway evidence.
+
+For the demo-scale one-shot receipt, run:
+
+```sh
+npm run demo:encounter-stress -- --output .local-stress-artifacts/one-shot.json
+```
+
+That command records observed local Node-process overlap and immutable
+component-plan/dispatcher receipts. It explicitly records Blender GUI, local
+Blender CLI, Modal remote, Unity import, and host combat as `not_run`; it is a
+planning/dispatch simulation, not generated-asset or player-facing proof.

@@ -290,7 +290,7 @@ function localSpec(encounterId, seed = 1, attempt = 1) {
 }
 
 function bootstrapProductionGate() {
-  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: ["encounter.body.source", "encounter.animation.recipe", "encounter.combat.recipe", "encounter.validation.report"], not_concept_compliant: true } };
+  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: ["encounter.body.source", "encounter.body.segment.source", "encounter.critical-spot.module", "encounter.motion.clip", "encounter.material.binding", "encounter.arena.envelope", "encounter.combat.recipe", "encounter.assembly.receipt", "encounter.validation.report"], not_concept_compliant: true } };
 }
 
 function baselineModules(encounterId) {

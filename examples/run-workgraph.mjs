@@ -24,7 +24,7 @@ const fixture = {
       approver: "local-demo-owner",
       approved_at: "2026-09-08T00:00:00Z",
       expires_at: "2026-12-31T00:00:00Z",
-      requested_provides: ["encounter.body.source", "encounter.animation.recipe", "encounter.combat.recipe", "encounter.validation.report"],
+      requested_provides: ["encounter.body.source", "encounter.body.segment.source", "encounter.critical-spot.module", "encounter.motion.clip", "encounter.material.binding", "encounter.arena.envelope", "encounter.combat.recipe", "encounter.assembly.receipt", "encounter.validation.report"],
       not_concept_compliant: true,
     },
   },
@@ -32,7 +32,8 @@ const fixture = {
 
 const graph = planEncounterWork(fixture);
 const result = await new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 180 }) }).dispatch(graph);
-const rootEvents = graph.work_orders.slice(0, 3).map((order) => result.events.filter((event) => event.work_id === order.work_id));
+const roots = graph.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
+const rootEvents = roots.map((order) => result.events.filter((event) => event.work_id === order.work_id));
 const starts = rootEvents.map((events) => events.find((event) => event.kind === "started").occurred_at);
 const completes = rootEvents.map((events) => events.find((event) => event.kind === "completed").occurred_at);
 const overlap = Math.max(...starts.map(Date.parse)) < Math.min(...completes.map(Date.parse));
