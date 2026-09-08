@@ -211,6 +211,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.doesNotMatch(deployWorkflow, /release-readiness/);
   assert.doesNotMatch(deployWorkflow, /DEPLOYMENT_READY/);
   assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
+  assert.match(deployWorkflow, /modal:[\s\S]*?secrets: inherit/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
@@ -219,6 +220,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(executor, /if: inputs\.provider == 'modal'/);
   assert.match(executor, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
   assert.match(executor, /modal==1\.4\.0/);
+  assert.match(executor, /provider command did not produce parseable result/);
   assert.match(executor, /assert-github-deployment/);
   assert.match(executor, /id-token: write/);
   assert.doesNotMatch(executor, /controller\.mjs deploy --event/);
@@ -238,7 +240,20 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
     { encoding: "utf8" },
   ));
+  const modalProvider = JSON.parse(execFileSync(
+    "ruby",
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-modal.yml"],
+    { encoding: "utf8" },
+  ));
+  const railwayProvider = JSON.parse(execFileSync(
+    "ruby",
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-railway.yml"],
+    { encoding: "utf8" },
+  ));
   assert.match(deploy.jobs["write-unavailable-provider-receipts"].steps[0].uses, /^actions\/checkout@/);
+  assert.equal(deploy.jobs.modal.secrets, "inherit");
+  assert.equal(modalProvider.jobs.deploy.secrets, "inherit");
+  assert.equal(railwayProvider.jobs.deploy.secrets, "inherit");
   for (const job of [
     "terraform-foundation-preview",
     "cloudflare-preview",

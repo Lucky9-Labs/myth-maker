@@ -13,6 +13,9 @@ on:
 jobs:
   deploy:
     uses: ./.github/workflows/provider-executor.yml
+    # Preserve the explicit caller secret scope across the second reusable
+    # workflow hop; the executor itself is where the dev environment binds.
+    secrets: inherit
     with:
       provider: modal
       environment: ${{ inputs.environment }}
