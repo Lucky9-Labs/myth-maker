@@ -6,10 +6,11 @@ deployment path. This controller makes the deployment trust boundary explicit:
 
 ```text
 pull request -> non-mutating checks/previews only
-validated push to main -> environment-scoped CI deployment
-  -> Modal and Railway (parallel)
-  -> Cloudflare (after both dispatch dependencies are ready)
-  -> one JSON receipt artifact per provider
+validated push to main -> environment-scoped CI foundation preflight
+  -> Modal command path (not yet live-verified)
+  -> Railway receipt: unsupported/failure
+  -> Cloudflare receipt: skipped pending Railway verification
+  -> one JSON receipt artifact per provider, never a fabricated success
 ```
 
 The reusable workflows in `.github/workflows/provider-*.yml` each call the
@@ -84,11 +85,14 @@ managed; disabled resources are null or empty. Modal CLI output is not assumed
 to be JSON, so its receipt must mark a deployment ID unavailable until a
 parseable CLI/API seam is added—never invent an ID.
 
-Current release status is intentionally conservative: the Terraform foundation
-may create non-version Cloudflare identity/state, but Worker version promotion
-is blocked until the Railway dispatcher exposes a verified `x-work-id`
-acknowledgement adapter. Railway is likewise an unsupported/failure receipt,
-not a successful deployment, until that adapter and its source exist.
+Current release status is intentionally conservative. The merged
+`src/railway-dispatcher.js` supplies an in-repository work-graph dispatcher, but
+it is not yet a deployable Railway entrypoint/configuration and has no
+production durable receipt store or live verification endpoint. Worker version
+promotion is therefore blocked, Railway produces an unsupported/failure receipt,
+and Cloudflare produces a skipped receipt. None of those stages is presented as
+a completed provider deployment until Railway can prove a durable
+`x-work-id` acknowledgement and the provider receipts contain live evidence.
 
 ## Receipts and build-room consumption
 
