@@ -30,6 +30,15 @@ The plan also records the demo bootstrap: selected Mech-project assets and
 animation clips will seed the encounter catalogs, while the design itself
 remains generic.
 
+Two explicit, unimplemented follow-on workstreams keep the asset boundary
+clear: a **Texture/Material Worker** will publish immutable texture-set and
+material-binding revisions, while an **Arena Worker** will publish immutable
+arena revisions linked to the encounter semantic entity. Catalog metadata and
+receipts describe and verify those revisions; they are not a blob store. The
+plan defines the required provenance, compatibility, acceptance, and Build
+Room evidence without treating alien-oceanic styling as schema or as an
+implementation claim.
+
 The first stable machine-readable interchange boundary is in
 [`contracts/`](contracts/). It covers host capabilities, encounter requests,
 parallel work orders, worker events, composable modules, and frozen playable
