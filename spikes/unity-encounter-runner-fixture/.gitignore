@@ -5,4 +5,5 @@
 [Uu]ser[Ss]ettings/
 Packages/
 ProjectSettings/*.asset
+*.meta
 /artifacts/encounter-runner/*.log
