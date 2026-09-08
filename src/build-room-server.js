@@ -126,13 +126,22 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
         kind: event.kind, message: event.message,
         ...(isBlender && manifest && event.kind === "candidate_produced" ? { artifact: artifactRevision(manifest, artifactUrl(artifactRoot, manifest.visual.path)) } : {}),
         evidence: isBlender
-          ? { kind: "local_blender_cli", receipt: manifest
-            ? { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, manifest_path: manifest.manifest_path }
-            : { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, failure: event.message, note: "Local Blender CLI failed; assembler retained the baseline fallback." } }
+          ? manifest
+            ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, manifest_path: manifest.manifest_path } }
+            : { kind: "local_blender_cli_failed", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, failure: event.message, note: "Local Blender CLI failed; assembler retained the baseline fallback." } }
           : { kind: "local_process", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at } },
       });
       room.upsertWork(run.ids.encounterId, order, projected);
     }
+  }
+  if (result.recovered_with_baseline_fallback) {
+    const skipped = graph.work_orders.find((order) => order.lane === "validation");
+    const projected = room.record(run.ids.encounterId, {
+      workerId: "local-dispatcher", sequence: 0, kind: "cancelled", occurredAt: new Date().toISOString(),
+      message: "Validation lane skipped because a prerequisite failed; assembler retained the declared baseline fallback.",
+      evidence: { kind: "local_process", receipt: { process: "encounter-dispatcher", observed_at: new Date().toISOString() } },
+    });
+    room.upsertWork(run.ids.encounterId, skipped, projected);
   }
   const packageResult = assembleEncounterPackage({
     host: spec.host_capabilities,
@@ -258,8 +267,22 @@ function stream(response, snapshot) {
 function body(request) {
   return new Promise((resolve, reject) => {
     let raw = "";
-    request.on("data", (chunk) => { raw += chunk; if (raw.length > 100_000) reject(new TypeError("request body too large")); });
-    request.on("end", () => { try { resolve(JSON.parse(raw || "{}")); } catch { reject(new TypeError("invalid JSON")); } });
+    let received = 0;
+    let rejected = false;
+    request.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > 100_000) {
+        if (!rejected) reject(new TypeError("request body too large"));
+        rejected = true;
+        request.resume();
+        return;
+      }
+      if (!rejected) raw += chunk;
+    });
+    request.on("end", () => {
+      if (rejected) return;
+      try { resolve(JSON.parse(raw || "{}")); } catch { reject(new TypeError("invalid JSON")); }
+    });
     request.on("error", reject);
   });
 }
@@ -313,6 +336,7 @@ const CLIENT_SCRIPT = String.raw`
     fixture: "Simulated fixture (not live)",
     local_process: "Local process receipt (observed)",
     local_blender_cli: "Local Blender CLI evidence (observed)",
+    local_blender_cli_failed: "Local Blender CLI failure (observed local process)",
     adapter_reported: "Coordinator/dispatcher report (unverified)",
     modal_remote: "Modal remote receipt (observed)",
     blender_window: "Blender window/screenshot/stream (observed)",
@@ -342,7 +366,7 @@ const CLIENT_SCRIPT = String.raw`
     if (!workItems.length) return "<div class=\"lane absent\"><strong>No observed work items</strong><br>The local planner has not projected work yet.</div>";
     return workItems.map((work) => { const edges = work.depends_on_work_ids.length ? work.depends_on_work_ids.map((dependency) => dependency + " → " + work.work_id).join("; ") : "request → " + work.work_id; return "<div class=\"lane " + evidenceClass(work.evidence_kind) + "\"><strong>Planner → local dispatcher → " + esc(work.lane) + "</strong><br>work: <code>" + esc(work.work_id) + "</code><br>worker: <code>" + esc(work.worker_id) + "</code><br>status: " + esc(work.status) + " · " + work.elapsed_seconds + "s<br>dependency edges: " + esc(edges) + "<br>evidence: " + esc(labels[work.evidence_kind]) + "</div>"; }).join("");
   }
-  function evidenceClass(kind) { return ({ local_process: "observed-local", local_blender_cli: "observed-blender", fixture: "fixture", modal_remote: "observed-modal", blender_window: "observed-blender" })[kind] || "absent"; }
+  function evidenceClass(kind) { return ({ local_process: "observed-local", local_blender_cli: "observed-blender", local_blender_cli_failed: "observed-local", fixture: "fixture", modal_remote: "observed-modal", blender_window: "observed-blender" })[kind] || "absent"; }
   function buildCard(build) { return "<li><a href=\"" + esc(build.navigation_url) + "\"><code>" + esc(build.request_id) + "</code></a><br>encounter: <code>" + esc(build.encounter_id) + "</code><br>" + esc(build.terminal ? "terminal" : "active") + " · workers: " + build.work_graph.workers.length + " · revisions: " + build.revisions.artifacts + "/" + build.revisions.packages + "</li>"; }
   function renderDashboard(index) { main.innerHTML = "<section class=\"card\"><h2>Live builds</h2><p class=\"muted\">Active builds are projected from current local state; terminal history is bounded to " + index.terminal_limit + ".</p><h3>Active</h3>" + (index.active.length ? "<ul>" + index.active.map(buildCard).join("") + "</ul>" : "<p class=\"muted\">No active builds.</p>") + "<h3>Recent terminal</h3>" + (index.recent_terminal.length ? "<ul>" + index.recent_terminal.map(buildCard).join("") + "</ul>" : "<p class=\"muted\">No terminal builds.</p>") + "</section>"; }
   function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> — " + esc(row.status) + (row.status === "accepted" ? " (not applied)" : "") + (row.status === "committed" ? " (successor response committed)" : "") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,7 +22,7 @@ test("a Build Room API request observes a real local Blender source, GLB, thumbn
   try {
     const created = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Generate an inspectable demo body candidate.", generate_asset: true }),
+      body: JSON.stringify({ prompt: "Generate an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
     });
     assert.equal(created.status, 201);
     const run = await created.json();
@@ -52,6 +53,15 @@ test("a Build Room API request observes a real local Blender source, GLB, thumbn
     assert.equal(receipt.note, "Observed local Blender CLI evidence; not Modal, Unity-load, or player proof.");
     assert.equal(receipt.commands.length, 2);
     assert.ok(receipt.commands.every((command) => command.returncode === 0 && Array.isArray(command.argv)));
+    assert.equal(sha256(await readFile(receipt.source.path)), artifact.source_sha256);
+    assert.equal(sha256(await readFile(receipt.runtime.path)), artifact.runtime_sha256);
+    const replay = await fetch(`${base}/api/encounters`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "Generate an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
+    });
+    assert.equal(replay.status, 200);
+    assert.equal((await replay.json()).ids.requestId, run.ids.requestId);
+    assert.equal((await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()).artifacts.length, 1);
   } finally {
     server.close();
     catalog.close();
@@ -87,7 +97,8 @@ test("a failed local Blender worker leaves an observed failure and assembles the
     );
     assert.equal(finished.artifacts.length, 0);
     assert.equal(finished.packages[0].selection[0], `baseline-${run.ids.encounterId.slice(-24)}`);
-    assert.equal(finished.events.find((event) => event.kind === "failed")?.evidence.kind, "local_blender_cli");
+    assert.equal(finished.events.find((event) => event.kind === "failed")?.evidence.kind, "local_blender_cli_failed");
+    assert.equal(finished.work_graph.find((work) => work.lane === "validation")?.status, "failed");
   } finally {
     server.close();
     catalog.close();
@@ -110,3 +121,5 @@ function workerEvent(order, worker_id, sequence, kind, details = {}) {
     encounter_id: order.encounter_id, worker_id, sequence, occurred_at: "2026-09-08T12:00:00.000Z", kind, ...details,
   };
 }
+
+function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }

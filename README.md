@@ -53,8 +53,11 @@ It keeps request authorization, idempotency, and one active job per
 project/component in a Durable Object, then forwards opaque computer-use work to
 an external dispatcher. It does not run a model or Blender itself; agents outside
 Cloudflare remain responsible for deciding what to ask the computer-use workers
-to do. The GPU/Blender worker integration remains deliberately unshipped until
-its desktop runtime has a passing cloud smoke test.
+to do. The GPU/Blender **cloud** worker integration remains deliberately
+unshipped until its desktop runtime has a passing cloud smoke test. The Build
+Room's optional local Blender CLI slice is a non-deployed, receipt-bearing
+process proof; it does not contact Cloudflare or Modal and does not establish a
+cloud, Unity-load, or player-facing acceptance claim.
 
 ## Infrastructure foundation
 
@@ -132,13 +135,14 @@ product-flow sketch, but not yet an executable architecture.
 
 ### Recommended sequencing
 
-Do not begin by spawning Blender or animation agents. First make the
-coordinator a trustworthy module: specify the versioned work order and result
-manifest, persist a recoverable state machine and immutable event history, and
-bind idempotency to the canonical request. Then add one dispatcher adapter with
-receipt/callback verification. Only once its artifacts can be validated and
-accepted by the Unity host should semantic reuse, asset generation, and swarm
-fan-out be introduced.
+Do not begin a cloud Blender/animation fleet before the coordinator is
+trustworthy: specify the versioned work order and result manifest, persist a
+recoverable state machine and immutable event history, and bind idempotency to
+the canonical request. Then add one dispatcher adapter with receipt/callback
+verification. The optional local Blender CLI Build Room slice is deliberately
+limited to proving that chain with immutable local artifacts; it is not a cloud
+worker or host acceptance path. Semantic reuse, cloud fan-out, and any Unity
+load claim still require host validation and acceptance.
 
 This preserves the Miro design's strongest idea—specialized generation behind a
 small encounter request—without making the public interface expose the swarm's

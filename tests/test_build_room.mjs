@@ -234,6 +234,21 @@ test("the optional HTTP steer route queues a receipt without an approval state",
   }
 });
 
+test("HTTP ingress rejects oversized JSON before it reaches Build Room request validation", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/encounters`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "x".repeat(100_001) }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, "request body too large");
+  } finally {
+    server.close();
+  }
+});
+
 test("both explicit SSE routes stream before generic detail routes and survive disconnects", async () => {
   const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
   server.listen(0, "127.0.0.1");

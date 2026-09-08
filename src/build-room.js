@@ -5,6 +5,7 @@ const EVIDENCE_LABELS = {
   fixture: "Simulated fixture (not live)",
   local_process: "Local process receipt (observed)",
   local_blender_cli: "Local Blender CLI evidence (observed)",
+  local_blender_cli_failed: "Local Blender CLI failure (observed local process)",
   adapter_reported: "Coordinator/dispatcher report (unverified)",
   modal_remote: "Modal remote receipt (observed)",
   blender_window: "Blender window/screenshot/stream (observed)",
@@ -95,7 +96,7 @@ export class BuildRoom {
     run.events.push(event);
     if (event.artifact) upsertRevision(run.artifacts, event.artifact);
     if (event.package) upsertRevision(run.packages, event.package);
-    if (["local_process", "local_blender_cli"].includes(event.evidence.kind)) run.evidence.local.push(event.evidence.receipt);
+    if (["local_process", "local_blender_cli", "local_blender_cli_failed"].includes(event.evidence.kind)) run.evidence.local.push(event.evidence.receipt);
     if (event.evidence.kind === "modal_remote") run.evidence.modal.push(event.evidence.receipt);
     if (event.evidence.kind === "blender_window") run.evidence.blender.push(event.evidence.receipt);
     this.notify(encounterId);
@@ -361,7 +362,7 @@ function evidenceFromAdapterInput(input, context, trustedObservation) {
 
 function validateEvidence(evidence) {
   if (!EVIDENCE_LABELS[evidence?.kind]) throw new TypeError("unknown evidence kind");
-  if (["local_process", "local_blender_cli", "modal_remote", "blender_window"].includes(evidence.kind) && !evidence.receipt) {
+  if (["local_process", "local_blender_cli", "local_blender_cli_failed", "modal_remote", "blender_window"].includes(evidence.kind) && !evidence.receipt) {
     throw new TypeError(`${evidence.kind} evidence requires an observed receipt`);
   }
 }
@@ -412,7 +413,7 @@ function topology(run, catalogProjection, observedAt) {
       ...work,
       elapsed_seconds: elapsedSeconds(work, observedAt),
     })),
-    workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process", "local_blender_cli"].includes(event.evidence.kind))).map((worker) => {
+    workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process", "local_blender_cli", "local_blender_cli_failed"].includes(event.evidence.kind))).map((worker) => {
       const last = worker.events.at(-1);
       return {
         worker_id: worker.workerId,
