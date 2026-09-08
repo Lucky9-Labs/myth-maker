@@ -67,10 +67,11 @@ provide a global coordinator, cross-release capacity limit, idempotent submissio
 API, active-release pointer, or Unity importer. Build and validate those layers
 before treating it as a production service.
 
-`DRAFT_STATUS: READY_FOR_REVIEW` means only that the model requested review. A
-reviewer must still reopen the native output in Blender, validate dependencies,
-and run the host game's import, gameplay-interface, animation, collision, and
-encounter checks before accepting any result.
+`DRAFT_STATUS: READY_FOR_REVIEW` means only that the model requested additional
+inspection; it is not acceptance. Automated host validation must inspect the
+native output, validate dependencies, and run the host game's import,
+gameplay-interface, animation, collision, and encounter checks before a result
+can graduate.
 
 ## v1 worker-event adapter
 
@@ -97,8 +98,8 @@ failed draft states, and missing/invalid native receipts become explicit
 `failed` events; retryable events tell the coordinator to issue a new work
 order with the next `attempt`, rather than making an automatic worker retry.
 The current v1 module envelope has no source-artifact-only kind, so the adapter
-does not emit `candidate_produced` or invent an `EncounterModule`. A reviewed
-importer must transform the source into a host-loadable module before emitting
+does not emit `candidate_produced` or invent an `EncounterModule`. A
+policy-validating importer must transform the source into a host-loadable module before emitting
 that candidate event. This is an additive contract gap for a later sidecar or
 v2, not a reason to modify the published v1 schemas here.
 
@@ -115,5 +116,25 @@ container, or make a paid/cloud call.
 backend's deployed `cloud_execution_enabled` policy is true. This is a service
 configuration decision, not a per-call human approval gate. Tests and local
 workgraphs keep it false. Runtime credentials, spend limits, volume access, and
-GUI-output review remain separate operational checks; the local example is not
+GUI-output validation remains separate operational checks; the local example is not
 evidence that Modal is deployable or that a Blender candidate is accepted.
+
+## Automated-policy GLB importer sidecar
+
+`glb_source_importer.py` implements that next, deliberately narrow seam. It
+requires a hash-matching `SourceArtifactReceipt`, a host-compatible loader target,
+and a conversion adapter. After source/hash, GLB structure, and output-hash checks,
+the importer itself emits automated `blender-export-v1` acceptance evidence; no caller
+supplies an acceptance receipt. A human/API steer is never artifact acceptance. It validates
+the output as a self-contained GLB 2.0 and only then emits a generic v1
+`runtime_asset` plus its additive `glb.v1` loader sidecar. The sidecar format and its non-goals are in
+[`../docs/glb-v1-loader-profile.md`](../docs/glb-v1-loader-profile.md).
+
+The importer discovers the Blender CLI either from `PATH` or the macOS app
+bundle. Its focused test suite builds a deterministic real `.blend` fixture,
+exports it through `BlenderCliGlbConverter`, then validates the resulting GLB.
+The command below reports whether that concrete adapter is available:
+
+```sh
+python3 glb_source_importer.py --check-live-conversion
+```
