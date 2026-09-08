@@ -57,6 +57,16 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
         if (!run.deduplicated) launchLocalBuild(room, run, persist, catalog, blenderBackend, absoluteArtifactRoot).catch((error) => recordLocalFailure(room, run, error, persist));
         return json(response, run.deduplicated ? 200 : 201, run);
       }
+      const upgradeMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/upgrades$/);
+      if (request.method === "POST" && upgradeMatch) {
+        const upgrade = room.requestNextUpgrade(upgradeMatch[1], await body(request));
+        persist(room);
+        if (!upgrade.deduplicated) {
+          launchLocalBuild(room, upgrade, persist, catalog, blenderBackend, absoluteArtifactRoot, upgrade.upgrade.revision)
+            .catch((error) => recordLocalFailure(room, upgrade, error, persist, upgrade.upgrade.revision));
+        }
+        return json(response, upgrade.deduplicated ? 200 : 202, upgrade);
+      }
       const streamMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/stream$/);
       if (request.method === "GET" && streamMatch) {
         const encounterId = streamMatch[1];
@@ -90,13 +100,13 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
   return server;
 }
 
-async function launchLocalBuild(room, run, persist, catalog, blenderBackend, artifactRoot) {
-  const spec = localSpec(run.ids.encounterId, run.seed);
+async function launchLocalBuild(room, run, persist, catalog, blenderBackend, artifactRoot, revision = 1) {
+  const spec = localSpec(run.ids.encounterId, run.seed, revision);
   const graph = planEncounterWork(spec);
   const localBackend = new LocalWorkerBackend({ workDurationMs: 5 });
   const backend = {
     launch(order, options) {
-      return run.generate_asset && order.lane === "body-source" ? blenderBackend.launch(order, options) : localBackend.launch(order, options);
+      return run.generate_asset && order.lane === "body-source" ? blenderBackend.launch(order, { ...options, revision }) : localBackend.launch(order, options);
     },
   };
   const dispatcher = new EncounterDispatcher({ backend });
@@ -118,7 +128,11 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
   const bodyOrder = graph.work_orders.find((order) => order.lane === "body-source");
   const manifest = run.generate_asset ? blenderBackend.resultFor(bodyOrder.work_id) : undefined;
   const candidate = manifest ? ingestGlbRuntimeCandidate({ module: manifest.module, loaderProfile: manifest.loader_profile }) : undefined;
-  if (manifest) catalog.createAsset(catalogAsset(manifest));
+  if (manifest) {
+    const priorAsset = catalog.getAsset(manifest.asset_id);
+    if (priorAsset) catalog.appendAssetRevision(catalogAsset(manifest, priorAsset));
+    else catalog.createAsset(catalogAsset(manifest));
+  }
   for (const order of graph.work_orders) {
     for (const event of result.events.filter((candidate) => candidate.work_id === order.work_id)) {
       const isBlender = order.lane === "body-source" && event.worker_id.startsWith("blender-cli-");
@@ -128,7 +142,7 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
         ...(isBlender && manifest && event.kind === "candidate_produced" ? { artifact: artifactRevision(manifest, artifactUrl(artifactRoot, manifest.visual.path)) } : {}),
         evidence: isBlender
           ? manifest
-            ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, manifest_path: manifest.manifest_path } }
+            ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, source_inspection: manifest.source_inspection, manifest_path: manifest.manifest_path } }
             : { kind: "local_blender_cli_failed", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, failure: event.message, note: "Local Blender CLI failed; assembler retained the baseline fallback." } }
           : { kind: "local_process", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at } },
       });
@@ -144,17 +158,20 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
     });
     room.upsertWork(run.ids.encounterId, skipped, projected);
   }
+  const packageId = `package-${run.ids.encounterId.slice(-24)}`;
+  const priorPackage = room.snapshot(run.ids.encounterId).packages.filter((entry) => entry.package_id === packageId).at(-1)?.package_record;
   const packageResult = assembleEncounterPackage({
     host: spec.host_capabilities,
     encounterId: run.ids.encounterId,
-    packageId: `package-${run.ids.encounterId.slice(-24)}`,
+    packageId,
     baselineModules: [baselineModule(run.ids.encounterId)],
     candidateModules: candidate ? [candidate.module] : [],
+    previousPackage: priorPackage,
     assembledAt: new Date().toISOString(),
   });
   room.record(run.ids.encounterId, {
     workerId: "local-assembler", sequence: 0, kind: "completed", occurredAt: new Date().toISOString(),
-    message: candidate ? "Local assembler produced a package selecting the checked local Blender runtime candidate; host-game acceptance remains absent." : "Local assembler preserved the compatible baseline fallback after terminal worker receipts.",
+    message: candidate ? `Local assembler re-evaluated encounter package revision ${packageResult.package.revision} and selected the checked local Blender runtime candidate; host-game acceptance remains absent.` : "Local assembler preserved the compatible baseline fallback after terminal worker receipts.",
     package: {
       package_id: packageResult.package.package_id,
       revision: packageResult.package.revision,
@@ -163,14 +180,23 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
       fallback: packageResult.package.fallback_provenance,
       rejections: packageResult.rejections,
       manifest_sha256: packageResult.package.manifest_sha256,
-      assembly_receipt: assemblyReceipt(packageResult.package, manifest),
+      package_record: packageResult.package,
+      assembly_receipt: assemblyReceipt(packageResult.package, manifest, priorPackage),
     },
     evidence: { kind: "local_process", receipt: { process: "encounter-package-assembler", observed_at: new Date().toISOString() } },
   });
+  if (revision > 1) {
+    room.record(run.ids.encounterId, {
+      workerId: "local-coordinator", sequence: revision + 1000, kind: "completed", occurredAt: new Date().toISOString(),
+      message: `Local coordinator re-evaluated the same encounter, selected package revision ${packageResult.package.revision}, and preserved package revision ${revision - 1} as immutable fallback history.`,
+      evidence: { kind: "local_process", receipt: { process: "local-encounter-coordinator", upgrade_revision: revision, package_manifest_sha256: packageResult.package.manifest_sha256, observed_at: new Date().toISOString() } },
+    });
+    room.completeUpgrade(run.ids.encounterId, revision);
+  }
   persist(room);
 }
 
-function assemblyReceipt(packageRecord, manifest) {
+function assemblyReceipt(packageRecord, manifest, previousPackage = undefined) {
   const withoutHash = {
     schema_version: "1",
     receipt_id: `assembly-${packageRecord.package_id.slice(-40)}`,
@@ -191,37 +217,40 @@ function assemblyReceipt(packageRecord, manifest) {
       evidence_scope: "local_blender_cli_only",
     }] : [{ kind: "baseline-contract", status: "passed", artifact_sha256: null, evidence_scope: "local_process_only" }],
     host_acceptance: "not_observed",
+    ...(previousPackage ? { preserved_fallback_history: { package_revision: previousPackage.revision, package_manifest_sha256: previousPackage.manifest_sha256 } } : {}),
   };
   return { ...withoutHash, receipt_sha256: createHash("sha256").update(JSON.stringify(withoutHash)).digest("hex") };
 }
 
-function catalogAsset(manifest) {
+function catalogAsset(manifest, prior = undefined) {
   return {
-    assetId: manifest.asset_id, revision: 1, createdAt: manifest.created_at,
+    assetId: manifest.asset_id, revision: prior ? prior.revision : 1, createdAt: manifest.created_at,
     functionalTags: ["body.generated"], aestheticTags: ["aesthetic.ocean.demo"],
     compatibility: { platforms: ["local"], loaders: ["gltf", "urp"], contracts: ["encounter-module.v1"], bindingIds: [] },
     sourceReceipt: { receiptId: `${manifest.work_id}-source-${manifest.source.artifact.sha256.slice(0, 16)}`, uri: manifest.source.artifact.uri, sha256: manifest.source.artifact.sha256, receivedAt: manifest.created_at },
     runtimeArtifact: { uri: manifest.runtime.uri, sha256: manifest.runtime.sha256, mediaType: manifest.runtime.media_type, byteLength: manifest.runtime.byte_length },
+    visualArtifact: { uri: `sha256:${manifest.visual.sha256}`, sha256: manifest.visual.sha256, mediaType: manifest.visual.media_type, byteLength: manifest.visual.byte_length },
     sourceAcceptanceState: "accepted", runtimeAcceptanceState: "candidate",
-    provenance: { producer: "local-blender-cli", createdAt: manifest.created_at, label: "newly-produced-local-blender" },
+    provenance: { producer: "local-blender-cli", createdAt: manifest.created_at, label: "newly-produced-local-blender", ...(prior ? { parentRefs: [{ domain: "asset", stableId: prior.assetId, revision: prior.revision, contentSha256: prior.contentSha256 }] } : {}) },
   };
 }
 
 function artifactRevision(manifest, thumbnailUrl) {
-  return { artifact_id: manifest.asset_id, revision: 1, source_sha256: manifest.source.artifact.sha256,
-    runtime_sha256: manifest.runtime.sha256, profile: manifest.loader_profile.profile, thumbnail_url: thumbnailUrl,
+  return { artifact_id: manifest.asset_id, revision: manifest.revision, source_sha256: manifest.source.artifact.sha256,
+    runtime_sha256: manifest.runtime.sha256, visual_sha256: manifest.visual.sha256, profile: manifest.loader_profile.profile, thumbnail_url: thumbnailUrl,
     origin: "newly-produced-local-blender", acceptance: "host-unaccepted-candidate" };
 }
 
 function artifactUrl(root, path) { return `/generated/${encodeURIComponent(relative(root, path).split(sep).join("/"))}`; }
 
-function recordLocalFailure(room, run, error, persist) {
+function recordLocalFailure(room, run, error, persist, revision = undefined) {
   room.record(run.ids.encounterId, { workerId: "local-dispatcher", sequence: 0, kind: "failed", occurredAt: new Date().toISOString(), message: `Local dispatcher failed: ${error.message}`, evidence: { kind: "local_process", receipt: { process: "encounter-dispatcher", observed_at: new Date().toISOString() } } });
+  if (revision) room.completeUpgrade(run.ids.encounterId, revision);
   persist(room);
 }
 
-function localSpec(encounterId, seed = 1) {
-  return { schema_version: "1", encounter_id: encounterId, seed, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
+function localSpec(encounterId, seed = 1, attempt = 1) {
+  return { schema_version: "1", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
 }
 
 function baselineModule(encounterId) {
@@ -392,9 +421,15 @@ const CLIENT_SCRIPT = String.raw`
     main.innerHTML = assembly() + (builds.length ? "<details class=\"drawer\"><summary>Open a recent assembly</summary><div class=\"build-list\">" + builds.map(buildCard).join("") + "</div></details>" : "<p class=\"empty-note\">No assemblies yet. A local render is optional and remains local evidence only.</p>");
   }
   async function submitSteer(event) { event.preventDefault(); const instruction = document.querySelector("#steer-instruction").value; const response = await fetch("/api/builds/" + encodeURIComponent(activeRequest) + "/steer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction }) }); if (!response.ok) alert((await response.json()).error); }
+  async function requestUpgrade() { const button = document.querySelector("#upgrade"); button.disabled = true; const response = await fetch("/api/encounters/" + encodeURIComponent(active) + "/upgrades", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); const result = await response.json(); if (!response.ok) { button.disabled = false; return alert(result.error); } render(result); }
   function render(run) {
     main.innerHTML = assembly(run) + details(run);
+    const inspector = main.querySelector(".drawer .drawer-body");
+    const upgrade = document.createElement("section");
+    upgrade.innerHTML = "<h3>Request next revision</h3><p class=\"muted\">Creates one bounded local revision; earlier source, render, GLB, and package receipts remain inspectable above.</p><button id=\"upgrade\" " + (!run.generate_asset || run.upgrade?.active ? "disabled" : "") + ">Request next revision</button>";
+    inspector.append(upgrade);
     document.querySelector("#steer").addEventListener("submit", submitSteer);
+    document.querySelector("#upgrade").addEventListener("click", requestUpgrade);
   }
 
   function watch(encounterId) { const source = new EventSource("/api/encounters/" + encodeURIComponent(encounterId) + "/stream"); source.addEventListener("projection", (event) => render(JSON.parse(event.data))); }

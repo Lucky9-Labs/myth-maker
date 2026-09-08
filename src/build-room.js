@@ -72,6 +72,7 @@ export class BuildRoom {
       workGraph: new Map(),
       evidence: { local: [], modal: [], blender: [] },
       steering: [],
+      upgrade: { active: false, requested_revision: 1 },
       nextCursor: 1,
     });
 
@@ -140,6 +141,7 @@ export class BuildRoom {
         blender: [...run.evidence.blender],
       },
       steering: [...run.steering],
+      upgrade: { ...run.upgrade },
       topology: topology(run, this.catalogProjection, this.now()),
     };
   }
@@ -186,6 +188,37 @@ export class BuildRoom {
     run.steering.push(receipt);
     this.notify(run.ids.encounterId);
     return receipt;
+  }
+
+  /** Reserve exactly one later local revision for an existing encounter. */
+  requestNextUpgrade(encounterId, input = {}) {
+    if (!input || typeof input !== "object" || Array.isArray(input)
+      || Object.keys(input).some((key) => key !== "idempotency_key")) {
+      throw new TypeError("upgrade request has unknown fields");
+    }
+    const run = this.requireRun(encounterId);
+    const key = input.idempotency_key;
+    if (key !== undefined && (typeof key !== "string" || !/^[A-Za-z0-9._-]{8,128}$/.test(key))) {
+      throw new TypeError("idempotency_key must be 8 to 128 URL-safe characters");
+    }
+    if (!run.generateAsset) throw new TypeError("an asset-generating encounter is required before requesting an upgrade");
+    if (run.packages.size === 0) throw new TypeError("the initial package must complete before requesting an upgrade");
+    if (run.upgrade.active || (key && run.upgrade.idempotency_key === key)) return { ...this.snapshot(encounterId), deduplicated: true };
+    const revision = run.upgrade.requested_revision + 1;
+    run.upgrade = { active: true, requested_revision: revision, ...(key ? { idempotency_key: key } : {}) };
+    this.record(encounterId, {
+      workerId: "local-coordinator", sequence: revision, occurredAt: this.now(), kind: "accepted",
+      message: `Local coordinator accepted bounded revision ${revision} and will re-evaluate the same encounter.`,
+      evidence: { kind: "local_process", receipt: { process: "local-encounter-coordinator", upgrade_revision: revision, observed_at: this.now() } },
+    });
+    return { ...this.snapshot(encounterId), upgrade: { revision }, deduplicated: false };
+  }
+
+  completeUpgrade(encounterId, revision) {
+    const run = this.requireRun(encounterId);
+    if (run.upgrade?.requested_revision !== revision) throw new TypeError("upgrade revision does not match the active encounter upgrade");
+    run.upgrade.active = false;
+    this.notify(encounterId);
   }
 
   recordSteering(input, { trusted = false } = {}) {
@@ -245,6 +278,7 @@ export class BuildRoom {
         packages: new Map(stored.packages || []),
         workGraph: new Map(Array.isArray(stored.workGraph) ? stored.workGraph : []),
         steering: stored.steering || [],
+        upgrade: stored.upgrade || { active: false, requested_revision: (stored.packages || []).length || 1 },
       });
     }
     for (const [key, value] of state.idempotency || []) {
@@ -383,12 +417,13 @@ function moduleRevision(module) {
 
 function upsertRevision(entries, entry) {
   const id = entry.artifact_id || entry.package_id;
-  const prior = entries.get(id);
-  if (!prior || entry.revision >= prior.revision) entries.set(id, entry);
+  const key = `${id}@${entry.revision}`;
+  if (!entries.has(key)) entries.set(key, entry);
 }
 
 function revisions(entries) {
-  return [...entries.values()].sort((a, b) => (a.artifact_id || a.package_id).localeCompare(b.artifact_id || b.package_id));
+  return [...entries.values()].sort((a, b) => (a.artifact_id || a.package_id).localeCompare(b.artifact_id || b.package_id)
+    || a.revision - b.revision);
 }
 
 function orderedEvents(events) {

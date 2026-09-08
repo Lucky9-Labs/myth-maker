@@ -17,6 +17,13 @@ host-loadable `runtimeArtifact`, plus independent `sourceAcceptanceState` and
 duration, rig/model binding, tags, compatibility, and the same acceptance split.
 Every append must name the exact immediately prior revision in `parentRefs`.
 
+Locally generated body assets may also retain a `visualArtifact` PNG alongside
+their Blender source receipt and GLB runtime artifact. It is an inspectable
+render receipt, not a host acceptance claim. When a later worker upgrades an
+existing asset, all three artifact hashes are recorded in the new revision and
+the catalog parent ref names the stable asset ID, parent revision, and canonical
+parent content hash.
+
 An asset with `runtimeAcceptanceState: "candidate"` or `"rejected"` may have
 only a source receipt; `"accepted"` requires a host-loadable runtime artifact.
 The planner returns the newest compatible accepted revision per stable ID, so a

@@ -217,6 +217,16 @@ module remains the generic `encounter.body` capability. It is **local Blender
 CLI evidence only**, not Modal/cloud execution, Unity-load validation, or
 player-facing proof.
 
+After the first package completes, the viewer exposes **Request next
+revision**, or callers can `POST {}` to
+`/api/encounters/<encounter-id>/upgrades`. This bounded action runs a later
+local Blender work order for the same encounter. Revision 2 provides six curved,
+tapered appendage as local Blender demo data; a prompt may call it a tentacle,
+then preserves both revisions' `.blend`, PNG, GLB, package, and receipt history.
+The catalog appends revision 2 under the same asset ID with an exact revision-1
+parent hash; the assembly receipt records the retained revision-1 fallback
+history while selecting the compatible revision-2 runtime candidate.
+
 It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
 restarts it when its source changes, so the local viewer remains easy to patch;
 the projection and replay log are persisted to `.build-room-state.json` across
