@@ -187,7 +187,9 @@ export function providerCommand(provider, mode, environment) {
   }
   if (mode !== "deploy") return null;
   if (provider === "modal" && definition.deploy) {
-    return [definition.deploy[0], [...definition.deploy[1], "--environment", environment]];
+    const evidencePath = process.env.MODAL_EVIDENCE_PATH;
+    if (!evidencePath) throw new Error("MODAL_EVIDENCE_PATH is required for a Modal deployment receipt");
+    return [definition.deploy[0], [...definition.deploy[1], "--environment", environment, "--output", evidencePath]];
   }
   return definition.deploy;
 }
@@ -309,7 +311,10 @@ function run(command, options) {
   if (missingSecrets.length) {
     throw new Error(`${missingSecrets.join(", ")} are required only after the reviewed environment gate`);
   }
-  const output = executeProviderCommand(invocation);
+  let output = executeProviderCommand(invocation);
+  if (provider === "modal") {
+    output = readFileSync(process.env.MODAL_EVIDENCE_PATH, "utf8");
+  }
   const evidence = provider === "modal" ? parseModalDeploymentEvidence(output) : undefined;
   process.stdout.write(`${JSON.stringify({ ...request, status: "deployed", ...(evidence ? { evidence } : {}) })}\n`);
 }

@@ -304,7 +304,7 @@ test("provider workflow gives credentials only to a provider command that consum
   const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable receipt")).env;
   assert.deepEqual(Object.keys(cloudflare).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
   assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
-  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
+  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
   assert.doesNotMatch(JSON.stringify({ cloudflare, railway }), /TOKEN|OPENAI|TF_VAR/);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
   assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "CLOUDFLARE_STATUS", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "RAILWAY_STATUS", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
