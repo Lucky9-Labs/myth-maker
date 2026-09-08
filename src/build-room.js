@@ -73,6 +73,13 @@ export class BuildRoom {
 
   upsertWork(encounterId, input, event) {
     if (!input?.work_id) return;
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(input.work_id)
+      || !/^[a-z][a-z0-9_.-]{0,95}$/.test(input.lane || input.work_order?.lane || "")
+      || !Array.isArray(input.depends_on_work_ids || input.work_order?.depends_on_work_ids || [])
+      || !(input.depends_on_work_ids || input.work_order?.depends_on_work_ids || []).every((id) => /^[a-z0-9][a-z0-9-]{0,63}$/.test(id))
+      || new Set(input.depends_on_work_ids || input.work_order?.depends_on_work_ids || []).size !== (input.depends_on_work_ids || input.work_order?.depends_on_work_ids || []).length) {
+      throw new TypeError("invalid v1 work graph metadata");
+    }
     const run = this.requireRun(encounterId);
     const prior = run.workGraph.get(input.work_id) || {};
     run.workGraph.set(input.work_id, {

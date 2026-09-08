@@ -248,6 +248,13 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
   assert.equal(restored.snapshot(run.ids.encounterId).topology.work_graph[0].work_id, "work-001");
 });
 
+test("malformed adapter work metadata is rejected before it can poison the projection", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Closed work metadata" });
+  assert.throws(() => new CoordinatorEventAdapter(room).ingest({ encounter_id: run.ids.encounterId, work_id: {}, lane: "valid.lane", depends_on_work_ids: ["not-an-id!"], worker_id: run.ids.workerId, sequence: 2, kind: "progress" }), /invalid v1 work graph metadata/);
+  assert.deepEqual(room.snapshot(run.ids.encounterId).topology.work_graph, []);
+});
+
 function sequenceIds() {
   const values = ["encounter-001", "request-001", "worker-001"];
   let extra = 0;
