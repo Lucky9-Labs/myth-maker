@@ -81,7 +81,9 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
 
 
 def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
-    run("modal", "deploy", "--env", environment, "modal/draft_trial.py")
+    # Keep Modal's image-build diagnostics in the CI run; deploy failures must
+    # yield a provider-observed cause rather than only an opaque image ID.
+    run("modal", "deploy", "--stream-logs", "--env", environment, "modal/draft_trial.py")
     apps = json_command("modal", "app", "list", "--env", environment, "--json")
     app = next((item for item in apps if item.get("Description") == APP_NAME and item.get("State") == "deployed"), None)
     if not app or not isinstance(app.get("App ID"), str):
