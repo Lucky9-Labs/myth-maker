@@ -10,7 +10,9 @@ The script starts the real local Build Room HTTP server, submits a generic
 high-fanout compile whose brief happens to be the kraken demo, waits for the
 planner/dispatcher receipts, and saves the returned projection. It does not
 insert a fixture or translate a remote receipt. The saved bundle is an observed
-local Node-process/HTTP receipt only; its explicit `unverified` array excludes
+local Node-process/Blender CLI/HTTP receipt only; its adjacent `.artifacts`
+directory retains the source, render, runtime, and manifest outputs named by
+the receipt. Its explicit `unverified` array excludes
 remote coordination, remote workers, host-game acceptance, and player-facing
 runtime.
 
@@ -26,7 +28,7 @@ tiering.
 This slice provides twelve generic root lanes plus validation. They include
 `material-texture`, `material-binding`, `arena-envelope`, and `arena-dressing`.
 The live Build Room surface reports each lane's component tag, worker ID,
-dependency list, status, evidence kind, catalog counters, package revisions,
+dependency list, elapsed time, deadline timer, status, evidence kind, catalog counters, package revisions,
 and explicit selected/rejected/fallback outcome. `freeze_current_package` makes
 the selected package an immutable local frozen snapshot. A local process receipt
 does not claim an artifact or catalog revision for a lane that did not produce

@@ -1,4 +1,5 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,7 +7,8 @@ import path from "node:path";
 import { createBuildRoomServer } from "../src/build-room-server.js";
 
 const outputPath = argument("--output");
-const artifactRoot = await mkdtemp(path.join(tmpdir(), "myth-maker-build-room-stress-"));
+const temporaryArtifactRoot = !outputPath;
+const artifactRoot = outputPath ? `${outputPath}.artifacts/${randomUUID()}` : await mkdtemp(path.join(tmpdir(), "myth-maker-build-room-stress-"));
 const server = createBuildRoomServer({ artifactRoot });
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
@@ -35,7 +37,7 @@ try {
     schema_version: "1",
     receipt_kind: "build-room-high-fanout-local-stress",
     observed_at: new Date().toISOString(),
-    evidence_scope: "local Node processes and local Build Room HTTP projection only",
+    evidence_scope: "local Node processes, local Blender CLI, and local Build Room HTTP projection only",
     unverified: ["remote coordinator", "remote worker", "host-game acceptance", "player-facing runtime"],
     request: {
       prompt: snapshot.prompt,
@@ -50,6 +52,7 @@ try {
       catalog_counters: snapshot.topology.catalog,
       package: snapshot.packages.at(-1),
     },
+    artifact_root: outputPath ? artifactRoot : undefined,
     projection: snapshot,
   };
   if (outputPath) {
@@ -60,7 +63,7 @@ try {
 } finally {
   server.close();
   await once(server, "close");
-  await rm(artifactRoot, { recursive: true, force: true });
+  if (temporaryArtifactRoot) await rm(artifactRoot, { recursive: true, force: true });
 }
 
 function argument(name) {
@@ -72,10 +75,13 @@ function argument(name) {
 }
 
 async function waitFor(read, predicate) {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
+  let latest;
+  for (let attempt = 0; attempt < 1800; attempt += 1) {
     const value = await read();
+    latest = value;
     if (predicate(value)) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  throw new Error("timed out waiting for high-fanout Build Room compile");
+  const terminal = latest?.events?.filter((event) => ["failed", "cancelled"].includes(event.kind)).map((event) => event.message).join(" | ");
+  throw new Error(`timed out waiting for high-fanout Build Room compile${terminal ? `: ${terminal}` : ""}`);
 }

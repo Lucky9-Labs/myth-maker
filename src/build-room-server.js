@@ -107,7 +107,7 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
 }
 
 async function launchLocalBuild(room, run, persist, catalog, blenderBackend, artifactRoot, revision = 1) {
-  const spec = localSpec(run.ids.encounterId, run.seed, revision, run.compile_profile);
+  const spec = localSpec(run.ids.encounterId, run.seed, revision, run.compile_profile, run.deadline_at);
   const graph = planEncounterWork(spec);
   const localBackend = new LocalWorkerBackend({ workDurationMs: 5 });
   const backend = {
@@ -293,9 +293,9 @@ function recordLocalFailure(room, run, error, persist, revision = undefined) {
   persist(room);
 }
 
-function localSpec(encounterId, seed = 1, attempt = 1, compileProfile = "standard") {
+function localSpec(encounterId, seed = 1, attempt = 1, compileProfile = "standard", deadlineAt = "2026-12-31T00:00:00Z") {
   const workLanes = workLanesFor(compileProfile);
-  return { schema_version: "2", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"], work_lanes: workLanes, production_gate: bootstrapProductionGate(workLanes) };
+  return { schema_version: "2", encounter_id: encounterId, seed, attempt, deadline_at: deadlineAt, host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"], work_lanes: workLanes, production_gate: bootstrapProductionGate(workLanes) };
 }
 
 function workLanesFor(compileProfile) {
@@ -479,7 +479,7 @@ const PAGE = String.raw`<!doctype html>
 </style>
 <body>
   <header class="masthead"><div><h1>Myth Maker / Build Room</h1><p class="muted">Compose a playable encounter from observed pieces.</p></div><span class="quiet">D0 assembly surface</span></header>
-  <form id="submit" class="composer"><label for="prompt">What should this encounter do?<textarea id="prompt" required placeholder="Describe the encounter to assemble…"></textarea></label><div class="form-actions"><label><input id="generate-asset" type="checkbox" checked> Include local render</label><label><input id="high-fanout" type="checkbox"> High-fanout compile</label><label><input id="freeze-current-package" type="checkbox"> Freeze current package</label><button>Assemble encounter</button></div></form>
+  <form id="submit" class="composer"><label for="prompt">What should this encounter do?<textarea id="prompt" required placeholder="Describe the encounter to assemble…"></textarea></label><div class="form-actions"><label><input id="generate-asset" type="checkbox" checked> Include local render</label><label><input id="high-fanout" type="checkbox"> High-fanout compile</label><label>Deadline <input id="deadline-seconds" type="number" min="1" max="86400" value="1800"> sec</label><label><input id="freeze-current-package" type="checkbox"> Freeze current package</label><button>Assemble encounter</button></div></form>
   <main id="empty">Preparing assembly table…</main>
   <script><!-- client --></script>
 </body>
@@ -505,7 +505,7 @@ const CLIENT_SCRIPT = String.raw`
     event.preventDefault();
     const prompt = document.querySelector("#prompt").value;
     const response = await fetch("/api/encounters", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, generate_asset: document.querySelector("#generate-asset").checked, compile_profile: document.querySelector("#high-fanout").checked ? "high_fanout" : "standard", freeze_current_package: document.querySelector("#freeze-current-package").checked }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, generate_asset: document.querySelector("#generate-asset").checked, compile_profile: document.querySelector("#high-fanout").checked ? "high_fanout" : "standard", deadline_seconds: Number(document.querySelector("#deadline-seconds").value), freeze_current_package: document.querySelector("#freeze-current-package").checked }),
     });
     const run = await response.json();
     if (!response.ok) return alert(run.error);
@@ -533,9 +533,12 @@ const CLIENT_SCRIPT = String.raw`
   }
   function edge() { return "<span class=\"loop-edge\" aria-hidden=\"true\"></span>"; }
   function quietLane(run, label, lane) {
-    const reported = run && run.topology.work_graph.some((entry) => entry.lane === lane);
-    return "<span class=\"quiet-lane\">" + esc(label) + " · " + (reported ? "reported" : "no lane receipt") + "</span>";
+    const count = run ? run.topology.work_graph.filter((entry) => entry.lane === lane || entry.lane.startsWith(lane + "-")).length : 0;
+    return "<span class=\"quiet-lane\">" + esc(label) + " · " + (count ? count + " lane receipt" + (count === 1 ? "" : "s") : "no lane receipt") + "</span>";
   }
+  function clock(seconds) { const value = Math.max(0, Math.ceil(seconds)); return Math.floor(value / 60) + "m " + String(value % 60).padStart(2, "0") + "s"; }
+  function deadlineTimer(run) { return run ? "<span data-role=\"deadline-timer\" data-deadline=\"" + esc(run.deadline_at) + "\">Deadline timer: " + clock(run.remaining_seconds) + " remaining</span>" : "<span>Deadline timer starts with a request.</span>"; }
+  function refreshDeadlineTimers() { document.querySelectorAll("[data-role=deadline-timer]").forEach((node) => { const seconds = (Date.parse(node.dataset.deadline) - Date.now()) / 1000; node.textContent = "Deadline timer: " + clock(seconds) + " remaining"; }); }
   function laneCards(run) {
     if (!run || !run.topology.work_graph.length) return "<span class=\"quiet-lane\">No lane receipts yet.</span>";
     return run.topology.work_graph.map((work) => "<article class=\"lane-card\"><strong>" + esc(work.lane) + " · " + esc(work.status) + "</strong><code>Component: " + esc(work.component) + "</code><code>Worker: " + esc(work.worker_id) + "</code></article>").join("");
@@ -569,16 +572,16 @@ const CLIENT_SCRIPT = String.raw`
     const flow = nodes.map((node, index) => (index ? edge() : "") + node).join("");
     const conceptGate = loopNode("Concept-first gate", "pending", "", "runtime enforcement pending", false);
     const caption = run ? "Current path is highlighted; node state comes from this build's local events and receipts." : "Submit a build to project its real local worker and revision receipts.";
-    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + quietLane(run, "Material", "material") + quietLane(run, "Arena", "arena") + "</div><div class=\"lane-grid\" aria-label=\"Lane and component status\">" + laneCards(run) + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
+    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + deadlineTimer(run) + quietLane(run, "Material", "material") + quietLane(run, "Arena", "arena") + "</div><div class=\"lane-grid\" aria-label=\"Lane and component status\">" + laneCards(run) + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
   }
   function eventRows(events) { return events.map((entry) => "<li><strong>" + esc(entry.kind) + "</strong> · " + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "<br>" + esc(entry.message) + "</li>").join(""); }
-  function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + "<br>Component <code>" + esc(item.component) + "</code>; worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
+  function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + " · " + esc(item.elapsed_seconds) + "s elapsed<br>Component <code>" + esc(item.component) + "</code>; worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
   function artifactRows(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> · rev " + esc(row.revision) + "<br>" + json(row) + "</li>").join("") + "</ul>" : "<p class=\"muted\">None observed.</p>"; }
   function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> · " + esc(row.status) + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }
   function catalogRows(catalog) { return "<ul>" + Object.entries(catalog).map(([name, row]) => "<li>" + esc(name.replaceAll("_", " ")) + ": " + esc(row.count) + " · " + esc(row.evidence) + "</li>").join("") + "</ul>"; }
   function outcomeRows(run) { const current = latestRevision(run.packages); const outcomes = current && current.outcomes; if (!outcomes) return "<p class=\"muted\">No package outcome yet.</p>"; return "<ul><li><strong>Selected</strong>: " + outcomes.selected.map(esc).join(", ") + "</li><li><strong>Rejected</strong>: " + (outcomes.rejected.length ? outcomes.rejected.map((row) => esc(row.module_id) + " (" + row.reasons.map(esc).join(", ") + ")").join(", ") : "none") + "</li><li><strong>Fallback</strong>: " + (outcomes.fallback.used_fallback ? esc(outcomes.fallback.module_ids.join(", ")) : "not used") + "</li></ul>"; }
   function details(run) {
-    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li><li>profile <code>" + esc(run.compile_profile) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package outcomes</h3>" + outcomeRows(run) + "<h3>Package receipt</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section><section><h3>Steer this build</h3><form id=\"steer\"><label for=\"steer-instruction\">Instruction<textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea></label><button>Queue steer</button></form>" + steerRows(run.steering) + "</section></div></details>";
+    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li><li>profile <code>" + esc(run.compile_profile) + "</code></li><li>deadline <code>" + esc(run.deadline_at) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package outcomes</h3>" + outcomeRows(run) + "<h3>Package receipt</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section><section><h3>Steer this build</h3><form id=\"steer\"><label for=\"steer-instruction\">Instruction<textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea></label><button>Queue steer</button></form>" + steerRows(run.steering) + "</section></div></details>";
   }
   function buildCard(build) { return "<a class=\"build-link\" href=\"" + esc(build.navigation_url) + "\"><strong>" + esc(build.terminal ? "Completed assembly" : "Active assembly") + "</strong><br><span class=\"quiet\">" + esc(build.encounter_id) + "</span></a>"; }
   function renderDashboard(index) {
@@ -601,7 +604,9 @@ const CLIENT_SCRIPT = String.raw`
     document.querySelector("#steer").addEventListener("submit", submitSteer);
     document.querySelector("#upgrade").addEventListener("click", requestUpgrade);
     document.querySelector("#freeze").addEventListener("click", requestFreeze);
+    refreshDeadlineTimers();
   }
+  setInterval(refreshDeadlineTimers, 1000);
 
   function watch(encounterId) {
     dashboardSource?.close(); dashboardSource = undefined;
