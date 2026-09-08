@@ -117,6 +117,7 @@ export class CoordinatorEventAdapter {
 
   ingest(input) {
     const evidence = evidenceFromAdapterInput(input);
+    const artifact = normaliseRevision(input.artifact, "artifact") || moduleRevision(input.module);
     return this.room.record(input.encounter_id, {
       eventId: input.event_id,
       workerId: input.worker_id,
@@ -124,7 +125,7 @@ export class CoordinatorEventAdapter {
       occurredAt: input.occurred_at,
       kind: input.kind,
       message: input.message,
-      artifact: normaliseRevision(input.artifact, "artifact"),
+      artifact,
       package: normaliseRevision(input.package, "package"),
       evidence,
     });
@@ -188,6 +189,11 @@ function normaliseRevision(value, type) {
     throw new TypeError(`${type} requires ${type}_id and a positive integer revision`);
   }
   return { ...value };
+}
+
+function moduleRevision(module) {
+  if (!module) return undefined;
+  return normaliseRevision({ artifact_id: module.module_id, revision: module.revision, artifact: module.artifact }, "artifact");
 }
 
 function upsertRevision(entries, entry) {

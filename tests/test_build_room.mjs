@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { once } from "node:events";
 
 import {
   BuildRoom,
   CoordinatorEventAdapter,
   evidenceLabel,
 } from "../src/build-room.js";
+import { createBuildRoomServer } from "../src/build-room-server.js";
 
 test("a local submission creates distinct inspectable IDs and an honest local receipt", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
@@ -95,6 +97,42 @@ test("Blender evidence is absent until an observed screenshot or stream receipt 
     receipt: { screenshot_path: "/tmp/observed-blender.png", observed_at: "2026-09-08T12:04:00.000Z" },
   });
   assert.equal(room.snapshot(run.ids.encounterId).evidence.blender[0].screenshot_path, "/tmp/observed-blender.png");
+});
+
+test("the local HTTP submit path returns a replayable room projection", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const created = await fetch(`${base}/api/encounters`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "HTTP room" }),
+    });
+    const run = await created.json();
+    assert.equal(created.status, 201);
+    const replay = await fetch(`${base}/api/encounters/${run.ids.encounterId}?after=${encodeURIComponent(run.events[0].cursor)}`);
+    const projection = await replay.json();
+    assert.equal(projection.events.length, 1);
+    assert.equal(projection.events[0].evidence.kind, "fixture");
+  } finally {
+    server.close();
+  }
+});
+
+test("adapter accepts the coordinator worker-event shape without upgrading its evidence claim", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Coordinator contract" });
+  new CoordinatorEventAdapter(room).ingest({
+    schema_version: "1", event_id: "event-remote-1", work_id: "work-001", encounter_id: run.ids.encounterId,
+    worker_id: run.ids.workerId, sequence: 2, occurred_at: "2026-09-08T12:02:00.000Z", kind: "candidate_produced",
+    module: { module_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" } },
+  });
+  const snapshot = room.snapshot(run.ids.encounterId);
+  assert.equal(snapshot.events.at(-1).evidence.kind, "adapter_reported");
+  assert.deepEqual(snapshot.artifacts[0], {
+    artifact_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" },
+  });
 });
 
 function sequenceIds() {

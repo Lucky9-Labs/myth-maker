@@ -140,3 +140,40 @@ npm test
 
 The suite covers Cloudflare request routing, idempotent dispatch, and structural
 contract integrity. It does not make cloud calls or prove a deployed account.
+
+## Local encounter build room
+
+Run the dependency-free inspection viewer with:
+
+```sh
+npm run build-room
+```
+
+It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
+restarts it when its source changes, so the local viewer remains easy to patch;
+its in-memory request history resets after such a restart. The browser creates
+local encounter, request, and worker-correlation IDs and shows elapsed time, a
+pipeline graph, sequence-ordered worker events, and artifact/package revisions.
+
+The evidence label is deliberate:
+
+- **Simulated fixture (not live)** is a UI preview only.
+- **Local process receipt (observed)** means this local Node process accepted a
+  browser submission; it does not imply an external coordinator was called.
+- **Coordinator/dispatcher report (unverified)** is a translated event with no
+  claim that Modal or Blender was observed.
+- **Modal remote receipt (observed)** requires `source: "modal_remote"` plus a
+  receipt with `request_id` and `observed_at`.
+- **Blender window/screenshot/stream (observed)** requires
+  `source: "blender_window"` plus an observed screenshot path or stream URL and
+  an observation timestamp.
+
+The adapter seam is `POST /api/ingest/coordinator` or
+`POST /api/ingest/dispatcher`. It accepts the coordinator's worker-event fields
+(`encounter_id`, `worker_id`, `sequence`, `occurred_at`, `kind`, and optional
+`module`), projects `module_id` and `revision` as an artifact revision, and
+defaults its evidence to unverified. It does not connect to a deployed
+coordinator or synthesize Modal/Blender receipts. A thin authenticated bridge
+may relay real `GET /v1/encounters/:encounterId`, work-item event, and freeze
+responses into that seam once those endpoints and credentials are actually in
+scope.
