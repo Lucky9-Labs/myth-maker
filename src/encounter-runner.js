@@ -62,7 +62,7 @@ export function runDeterministicEncounter({ assemblyReceipt, runtimeProfile, see
       profile_revision: runtimeProfile.profile_revision,
     },
     evidence_tiers: { source: "local_orchestration", runtime: runtimeProfile.evidence_tier, player: "not_observed" },
-    deterministic: { seed, script_sha256: digest(events), event_count: events.length },
+    deterministic: { seed, script_sha256: digest(events), script: events, event_count: events.length },
     status: exchange.verified ? "passed" : "failed",
     telemetry: { hit_exchange: exchange, passed_checks: exchange.verified ? ["bidirectional_damage_exchange"] : [], failed_checks: exchange.verified ? [] : ["bidirectional_damage_exchange"] },
     timings: { started_at: startedAt, ended_at: endedAt, duration_ms: events.at(-1).at_ms },
@@ -102,13 +102,16 @@ export function validateSimulationReceipt(receipt) {
   assertRunner(receipt.runner);
   assertExactKeys(receipt.evidence_tiers, ["source", "runtime", "player"], "simulation receipt evidence tiers");
   if (!["source", "runtime", "player"].every((key) => EVIDENCE_TIERS.has(receipt.evidence_tiers[key]))) throw new TypeError("simulation receipt evidence tiers are invalid");
-  assertExactKeys(receipt.deterministic, ["seed", "script_sha256", "event_count"], "simulation receipt deterministic proof");
-  if (!Number.isInteger(receipt.deterministic.seed) || receipt.deterministic.seed < 0 || !SHA256.test(receipt.deterministic.script_sha256 || "") || !Number.isInteger(receipt.deterministic.event_count) || receipt.deterministic.event_count < 1) throw new TypeError("simulation receipt deterministic proof is invalid");
+  assertExactKeys(receipt.deterministic, ["seed", "script_sha256", "script", "event_count"], "simulation receipt deterministic proof");
+  if (!Number.isInteger(receipt.deterministic.seed) || receipt.deterministic.seed < 0 || !SHA256.test(receipt.deterministic.script_sha256 || "") || !Array.isArray(receipt.deterministic.script) || !Number.isInteger(receipt.deterministic.event_count) || receipt.deterministic.event_count !== receipt.deterministic.script.length || receipt.deterministic.event_count < 1) throw new TypeError("simulation receipt deterministic proof is invalid");
+  assertDamageEvents(receipt.deterministic.script);
+  if (receipt.deterministic.script_sha256 !== digest(receipt.deterministic.script)) throw new TypeError("simulation receipt script hash mismatch");
   if (!["passed", "failed"].includes(receipt.status)) throw new TypeError("simulation receipt status is invalid");
   assertExactKeys(receipt.telemetry, ["hit_exchange", "passed_checks", "failed_checks"], "simulation receipt telemetry");
   assertExactKeys(receipt.telemetry?.hit_exchange, ["verified", "events"], "simulation receipt hit exchange");
   if (typeof receipt.telemetry.hit_exchange.verified !== "boolean" || !Array.isArray(receipt.telemetry.hit_exchange.events)) throw new TypeError("simulation receipt needs hit exchange telemetry");
   assertDamageEvents(receipt.telemetry.hit_exchange.events);
+  if (stableJson(receipt.telemetry.hit_exchange.events) !== stableJson(receipt.deterministic.script)) throw new TypeError("simulation receipt telemetry does not match deterministic script");
   if (receipt.telemetry.hit_exchange.verified && !verifyExchange(receipt.telemetry.hit_exchange.events).verified) throw new TypeError("verified hit exchange requires both damage directions");
   if (!Array.isArray(receipt.telemetry.passed_checks) || !Array.isArray(receipt.telemetry.failed_checks) || !receipt.telemetry.passed_checks.concat(receipt.telemetry.failed_checks).every(nonEmpty)) throw new TypeError("simulation receipt checks are invalid");
   assertExactKeys(receipt.timings, ["started_at", "ended_at", "duration_ms"], "simulation receipt timings");
