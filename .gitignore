@@ -18,3 +18,4 @@ crash.log
 .build-room-state.json
 .build-room-state.json.next
 .local-blender-artifacts/
+.local-stress-artifacts/

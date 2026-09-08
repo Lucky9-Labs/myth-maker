@@ -290,7 +290,7 @@ function localSpec(encounterId, seed = 1, attempt = 1) {
 }
 
 function bootstrapProductionGate() {
-  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: ["encounter.body.source", "encounter.animation.recipe", "encounter.combat.recipe", "encounter.validation.report"], not_concept_compliant: true } };
+  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: ["encounter.body.source", "encounter.body.segment.source", "encounter.critical-spot.module", "encounter.motion.clip", "encounter.material.binding", "encounter.arena.envelope", "encounter.combat.recipe", "encounter.assembly.receipt", "encounter.validation.report"], not_concept_compliant: true } };
 }
 
 function baselineModules(encounterId) {
@@ -490,7 +490,7 @@ const CLIENT_SCRIPT = String.raw`
     const flow = nodes.map((node, index) => (index ? edge() : "") + node).join("");
     const conceptGate = loopNode("Concept-first gate", "pending", "", "runtime enforcement pending", false);
     const caption = run ? "Current path is highlighted; node state comes from this build's local events and receipts." : "Submit a build to project its real local worker and revision receipts.";
-    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + quietLane(run, "Material", "material") + quietLane(run, "Arena", "arena") + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
+    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + quietLane(run, "Material", "material-binding") + quietLane(run, "Arena", "arena-envelope") + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
   }
   function eventRows(events) { return events.map((entry) => "<li><strong>" + esc(entry.kind) + "</strong> · " + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "<br>" + esc(entry.message) + "</li>").join(""); }
   function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + "<br>worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
