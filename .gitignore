@@ -17,3 +17,4 @@ crash.log
 !*.tfvars.example
 .build-room-state.json
 .build-room-state.json.next
+.local-blender-artifacts/

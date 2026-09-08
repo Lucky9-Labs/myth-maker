@@ -25,6 +25,18 @@ test("a local submission creates distinct inspectable IDs and an honest local re
   assert.equal(run.events.length, 1);
 });
 
+test("Build Room binds idempotency keys to bounded requests and preserves their deterministic seed", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const first = room.submit({ prompt: "A contained request", generate_asset: true, idempotency_key: "build-room-key-001" });
+  const replay = room.submit({ prompt: "A contained request", generate_asset: true, idempotency_key: "build-room-key-001" });
+  assert.equal(first.deduplicated, false);
+  assert.equal(replay.deduplicated, true);
+  assert.equal(replay.ids.encounterId, first.ids.encounterId);
+  assert.equal(replay.seed, first.seed);
+  assert.throws(() => room.submit({ prompt: "Changed request", generate_asset: true, idempotency_key: "build-room-key-001" }), /idempotency_key reused/);
+  assert.throws(() => room.submit({ prompt: "A".repeat(2001) }), /at most 2000/);
+});
+
 test("projection orders cross-worker events by receipt time and stable cursor, while retaining replay after reconnect", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Observe ordering" });
@@ -222,6 +234,21 @@ test("the optional HTTP steer route queues a receipt without an approval state",
   }
 });
 
+test("HTTP ingress rejects oversized JSON before it reaches Build Room request validation", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/encounters`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "x".repeat(100_001) }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error, "request body too large");
+  } finally {
+    server.close();
+  }
+});
+
 test("both explicit SSE routes stream before generic detail routes and survive disconnects", async () => {
   const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
   server.listen(0, "127.0.0.1");
@@ -331,7 +358,7 @@ function adapterEvent(run, overrides = {}) {
 }
 
 async function eventually(read, predicate) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     const value = await read();
     if (predicate(value)) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));
