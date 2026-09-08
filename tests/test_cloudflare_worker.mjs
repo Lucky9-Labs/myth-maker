@@ -220,6 +220,31 @@ test("a dispatch failure is durably replayed without a second external dispatch"
   }
 });
 
+test("dependencies and resource leases defer work until the prerequisite completes", async () => {
+  const oldFetch = globalThis.fetch;
+  const dispatched = [];
+  globalThis.fetch = async (_url, init) => { dispatched.push(JSON.parse(init.body).work_id); return new Response("accepted", { status: 202 }); };
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder({ resource_leases: ["host.scene"] }));
+    const dependent = await submit(instance, workOrder({
+      work_id: "combat-plan",
+      lane: "combat",
+      requested_provides: ["combat.attack"],
+      depends_on_work_ids: ["arena-shell"],
+      resource_leases: ["host.scene"],
+    }), "encounter-work-0002");
+    assert.equal((await body(dependent)).work_item.status, "waiting");
+    assert.deepEqual(dispatched, ["arena-shell"]);
+    await appendEvent(instance, event("arena-shell", 0, "completed"));
+    assert.deepEqual(dispatched.sort(), ["arena-shell", "combat-plan"]);
+    const status = await body(await instance.fetch(new Request("https://coordinator/status")));
+    assert.equal(status.work_items.find((item) => item.work_id === "combat-plan").status, "queued");
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
 test("worker events are append-only, ordered, and observable", async () => {
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("accepted", { status: 202 });

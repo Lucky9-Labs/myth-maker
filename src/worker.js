@@ -243,6 +243,30 @@ export class EncounterCoordinator {
     return { encounter_id: encounter.encounter_id, state: encounter.state, work_items: workItems, ...(encounter.freeze_result ? { freeze_result: encounter.freeze_result } : {}) };
   }
 
+  async dispatchable(storage, encounter, work) {
+    const dependencies = work.work_order.depends_on_work_ids || [];
+    for (const dependencyId of dependencies) {
+      const dependency = await storage.get(workKey(dependencyId));
+      if (!dependency || dependency.status !== "completed") return false;
+    }
+    const leases = encounter.active_leases || {};
+    return (work.work_order.resource_leases || []).every((lease) => !leases[lease]);
+  }
+
+  reserveLeases(encounter, work) {
+    const activeLeases = { ...(encounter.active_leases || {}) };
+    for (const lease of work.work_order.resource_leases || []) activeLeases[lease] = work.work_order.work_id;
+    return { ...encounter, active_leases: activeLeases };
+  }
+
+  releaseLeases(encounter, work) {
+    const activeLeases = { ...(encounter.active_leases || {}) };
+    for (const lease of work.work_order.resource_leases || []) {
+      if (activeLeases[lease] === work.work_order.work_id) delete activeLeases[lease];
+    }
+    return { ...encounter, active_leases: activeLeases };
+  }
+
   async submit(submission) {
     if (!validSubmission(submission)) return response({ error: "invalid_work_submission" }, 400);
     const workOrder = submission.work_order;
@@ -257,15 +281,18 @@ export class EncounterCoordinator {
         return prior.dispatch_pending ? { dispatch: await storage.get(workKey(prior.work_id)) } : { replay: prior };
       }
       if (await storage.get(workKey(workOrder.work_id))) return { error: { error: "work_id_already_exists", work_id: workOrder.work_id }, status: 409 };
-      const openEncounter = encounter || { encounter_id: workOrder.encounter_id, state: "open", work_ids: [] };
+      const openEncounter = encounter || { encounter_id: workOrder.encounter_id, state: "open", work_ids: [], active_leases: {} };
       if (openEncounter.encounter_id !== workOrder.encounter_id) return { error: { error: "wrong_encounter" }, status: 409 };
       const now = new Date().toISOString();
-      const work = { work_order: workOrder, status: "dispatching", event_count: 0, last_event_sequence: -1, created_at: now, updated_at: now };
-      const pending = { fingerprint: requestFingerprint, work_id: workOrder.work_id, dispatch_pending: true, response: { work_item: workSummary(work) }, status: 202 };
-      await storage.put("encounter", { ...openEncounter, work_ids: [...openEncounter.work_ids, workOrder.work_id] });
+      const waitingWork = { work_order: workOrder, status: "waiting", event_count: 0, last_event_sequence: -1, created_at: now, updated_at: now, idempotency_key: idempotencyKey, request_fingerprint: requestFingerprint };
+      const ready = await this.dispatchable(storage, openEncounter, waitingWork);
+      const work = ready ? { ...waitingWork, status: "dispatching" } : waitingWork;
+      const pending = { fingerprint: requestFingerprint, work_id: workOrder.work_id, dispatch_pending: ready, response: { work_item: workSummary(work) }, status: 202 };
+      const updatedEncounter = ready ? this.reserveLeases(openEncounter, work) : openEncounter;
+      await storage.put("encounter", { ...updatedEncounter, work_ids: [...openEncounter.work_ids, workOrder.work_id] });
       await storage.put(workKey(workOrder.work_id), work);
       await storage.put(idempotencyKey, pending);
-      return { dispatch: work };
+      return ready ? { dispatch: work } : { replay: pending };
     });
     if (admitted.error) return response(admitted.error, admitted.status);
     if (admitted.replay) return response(admitted.replay.response, admitted.replay.status);
@@ -287,14 +314,43 @@ export class EncounterCoordinator {
           : current;
         const status = dispatched.ok || settled.status !== "blocked" ? 202 : 502;
         const responseBody = { work_item: workSummary(settled) };
+        const encounter = await storage.get("encounter");
         await storage.put(workKey(work.work_order.work_id), settled);
         await storage.put(idempotencyKey, { fingerprint: requestFingerprint, work_id: work.work_order.work_id, dispatch_pending: false, response: responseBody, status });
+        if (TERMINAL_WORK_STATUSES.has(settled.status)) await storage.put("encounter", this.releaseLeases(encounter, settled));
         return { responseBody, status };
       });
+      if (result.responseBody.work_item.status === "blocked") await this.scheduleReadyWork();
       return response(result.responseBody, result.status);
     })();
     this.dispatches.set(work.work_order.work_id, dispatch);
     try { return await dispatch; } finally { this.dispatches.delete(work.work_order.work_id); }
+  }
+
+  async scheduleReadyWork() {
+    const ready = await this.transaction(async (storage) => {
+      let encounter = await storage.get("encounter");
+      if (!encounter || encounter.state === "frozen") return [];
+      const workItems = [];
+      for (const workId of encounter.work_ids) {
+        const work = await storage.get(workKey(workId));
+        if (work.status !== "waiting" || !await this.dispatchable(storage, encounter, work)) continue;
+        const dispatching = { ...work, status: "dispatching", updated_at: new Date().toISOString() };
+        encounter = this.reserveLeases(encounter, dispatching);
+        await storage.put(workKey(workId), dispatching);
+        await storage.put(dispatching.idempotency_key, {
+          fingerprint: dispatching.request_fingerprint,
+          work_id: workId,
+          dispatch_pending: true,
+          response: { work_item: workSummary(dispatching) },
+          status: 202,
+        });
+        workItems.push(dispatching);
+      }
+      await storage.put("encounter", encounter);
+      return workItems;
+    });
+    await Promise.all(ready.map((work) => this.dispatchWork(work, work.idempotency_key, work.request_fingerprint)));
   }
 
   async appendEvent(workId, event) {
@@ -323,11 +379,14 @@ export class EncounterCoordinator {
         updated_at: new Date().toISOString(),
         ...(event.kind === "failed" ? { failure: { error_code: event.error_code, retryable: event.retryable } } : {}),
       };
+      const releasedEncounter = TERMINAL_WORK_STATUSES.has(updated.status) ? this.releaseLeases(encounter, updated) : encounter;
       await storage.put(eventKey(workId), [...events, event]);
       await storage.put(eventIdKey, { fingerprint: eventFingerprint, event });
       await storage.put(workKey(workId), updated);
+      if (releasedEncounter !== encounter) await storage.put("encounter", releasedEncounter);
       return { value: { event, work_item: workSummary(updated) }, status: 202 };
     });
+    if (appended.status === 202 && TERMINAL_WORK_STATUSES.has(appended.value.work_item.status)) await this.scheduleReadyWork();
     return response(appended.value, appended.status);
   }
 
