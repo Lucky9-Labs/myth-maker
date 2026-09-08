@@ -85,7 +85,6 @@ export class BuildRoom {
       packages: new Map(),
       workGraph: new Map(),
       evidence: { local: [], modal: [], blender: [] },
-      steering: [],
       upgrade: { active: false, requested_revision: 1 },
       nextCursor: 1,
     });
@@ -160,7 +159,6 @@ export class BuildRoom {
         modal: [...run.evidence.modal],
         blender: [...run.evidence.blender],
       },
-      steering: [...run.steering],
       upgrade: { ...run.upgrade },
       topology: topology(run, this.catalogProjection, this.now()),
     };
@@ -192,24 +190,6 @@ export class BuildRoom {
     return { ...run, navigation_url: `/?build=${encodeURIComponent(requestId)}` };
   }
 
-  steer(requestId, input) {
-    const run = this.requireRunByRequest(requestId);
-    if (typeof input?.instruction !== "string" || !input.instruction.trim() || input.instruction.length > 2000) {
-      throw new TypeError("steer instruction must be 1 to 2000 characters");
-    }
-    const receipt = {
-      steer_id: this.id("steer"),
-      status: "queued",
-      instruction: input.instruction.trim(),
-      work_id: input.work_id || undefined,
-      created_at: this.now(),
-      source: "local_adapter",
-    };
-    run.steering.push(receipt);
-    this.notify(run.ids.encounterId);
-    return receipt;
-  }
-
   /** Reserve exactly one later local revision for an existing encounter. */
   requestNextUpgrade(encounterId, input = {}) {
     if (!input || typeof input !== "object" || Array.isArray(input)
@@ -239,28 +219,6 @@ export class BuildRoom {
     if (run.upgrade?.requested_revision !== revision) throw new TypeError("upgrade revision does not match the active encounter upgrade");
     run.upgrade.active = false;
     this.notify(encounterId);
-  }
-
-  recordSteering(input, { trusted = false } = {}) {
-    const run = this.requireRunByRequest(input?.request_id);
-    const status = input?.status;
-    if (!input.steer_id || !["queued", "accepted", "pending", "failed", "committed"].includes(status)) throw new TypeError("invalid steering receipt");
-    if (!trusted) throw new TypeError("external steering lifecycle updates require trusted observer provenance");
-    if (status === "committed" && !input.successor_response?.created) throw new TypeError("committed steering requires successor response.created");
-    const prior = run.steering.find((receipt) => receipt.steer_id === input.steer_id);
-    if (!prior) throw new TypeError("unknown steering receipt");
-    if (!validSteeringTransition(prior.status, status)) throw new TypeError("illegal steering receipt transition");
-    const receipt = {
-      ...prior,
-      status,
-      ...(input.response_id ? { response_id: input.response_id } : {}),
-      ...(input.successor_response ? { successor_response: input.successor_response } : {}),
-      received_at: this.now(),
-      observer: "trusted",
-    };
-    Object.assign(prior, receipt);
-    this.notify(run.ids.encounterId);
-    return receipt;
   }
 
   subscribe(listener) {
@@ -297,7 +255,6 @@ export class BuildRoom {
         artifacts: new Map(stored.artifacts || []),
         packages: new Map(stored.packages || []),
         workGraph: new Map(Array.isArray(stored.workGraph) ? stored.workGraph : []),
-        steering: stored.steering || [],
         upgrade: stored.upgrade || { active: false, requested_revision: (stored.packages || []).length || 1 },
       });
     }
@@ -539,17 +496,6 @@ function buildSummary(run) {
     evidence_tier: workers.map((worker) => worker.evidence_kind),
     navigation_url: `/?build=${encodeURIComponent(run.ids.requestId)}`,
   };
-}
-
-function validSteeringTransition(from, to) {
-  if (from === to) return true;
-  return {
-    queued: new Set(["accepted", "pending", "failed"]),
-    accepted: new Set(["committed", "failed"]),
-    pending: new Set(["committed", "failed"]),
-    failed: new Set(),
-    committed: new Set(),
-  }[from]?.has(to) || false;
 }
 
 function randomStableId(prefix) {

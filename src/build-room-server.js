@@ -11,10 +11,12 @@ import { assembleEncounterPackage, freezeEncounterPackage } from "./encounter-pa
 import { createSqliteCatalog } from "./catalog-sqlite.js";
 import { ingestGlbRuntimeCandidate } from "./glb-runtime-candidate-ingress.js";
 
-export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {}, catalog = createSqliteCatalog(), artifactRoot = ".local-blender-artifacts", blenderBackend = new LocalBlenderSliceBackend({ outputDir: artifactRoot }) } = {}) {
+export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {}, catalog = createSqliteCatalog(), artifactRoot = ".local-blender-artifacts", blenderBackend = new LocalBlenderSliceBackend({ outputDir: artifactRoot }), observerAuthorized = trustedObserver, coordinatorAuthorized = () => true } = {}) {
   if (!catalog || typeof catalog.projectionSummary !== "function") throw new TypeError("catalog must expose projectionSummary()");
   room.setCatalogProjection(() => catalog.projectionSummary());
-  const adapter = new CoordinatorEventAdapter(room, { trustedObservation: (_input, request) => trustedObserver(request) });
+  if (typeof observerAuthorized !== "function") throw new TypeError("observerAuthorized must be a function");
+  if (typeof coordinatorAuthorized !== "function") throw new TypeError("coordinatorAuthorized must be a function");
+  const adapter = new CoordinatorEventAdapter(room, { trustedObservation: (_input, request) => observerAuthorized(request) });
   const absoluteArtifactRoot = existsSync(artifactRoot) ? realpathSync(artifactRoot) : resolve(artifactRoot);
   const streams = new Map();
   const buildStreams = new Set();
@@ -38,33 +40,25 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
         request.on("close", () => buildStreams.delete(response));
         return;
       }
-      const steerMatch = url.pathname.match(/^\/api\/builds\/([^/]+)\/steer$/);
-      if (request.method === "POST" && steerMatch) {
-        const receipt = room.steer(steerMatch[1], await body(request));
-        persist(room);
-        return json(response, 202, receipt);
-      }
       const buildMatch = url.pathname.match(/^\/api\/builds\/([^/]+)$/);
       if (request.method === "GET" && buildMatch) return json(response, 200, room.buildDetail(buildMatch[1]));
-      if (request.method === "POST" && url.pathname === "/api/ingest/steering") {
-        const receipt = room.recordSteering(await body(request), { trusted: trustedObserver(request) });
-        persist(room);
-        return json(response, 201, receipt);
-      }
       if (request.method === "POST" && url.pathname === "/api/encounters") {
+        if (!coordinatorAuthorized(request)) return json(response, 403, { error: "coordinator authorization required" });
         const run = room.submit(await body(request));
         persist(room);
         if (!run.deduplicated) launchLocalBuild(room, run, persist, catalog, blenderBackend, absoluteArtifactRoot).catch((error) => recordLocalFailure(room, run, error, persist));
         return json(response, run.deduplicated ? 200 : 201, run);
       }
-      const freezeMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/freeze$/);
+      const freezeMatch = url.pathname.match(/^\/api\/coordinator\/encounters\/([^/]+)\/freeze$/);
       if (request.method === "POST" && freezeMatch) {
+        if (!coordinatorAuthorized(request)) return json(response, 403, { error: "coordinator authorization required" });
         const snapshot = freezeCurrentPackage(room, freezeMatch[1]);
         persist(room);
         return json(response, 201, snapshot);
       }
-      const upgradeMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/upgrades$/);
+      const upgradeMatch = url.pathname.match(/^\/api\/coordinator\/encounters\/([^/]+)\/upgrades$/);
       if (request.method === "POST" && upgradeMatch) {
+        if (!coordinatorAuthorized(request)) return json(response, 403, { error: "coordinator authorization required" });
         const upgrade = room.requestNextUpgrade(upgradeMatch[1], await body(request));
         persist(room);
         if (!upgrade.deduplicated) {
@@ -86,16 +80,27 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
         request.on("close", () => { group.delete(response); if (group.size === 0) streams.delete(encounterId); });
         return;
       }
+      const observationMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/observations$/);
+      if (request.method === "POST" && observationMatch) {
+        const input = await body(request);
+        if (input?.encounter_id !== observationMatch[1]) throw new TypeError("observation encounter_id must match the URL");
+        const event = adapter.ingest(input, request);
+        persist(room);
+        return json(response, 201, event);
+      }
+      const queryMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/(workers|events|artifacts|packages|evidence)$/);
+      if (request.method === "GET" && queryMatch) {
+        const snapshot = room.snapshot(queryMatch[1]);
+        const kind = queryMatch[2];
+        if (kind === "workers") return json(response, 200, { encounter_id: queryMatch[1], workers: snapshot.work_graph });
+        if (kind === "events") return json(response, 200, { encounter_id: queryMatch[1], events: room.replay(queryMatch[1], url.searchParams.get("after") || undefined) });
+        return json(response, 200, { encounter_id: queryMatch[1], [kind]: snapshot[kind] });
+      }
       const match = url.pathname.match(/^\/api\/encounters\/([^/]+)$/);
       if (request.method === "GET" && match) {
         const snapshot = room.snapshot(match[1]);
         const after = url.searchParams.get("after");
         return json(response, 200, { ...snapshot, events: room.replay(match[1], after || undefined) });
-      }
-      if (request.method === "POST" && ["/api/ingest/coordinator", "/api/ingest/dispatcher"].includes(url.pathname)) {
-        const event = adapter.ingest(await body(request), request);
-        persist(room);
-        return json(response, 201, event);
       }
       return json(response, 404, { error: "not_found" });
     } catch (error) {
@@ -388,7 +393,18 @@ export function persistBuildRoom(statePath, room) {
 
 function trustedObserver(request) {
   const token = process.env.BUILD_ROOM_OBSERVER_TOKEN;
-  return Boolean(token) && request.headers.get("x-build-room-observer-token") === token;
+  return Boolean(token) && header(request, "x-build-room-observer-token") === token;
+}
+
+function trustedCoordinator(request) {
+  const token = process.env.BUILD_ROOM_COORDINATOR_TOKEN;
+  return Boolean(token) && header(request, "x-build-room-coordinator-token") === token;
+}
+
+function header(request, name) {
+  if (request?.headers && typeof request.headers.get === "function") return request.headers.get(name);
+  const value = request?.headers?.[name];
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function stream(response, snapshot) {
@@ -555,33 +571,18 @@ const CLIENT_SCRIPT = String.raw`
   function eventRows(events) { return events.map((entry) => "<li><strong>" + esc(entry.kind) + "</strong> · " + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "<br>" + esc(entry.message) + "</li>").join(""); }
   function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + " · " + esc(item.elapsed_seconds) + "s elapsed<br>Component <code>" + esc(item.component) + "</code>; worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
   function artifactRows(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> · rev " + esc(row.revision) + "<br>" + json(row) + "</li>").join("") + "</ul>" : "<p class=\"muted\">None observed.</p>"; }
-  function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> · " + esc(row.status) + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }
   function catalogRows(catalog) { return "<ul>" + Object.entries(catalog).map(([name, row]) => "<li>" + esc(name.replaceAll("_", " ")) + ": " + esc(row.count) + " · " + esc(row.evidence) + "</li>").join("") + "</ul>"; }
   function outcomeRows(run) { const current = latestRevision(run.packages); const outcomes = current && current.outcomes; if (!outcomes) return "<p class=\"muted\">No package outcome yet.</p>"; return "<ul><li><strong>Selected</strong>: " + outcomes.selected.map(esc).join(", ") + "</li><li><strong>Rejected</strong>: " + (outcomes.rejected.length ? outcomes.rejected.map((row) => esc(row.module_id) + " (" + row.reasons.map(esc).join(", ") + ")").join(", ") : "none") + "</li><li><strong>Fallback</strong>: " + (outcomes.fallback.used_fallback ? esc(outcomes.fallback.module_ids.join(", ")) : "not used") + "</li></ul>"; }
   function details(run) {
-    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li><li>profile <code>" + esc(run.compile_profile) + "</code></li><li>deadline <code>" + esc(run.deadline_at) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package outcomes</h3>" + outcomeRows(run) + "<h3>Package receipt</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section><section><h3>Steer this build</h3><form id=\"steer\"><label for=\"steer-instruction\">Instruction<textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea></label><button>Queue steer</button></form>" + steerRows(run.steering) + "</section></div></details>";
+    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li><li>profile <code>" + esc(run.compile_profile) + "</code></li><li>deadline <code>" + esc(run.deadline_at) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package outcomes</h3>" + outcomeRows(run) + "<h3>Package receipt</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section></div></details>";
   }
   function buildCard(build) { return "<a class=\"build-link\" href=\"" + esc(build.navigation_url) + "\"><strong>" + esc(build.terminal ? "Completed assembly" : "Active assembly") + "</strong><br><span class=\"quiet\">" + esc(build.encounter_id) + "</span></a>"; }
   function renderDashboard(index) {
     const builds = index.active.concat(index.recent_terminal);
     main.innerHTML = assembly() + (builds.length ? "<details class=\"drawer\"><summary>Open a recent assembly</summary><div class=\"build-list\">" + builds.map(buildCard).join("") + "</div></details>" : "<p class=\"empty-note\">No assemblies yet. A local render is optional and remains local evidence only.</p>");
   }
-  async function submitSteer(event) { event.preventDefault(); const instruction = document.querySelector("#steer-instruction").value; const response = await fetch("/api/builds/" + encodeURIComponent(activeRequest) + "/steer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction }) }); if (!response.ok) alert((await response.json()).error); }
-  async function requestUpgrade() { const button = document.querySelector("#upgrade"); button.disabled = true; const response = await fetch("/api/encounters/" + encodeURIComponent(active) + "/upgrades", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); const result = await response.json(); if (!response.ok) { button.disabled = false; return alert(result.error); } render(result); }
-  async function requestFreeze() { const button = document.querySelector("#freeze"); button.disabled = true; const response = await fetch("/api/encounters/" + encodeURIComponent(active) + "/freeze", { method: "POST" }); const result = await response.json(); if (!response.ok) { button.disabled = false; return alert(result.error); } render(result); }
   function render(run) {
     main.innerHTML = assembly(run) + details(run);
-    const inspector = main.querySelector(".drawer .drawer-body");
-    const upgrade = document.createElement("section");
-    upgrade.innerHTML = "<h3>Request next revision</h3><p class=\"muted\">Creates one bounded local revision; earlier source, render, GLB, and package receipts remain inspectable above.</p><button id=\"upgrade\" " + (!run.generate_asset || run.upgrade?.active ? "disabled" : "") + ">Request next revision</button>";
-    inspector.append(upgrade);
-    const currentPackage = latestRevision(run.packages);
-    const freeze = document.createElement("section");
-    freeze.innerHTML = "<h3>Freeze current package</h3><p class=\"muted\">Creates an immutable local package snapshot from the current selected package; it is not host-game acceptance.</p><button id=\"freeze\" " + (!currentPackage || currentPackage.state === "frozen" ? "disabled" : "") + ">Freeze current package</button>";
-    inspector.append(freeze);
-    document.querySelector("#steer").addEventListener("submit", submitSteer);
-    document.querySelector("#upgrade").addEventListener("click", requestUpgrade);
-    document.querySelector("#freeze").addEventListener("click", requestFreeze);
     refreshDeadlineTimers();
   }
   setInterval(refreshDeadlineTimers, 1000);

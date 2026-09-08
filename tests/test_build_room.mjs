@@ -250,29 +250,30 @@ test("the live builds index and request-keyed detail project direct SQLite catal
   }
 });
 
-test("steering stays queued or accepted until a successor response commits it", () => {
+test("encounter-scoped observer ingress admits only the matching remote worker and exposes read-only worker queries", async () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
-  const run = room.submit({ prompt: "Steer me" });
-  const queued = room.steer(run.ids.requestId, { instruction: "prefer cover" });
-  assert.equal(queued.status, "queued");
-  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" }), /trusted observer/);
-  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" }, { trusted: true });
-  assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "accepted");
-  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed" }, { trusted: true }), /successor response.created/);
-  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed", successor_response: { created: true, response_id: "response-2" } }, { trusted: true });
-  assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "committed");
-});
-
-test("the optional HTTP steer route queues a receipt without an approval state", async () => {
-  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  const server = createBuildRoomServer({ room, observerAuthorized: () => true });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "HTTP steer" }) })).json();
-    const response = await fetch(`${base}/api/builds/${run.ids.requestId}/steer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction: "hold the arena" }) });
-    assert.equal(response.status, 202);
-    assert.equal((await response.json()).status, "queued");
+    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Observed swarm" }) })).json();
+    const observed = adapterEvent(run, {
+      source: "modal_remote",
+      worker_id: "modal-kraken-mantle",
+      work_id: "kraken-mantle",
+      lane: "body.mantle",
+      receipt: { request_id: "fc-observed-001", observed_at: "2026-09-08T12:02:00.000Z", app_id: "ap-observed", container_id: "ta-observed" },
+    });
+    const ingest = await fetch(`${base}/api/encounters/${run.ids.encounterId}/observations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(observed) });
+    assert.equal(ingest.status, 201);
+    assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}/workers`)).status, 200);
+    const workers = await (await fetch(`${base}/api/encounters/${run.ids.encounterId}/workers`)).json();
+    assert.equal(workers.workers.find((worker) => worker.work_id === "kraken-mantle").worker_id, "modal-kraken-mantle");
+    assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}/events`)).status, 200);
+    const crossed = await fetch(`${base}/api/encounters/not-this-encounter/observations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(observed) });
+    assert.equal(crossed.status, 400);
+    assert.equal((await fetch(`${base}/api/builds/${run.ids.requestId}/steer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction: "mutate" }) })).status, 404);
   } finally {
     server.close();
   }
@@ -375,7 +376,7 @@ test("adapter ingress rejects malformed closed worker envelopes before projectio
       adapterEvent(run, { unknown_field: true, artifact: { artifact_id: "poisoned-key", revision: 1 } }),
       adapterEvent(run, { kind: "unrecognised", artifact: { artifact_id: "poisoned-kind", revision: 1 } }),
     ]) {
-      const response = await fetch(`${base}/api/ingest/coordinator`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(malformed) });
+      const response = await fetch(`${base}/api/encounters/${run.ids.encounterId}/observations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(malformed) });
       assert.equal(response.status, 400);
     }
     const after = room.snapshot(run.ids.encounterId);
