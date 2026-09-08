@@ -190,11 +190,11 @@ module remains the generic `encounter.body` capability. It is **local Blender
 CLI evidence only**, not Modal/cloud execution, Unity-load validation, or
 player-facing proof.
 
-After the first package completes, the viewer exposes **Request next body
-upgrade**, or callers can `POST {}` to
+After the first package completes, the viewer exposes **Request next
+revision**, or callers can `POST {}` to
 `/api/encounters/<encounter-id>/upgrades`. This bounded action runs a later
-local Blender work order for the same encounter. Revision 2 produces six
-curved, tapered curve tentacles (the ocean/cephalopod form remains demo data),
+local Blender work order for the same encounter. Revision 2 provides a curved,
+tapered appendage as local Blender demo data; a prompt may call it a tentacle,
 then preserves both revisions' `.blend`, PNG, GLB, package, and receipt history.
 The catalog appends revision 2 under the same asset ID with an exact revision-1
 parent hash; the assembly receipt records the retained revision-1 fallback

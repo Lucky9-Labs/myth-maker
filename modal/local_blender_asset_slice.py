@@ -79,8 +79,8 @@ if {revision} == 1:
         limb.data.materials.append(accent)
         limb.parent=origin
 else:
-    for index in range(6):
-        angle=index*math.tau/6+0.18
+    for index in range(1):
+        angle=index*math.tau+0.18
         direction=mathutils.Vector((math.cos(angle),math.sin(angle),0))
         tangent=mathutils.Vector((-math.sin(angle),math.cos(angle),0))
         root=direction*0.52+mathutils.Vector((0,0,0.22))
@@ -139,14 +139,14 @@ bpy.ops.render.render(write_still=True)
 
 def inspection_script(receipt_path: Path) -> str:
     return f'''import bpy, json
-tentacles=[obj for obj in bpy.data.objects if obj.name.startswith("generated-tentacle-")]
+appendages=[obj for obj in bpy.data.objects if obj.name.startswith("generated-tentacle-")]
 cones=[obj for obj in bpy.data.objects if obj.name.startswith("generated-fin-")]
 details=[]
-for obj in tentacles:
+for obj in appendages:
     spline=obj.data.splines[0]
     radii=[point.radius for point in spline.points]
     details.append({{"name":obj.name,"type":obj.type,"point_count":len(spline.points),"radii":radii,"tapered":radii[0] > radii[-1]}})
-result={{"body_shape":"curved-tapered-tentacles-v2" if tentacles else "baseline-straight-cones-v1","tentacle_count":len(tentacles),"straight_cone_count":len(cones),"tentacles":details}}
+result={{"body_shape":"curved-tapered-appendages-v2" if appendages else "baseline-straight-cones-v1","appendage_count":len(appendages),"straight_cone_count":len(cones),"appendages":details}}
 open({str(receipt_path)!r},"w",encoding="utf-8").write(json.dumps(result,sort_keys=True))
 '''
 
@@ -179,9 +179,9 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     inspect_path.write_text(inspection_script(inspection_path), encoding="utf-8")
     inspection_receipt = run_blender(executable, ["--background", "--factory-startup", "--disable-autoexec", str(source_path), "--python", str(inspect_path)], staging)
     inspection = json.loads(inspection_path.read_text(encoding="utf-8"))
-    if args.revision >= 2 and (inspection.get("tentacle_count") != 6 or inspection.get("straight_cone_count") != 0
-                               or not all(item.get("type") == "CURVE" and item.get("point_count", 0) >= 4 and item.get("tapered") for item in inspection.get("tentacles", []))):
-        raise RuntimeError("Blender source inspection did not find six curved, tapered tentacles")
+    if args.revision >= 2 and (inspection.get("appendage_count") != 1 or inspection.get("straight_cone_count") != 0
+                               or not all(item.get("type") == "CURVE" and item.get("point_count", 0) >= 4 and item.get("tapered") for item in inspection.get("appendages", []))):
+        raise RuntimeError("Blender source inspection did not find one curved, tapered appendage")
     created_at = timestamp()
     source_receipt = SourceArtifactReceipt(args.work_id, args.worker_id, created_at, f"{args.work_id}.blend",
         HashAddressedArtifact(f"sha256:{source_hash}", source_hash, "application/x-blender", source_path.stat().st_size), ())

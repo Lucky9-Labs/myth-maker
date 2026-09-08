@@ -79,7 +79,7 @@ function validateManifest(manifest, order, workerId, revision) {
     || manifest.encounter_id !== order.encounter_id || manifest.worker_id !== workerId || manifest.revision !== revision
     || !manifest.source?.artifact?.sha256 || !manifest.runtime?.sha256 || !manifest.visual?.sha256
     || !manifest.module || manifest.module.revision !== revision || !manifest.loader_profile || !manifest.worker_receipt?.commands?.length
-    || (revision >= 2 && (manifest.source_inspection?.body_shape !== "curved-tapered-tentacles-v2" || manifest.source_inspection?.tentacle_count < 1))) {
+    || (revision >= 2 && (manifest.source_inspection?.body_shape !== "curved-tapered-appendages-v2" || manifest.source_inspection?.appendage_count < 1))) {
     throw new Error("local Blender slice returned an incomplete manifest");
   }
 }

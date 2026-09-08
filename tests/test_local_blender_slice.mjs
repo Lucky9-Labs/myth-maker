@@ -11,7 +11,7 @@ import { createBuildRoomServer } from "../src/build-room-server.js";
 import { createSqliteCatalog } from "../src/catalog-sqlite.js";
 import { LocalBlenderSliceBackend } from "../src/local-blender-slice-backend.js";
 
-test("a Build Room preserves local Blender revision 1 and appends a curved-tentacle revision 2 with exact provenance", { timeout: 180_000 }, async () => {
+test("a Build Room preserves local Blender revision 1 and appends a generic curved revision 2 with exact provenance", { timeout: 180_000 }, async () => {
   const artifactRoot = await mkdtemp(path.join(tmpdir(), "myth-maker-build-room-"));
   const catalog = createSqliteCatalog();
   const backend = new LocalBlenderSliceBackend({ outputDir: artifactRoot });
@@ -22,7 +22,7 @@ test("a Build Room preserves local Blender revision 1 and appends a curved-tenta
   try {
     const created = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Generate an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
+      body: JSON.stringify({ prompt: "Make one curved tapered tentacle as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
     });
     assert.equal(created.status, 201);
     const run = await created.json();
@@ -102,16 +102,16 @@ test("a Build Room preserves local Blender revision 1 and appends a curved-tenta
     assert.deepEqual(catalogRevision2.provenance.parentRefs, [{
       domain: "asset", stableId: catalogRevision1.assetId, revision: 1, contentSha256: catalogRevision1.contentSha256,
     }]);
-    const upgradedWorker = upgraded.events.find((event) => event.evidence.receipt?.source_inspection?.body_shape === "curved-tapered-tentacles-v2");
+    const upgradedWorker = upgraded.events.find((event) => event.evidence.receipt?.source_inspection?.body_shape === "curved-tapered-appendages-v2");
     assert.ok(upgradedWorker, "revision 2 must carry a local Blender source inspection receipt");
-    assert.equal(upgradedWorker.evidence.receipt.source_inspection.tentacle_count, 6);
+    assert.equal(upgradedWorker.evidence.receipt.source_inspection.appendage_count, 1);
     assert.equal(upgradedWorker.evidence.receipt.source_inspection.straight_cone_count, 0);
-    assert.ok(upgradedWorker.evidence.receipt.source_inspection.tentacles.every((tentacle) => tentacle.type === "CURVE" && tentacle.tapered));
+    assert.ok(upgradedWorker.evidence.receipt.source_inspection.appendages.every((appendage) => appendage.type === "CURVE" && appendage.tapered));
     assert.equal(upgradedWorker.evidence.receipt.commands.length, 3);
     assert.ok(upgraded.events.some((event) => event.workerId === "local-coordinator" && event.kind === "completed" && event.message.includes("re-evaluated")));
     const replay = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "Generate an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
+      body: JSON.stringify({ prompt: "Make one curved tapered tentacle as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
     });
     assert.equal(replay.status, 200);
     assert.equal((await replay.json()).ids.requestId, run.ids.requestId);

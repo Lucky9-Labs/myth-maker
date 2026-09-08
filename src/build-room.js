@@ -190,7 +190,7 @@ export class BuildRoom {
     return receipt;
   }
 
-  /** Reserve exactly one later local body revision for an existing encounter. */
+  /** Reserve exactly one later local revision for an existing encounter. */
   requestNextUpgrade(encounterId, input = {}) {
     if (!input || typeof input !== "object" || Array.isArray(input)
       || Object.keys(input).some((key) => key !== "idempotency_key")) {
@@ -208,7 +208,7 @@ export class BuildRoom {
     run.upgrade = { active: true, requested_revision: revision, ...(key ? { idempotency_key: key } : {}) };
     this.record(encounterId, {
       workerId: "local-coordinator", sequence: revision, occurredAt: this.now(), kind: "accepted",
-      message: `Local coordinator accepted bounded body upgrade revision ${revision} and will re-evaluate the same encounter.`,
+      message: `Local coordinator accepted bounded revision ${revision} and will re-evaluate the same encounter.`,
       evidence: { kind: "local_process", receipt: { process: "local-encounter-coordinator", upgrade_revision: revision, observed_at: this.now() } },
     });
     return { ...this.snapshot(encounterId), upgrade: { revision }, deduplicated: false };
