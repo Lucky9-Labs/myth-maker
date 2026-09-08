@@ -65,7 +65,7 @@ variable "enable_workers_dev_subdomain" {
   default     = false
 }
 
-variable "railway_dispatch_url" {
+variable "work_dispatch_url" {
   description = "Explicit external dispatcher URL for the Worker. Null means no endpoint/domain is asserted or configured."
   type        = string
   default     = null
@@ -80,12 +80,19 @@ variable "agent_ingress_token" {
   sensitive   = true
 }
 
-variable "computer_use_dispatch_token" {
-  description = "Value for the COMPUTER_USE_DISPATCH_TOKEN Worker secret. Never commit this value."
+variable "work_dispatch_token" {
+  description = "Value for the WORK_DISPATCH_TOKEN Worker/Railway receiver secret. Never commit this value."
   type        = string
   default     = null
   nullable    = true
   sensitive   = true
+}
+
+variable "release_revision" {
+  description = "Immutable source revision recorded by the CI deployment controller in deployment receipts. Null is allowed for local validation only."
+  type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "manage_railway" {

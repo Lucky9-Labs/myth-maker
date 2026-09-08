@@ -10,11 +10,11 @@ locals {
 
   cloudflare_secret_names = [
     "AGENT_INGRESS_TOKEN",
-    "COMPUTER_USE_DISPATCH_TOKEN",
+    "WORK_DISPATCH_TOKEN",
   ]
 
   railway_secret_names = [
-    "COMPUTER_USE_DISPATCH_TOKEN",
+    "WORK_DISPATCH_TOKEN",
     "MODAL_TOKEN_ID",
     "MODAL_TOKEN_SECRET",
   ]
@@ -41,18 +41,18 @@ locals {
       name = "DEPLOYMENT_ENVIRONMENT"
       text = var.environment
     },
-    ], var.railway_dispatch_url == null ? [] : [{
+    ], var.work_dispatch_url == null ? [] : [{
       type = "plain_text"
-      name = "COMPUTER_USE_DISPATCH_URL"
-      text = var.railway_dispatch_url
+      name = "WORK_DISPATCH_URL"
+      text = var.work_dispatch_url
       }], var.agent_ingress_token == null ? [] : [{
       type = "secret_text"
       name = "AGENT_INGRESS_TOKEN"
       text = var.agent_ingress_token
-      }], var.computer_use_dispatch_token == null ? [] : [{
+      }], var.work_dispatch_token == null ? [] : [{
       type = "secret_text"
-      name = "COMPUTER_USE_DISPATCH_TOKEN"
-      text = var.computer_use_dispatch_token
+      name = "WORK_DISPATCH_TOKEN"
+      text = var.work_dispatch_token
   }])
 }
 
@@ -102,6 +102,10 @@ resource "cloudflare_worker_version" "coordinator" {
     name         = "worker.js"
     content_type = "application/javascript+module"
     content_file = "${path.module}/../../src/worker.js"
+    }, {
+    name         = "encounter-package-assembler.js"
+    content_type = "application/javascript+module"
+    content_file = "${path.module}/../../src/encounter-package-assembler.js"
   }]
   bindings = local.cloudflare_bindings
   migrations = var.cloudflare_do_migration_tag == null ? null : {
@@ -112,11 +116,12 @@ resource "cloudflare_worker_version" "coordinator" {
   lifecycle {
     precondition {
       condition = (
-        var.railway_dispatch_url != null &&
+        var.work_dispatch_url != null &&
         var.agent_ingress_token != null &&
-        var.computer_use_dispatch_token != null
+        var.work_dispatch_token != null &&
+        var.release_revision != null
       )
-      error_message = "An enabled Worker deployment requires the explicit Railway dispatcher URL and both secret values."
+      error_message = "An enabled Worker deployment requires the explicit dispatcher URL, both secret values, and an immutable release_revision."
     }
   }
 }

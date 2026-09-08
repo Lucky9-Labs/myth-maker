@@ -22,7 +22,7 @@ The foundation has three bounded ownership areas:
   secret names.
 
 `application_configuration_contract` is the non-secret output contract. It
-connects the Cloudflare binding `COMPUTER_USE_DISPATCH_URL` to an explicit
+connects the Cloudflare binding `WORK_DISPATCH_URL` to an explicit
 Railway dispatcher URL, and tells that dispatcher to submit v1 work orders to
 `BlenderDraftWorkerAdapter`. That adapter uses `ModalDraftRunner` to invoke
 Modal's legacy `run_draft` function in the named environment. It never contains
@@ -32,6 +32,18 @@ is not an `EncounterModule` or playable candidate.
 The coordinator sends the stable work ID in the `x-work-id` header. The
 dispatcher must use that value to deduplicate side effects before running the
 adapter; retrying a delivery is not authorization to invoke a second draft.
+
+## CI-only deployment controller
+
+Local implementation work stops at the offline checks above. Only the dedicated
+CI deployment controller may run `terraform apply`, `wrangler deploy`, Modal
+resource creation, or `modal deploy`; this repository intentionally adds no
+overlapping GitHub workflow. Feed that controller the `release_revision`, a
+reviewed-plan digest, the secret input names from
+`application_configuration_contract`, and the locked provider/module digests.
+It must retain the Cloudflare/Railway/Modal IDs, binding and module digest
+snapshot, configured Railway variable names, and an `x-work-id` dispatch
+acknowledgement as its post-deploy receipt.
 
 ## Offline checks
 
@@ -51,33 +63,32 @@ resources, so this layout supplies an inert placeholder only while
 without a real token. An apply is a separate, credentialed change and requires
 explicit opt-in flags.
 
-## Credentialed bootstrap, not part of this change
+## CI-controller bootstrap, not part of local work
 
-1. Copy `dev.tfvars.example` to an ignored `dev.tfvars` and set account IDs,
-   explicit dispatcher URL, and secrets through a secure mechanism (for example
-   `TF_VAR_*` environment variables). Do not place values in version control.
+1. The CI controller supplies account IDs, explicit dispatcher URL,
+   `release_revision`, and secrets through its secure credential store. Do not
+   place values in `tfvars` or version control.
 2. In `dev`, the default Worker name is the existing
    `myth-maker-encounter-runtime`, so its binding-only Terraform version is
    compatible with the `v1` Wrangler migration already on that Worker. Later
    environments receive a suffix by default (or an explicit
    `cloudflare_worker_name`) and must use the two-step bootstrap below. Set
-   `manage_cloudflare=true` to create only the Worker identity, then use
-   Wrangler to deploy the existing `wrangler.jsonc` Durable Object migration and
+   CI sets `manage_cloudflare=true` to create only the Worker identity, then
+   deploys the existing `wrangler.jsonc` Durable Object migration and
    source. The default Terraform version configuration preserves that Wrangler
    `v1` baseline and manages the binding without resending a migration. For a
    new, Terraform-first Worker, Cloudflare requires two reviewed versions: set
    `cloudflare_do_migration_tag` for the first migration-only version (the
    binding is intentionally absent), then set it back to `null` and apply the
    binding version. Do not collapse those steps.
-3. Set `manage_railway=true` only after the target Railway workspace is chosen.
+3. CI sets `manage_railway=true` only after the target Railway workspace is chosen.
    The provider creates an empty service; attach a real source/image first, then
    set `manage_railway_dispatcher_configuration=true` to create the non-secret
    schema/adapter variables. Add secret values, health checks, and any optional
    domain through a separately reviewed deployment.
-4. Create the named Modal environment and resources with Modal's CLI/dashboard,
-   then deploy its Python app with `modal deploy --env <environment>
-   modal/draft_trial.py`. The offline generator verifies names only; it never
-   calls Modal.
+4. CI creates the named Modal environment/resources and deploys with `modal
+   deploy --env <environment> modal/draft_trial.py`. The offline generator
+   verifies names only; it never calls Modal.
 
 The Railway provider is community-maintained, not an official Railway provider.
 Version `0.6.2` is pinned because its current service resource has an unresolved

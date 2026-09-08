@@ -51,10 +51,10 @@ def application_contract(environment: str = "dev") -> dict:
             },
             "required_secret_names": [
                 "AGENT_INGRESS_TOKEN",
-                "COMPUTER_USE_DISPATCH_TOKEN",
+                "WORK_DISPATCH_TOKEN",
             ],
             "required_plain_configuration": [
-                "COMPUTER_USE_DISPATCH_URL",
+                "WORK_DISPATCH_URL",
                 "DEPLOYMENT_ENVIRONMENT",
             ],
         },
@@ -63,7 +63,7 @@ def application_contract(environment: str = "dev") -> dict:
             "environment_name": config.environment,
             "dispatcher_service_name": f"myth-maker-{config.environment}-dispatcher",
             "required_secret_names": [
-                "COMPUTER_USE_DISPATCH_TOKEN",
+                "WORK_DISPATCH_TOKEN",
                 "MODAL_TOKEN_ID",
                 "MODAL_TOKEN_SECRET",
             ],
@@ -76,11 +76,15 @@ def application_contract(environment: str = "dev") -> dict:
                 "MODAL_FUNCTION_NAME": config.function_name,
                 "COORDINATOR_WORK_ID_HEADER": "x-work-id",
             },
+            "receiver": {
+                "authorization_header": "Authorization: Bearer",
+                "token_secret_name": "WORK_DISPATCH_TOKEN",
+            },
         },
         "modal": asdict(config),
         "connections": [
             {
-                "from": "cloudflare.COMPUTER_USE_DISPATCH_URL",
+                "from": "cloudflare.WORK_DISPATCH_URL",
                 "to": "railway.dispatcher_service_name",
                 "rule": "Set only to an explicit, independently provisioned Railway endpoint; deduplicate each delivery by its x-work-id header.",
             },
@@ -90,6 +94,25 @@ def application_contract(environment: str = "dev") -> dict:
                 "rule": "The dispatcher must validate a v1 work order, then use the adapter to derive legacy run_draft arguments.",
             },
         ],
+        "ci_deployment_controller": {
+            "deployment_owner": "ci-only",
+            "required_immutable_inputs": ["release_revision", "reviewed Terraform plan digest"],
+            "required_secret_inputs": [
+                "CLOUDFLARE_API_TOKEN",
+                "TF_VAR_agent_ingress_token",
+                "TF_VAR_work_dispatch_token",
+                "TF_VAR_railway_token",
+                "MODAL_TOKEN_ID",
+                "MODAL_TOKEN_SECRET",
+                "OPENAI_API_KEY",
+            ],
+            "post_deploy_receipts": [
+                "Cloudflare Worker version/deployment IDs and binding/module digest snapshot",
+                "Railway project/environment/service IDs and configured variable names",
+                "Modal app deployment ID/version and named resource verification",
+                "coordinator-to-dispatcher x-work-id acknowledgement",
+            ],
+        },
     }
 
 
