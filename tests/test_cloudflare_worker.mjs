@@ -220,6 +220,38 @@ test("a dispatch failure is durably replayed without a second external dispatch"
   }
 });
 
+test("a restarted coordinator recovers a journaled dispatch with the stable work ID", async () => {
+  const oldFetch = globalThis.fetch;
+  let dispatches = 0;
+  let releaseFirstDispatch;
+  const firstDispatchStarted = new Promise((resolve) => { releaseFirstDispatch = resolve; });
+  globalThis.fetch = async () => {
+    dispatches += 1;
+    if (dispatches === 1) return firstDispatchStarted;
+    return new Response("accepted", { status: 202 });
+  };
+  try {
+    const state = { storage: storage() };
+    const original = new EncounterCoordinator(state, {
+      WORK_DISPATCH_URL: "https://workers.example/dispatch",
+      WORK_DISPATCH_TOKEN: "dispatch",
+    });
+    const interrupted = submit(original, workOrder());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const restarted = new EncounterCoordinator(state, {
+      WORK_DISPATCH_URL: "https://workers.example/dispatch",
+      WORK_DISPATCH_TOKEN: "dispatch",
+    });
+    const status = await body(await restarted.fetch(new Request("https://coordinator/status")));
+    assert.equal(dispatches, 2);
+    assert.equal(status.work_items[0].status, "queued");
+    releaseFirstDispatch(new Response("accepted", { status: 202 }));
+    await interrupted;
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
 test("dependencies and resource leases defer work until the prerequisite completes", async () => {
   const oldFetch = globalThis.fetch;
   const dispatched = [];

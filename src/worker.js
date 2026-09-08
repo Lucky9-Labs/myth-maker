@@ -317,26 +317,28 @@ export class EncounterCoordinator {
         const encounter = await storage.get("encounter");
         await storage.put(workKey(work.work_order.work_id), settled);
         await storage.put(idempotencyKey, { fingerprint: requestFingerprint, work_id: work.work_order.work_id, dispatch_pending: false, response: responseBody, status });
-        if (TERMINAL_WORK_STATUSES.has(settled.status)) await storage.put("encounter", this.releaseLeases(encounter, settled));
-        return { responseBody, status };
+        const scheduled = TERMINAL_WORK_STATUSES.has(settled.status)
+          ? await this.promoteReadyWork(storage, this.releaseLeases(encounter, settled))
+          : [];
+        if (!TERMINAL_WORK_STATUSES.has(settled.status)) await storage.put("encounter", encounter);
+        return { responseBody, status, scheduled };
       });
-      if (result.responseBody.work_item.status === "blocked") await this.scheduleReadyWork();
+      await Promise.all(result.scheduled.map((readyWork) => this.dispatchWork(readyWork, readyWork.idempotency_key, readyWork.request_fingerprint)));
       return response(result.responseBody, result.status);
     })();
     this.dispatches.set(work.work_order.work_id, dispatch);
     try { return await dispatch; } finally { this.dispatches.delete(work.work_order.work_id); }
   }
 
-  async scheduleReadyWork() {
-    const ready = await this.transaction(async (storage) => {
-      let encounter = await storage.get("encounter");
-      if (!encounter || encounter.state === "frozen") return [];
-      const workItems = [];
-      for (const workId of encounter.work_ids) {
+  async promoteReadyWork(storage, encounter) {
+    if (!encounter || encounter.state === "frozen") return [];
+    let updatedEncounter = encounter;
+    const workItems = [];
+    for (const workId of encounter.work_ids) {
         const work = await storage.get(workKey(workId));
-        if (work.status !== "waiting" || !await this.dispatchable(storage, encounter, work)) continue;
+        if (work.status !== "waiting" || !await this.dispatchable(storage, updatedEncounter, work)) continue;
         const dispatching = { ...work, status: "dispatching", updated_at: new Date().toISOString() };
-        encounter = this.reserveLeases(encounter, dispatching);
+        updatedEncounter = this.reserveLeases(updatedEncounter, dispatching);
         await storage.put(workKey(workId), dispatching);
         await storage.put(dispatching.idempotency_key, {
           fingerprint: dispatching.request_fingerprint,
@@ -346,11 +348,24 @@ export class EncounterCoordinator {
           status: 202,
         });
         workItems.push(dispatching);
-      }
-      await storage.put("encounter", encounter);
-      return workItems;
-    });
+    }
+    await storage.put("encounter", updatedEncounter);
+    return workItems;
+  }
+
+  async scheduleReadyWork() {
+    const ready = await this.transaction(async (storage) => this.promoteReadyWork(storage, await storage.get("encounter")));
     await Promise.all(ready.map((work) => this.dispatchWork(work, work.idempotency_key, work.request_fingerprint)));
+  }
+
+  async recoverDispatches() {
+    const pending = await this.transaction(async (storage) => {
+      const encounter = await storage.get("encounter");
+      if (!encounter || encounter.state === "frozen") return [];
+      const workItems = await Promise.all(encounter.work_ids.map(async (workId) => storage.get(workKey(workId))));
+      return workItems.filter((work) => work.status === "dispatching");
+    });
+    await Promise.all(pending.map((work) => this.dispatchWork(work, work.idempotency_key, work.request_fingerprint)));
   }
 
   async appendEvent(workId, event) {
@@ -379,14 +394,15 @@ export class EncounterCoordinator {
         updated_at: new Date().toISOString(),
         ...(event.kind === "failed" ? { failure: { error_code: event.error_code, retryable: event.retryable } } : {}),
       };
-      const releasedEncounter = TERMINAL_WORK_STATUSES.has(updated.status) ? this.releaseLeases(encounter, updated) : encounter;
+      await storage.put(workKey(workId), updated);
+      const scheduled = TERMINAL_WORK_STATUSES.has(updated.status)
+        ? await this.promoteReadyWork(storage, this.releaseLeases(encounter, updated))
+        : [];
       await storage.put(eventKey(workId), [...events, event]);
       await storage.put(eventIdKey, { fingerprint: eventFingerprint, event });
-      await storage.put(workKey(workId), updated);
-      if (releasedEncounter !== encounter) await storage.put("encounter", releasedEncounter);
-      return { value: { event, work_item: workSummary(updated) }, status: 202 };
+      return { value: { event, work_item: workSummary(updated) }, status: 202, scheduled };
     });
-    if (appended.status === 202 && TERMINAL_WORK_STATUSES.has(appended.value.work_item.status)) await this.scheduleReadyWork();
+    await Promise.all((appended.scheduled || []).map((readyWork) => this.dispatchWork(readyWork, readyWork.idempotency_key, readyWork.request_fingerprint)));
     return response(appended.value, appended.status);
   }
 
@@ -406,6 +422,7 @@ export class EncounterCoordinator {
   }
 
   async fetch(request) {
+    await this.recoverDispatches();
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/status") return response(await this.encounterStatus());
     if (request.method === "POST" && url.pathname === "/work-items") return this.submit(await requestBody(request));
