@@ -291,21 +291,20 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("provider workflow gives credentials only to a provider command that consumes them", () => {
+test("Modal activation consumes environment secrets in its direct executor, not a nested reusable workflow", () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
-    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-executor.yml"],
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-modal.yml"],
     { encoding: "utf8" },
   ));
-  const steps = workflow.jobs.deploy.steps;
-  const cloudflare = steps.find((step) => step.id === "deploy").env;
-  const railway = steps.find((step) => step.id === "railway").env;
+  const direct = workflow.jobs.activate;
+  const steps = direct.steps;
   const modal = steps.find((step) => step.id === "modal").env;
-  const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable receipt")).env;
-  assert.deepEqual(Object.keys(cloudflare).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
-  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
+  const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt")).env;
+  assert.equal(direct.environment.name, "${{ inputs.environment }}");
+  assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment }}");
   assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
-  assert.doesNotMatch(JSON.stringify({ cloudflare, railway }), /TOKEN|OPENAI|TF_VAR/);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
-  assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "CLOUDFLARE_STATUS", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "RAILWAY_STATUS", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
+  assert.doesNotMatch(JSON.stringify(receipt), /TOKEN|OPENAI/);
+  assert.deepEqual(Object.keys(receipt).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
 });
