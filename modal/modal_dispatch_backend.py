@@ -8,6 +8,7 @@ operator actions.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import os
 from typing import Any
 
 from encounter_worker_adapter import BlenderDraftWorkerAdapter, BlenderDraftRunResult
@@ -79,8 +80,15 @@ class ModalDraftBackend:
 
     @staticmethod
     def _load_existing_remote_entrypoint() -> Callable[..., Mapping[str, Any]]:
-        # This import is intentionally inside the paid-launch path: importing
-        # draft_trial creates the Modal resource handles, whereas preflight must
-        # remain completely local and side-effect free.
-        from draft_trial import run_draft
-        return run_draft.remote
+        """Resolve the deployed function, never a source-derived ephemeral app.
+
+        Railway is an external caller.  Looking the function up by the stable
+        app/function names binds a work order to the already deployed Modal
+        `dev` app rather than making importing this repository appear to be a
+        deployment operation.
+        """
+        import modal
+
+        app_name = os.environ.get("MODAL_APP_NAME", "myth-maker-encounter-draft")
+        function_name = os.environ.get("MODAL_FUNCTION_NAME", "run_draft")
+        return modal.Function.from_name(app_name, function_name).remote

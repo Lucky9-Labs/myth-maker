@@ -83,7 +83,7 @@ test("legacy all-provider readiness remains fail-closed while Modal has its own 
   });
   assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: true }), {
     ready: false,
-    reason: "provider deploy commands are unavailable: cloudflare, railway",
+    reason: "provider deploy commands are unavailable: cloudflare",
   });
 });
 
@@ -119,7 +119,7 @@ test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
 
-test("an unsupported Railway deployment is skipped rather than presented as a preview or success", () => {
+test("a Railway preview stays non-mutating while deployment requires GitHub context", () => {
   assert.throws(
     () => validateProviderRequest({ eventName: "pull_request", mode: "deploy", provider: "railway", environment: "dev" }),
   );

@@ -105,7 +105,35 @@ export class JsonReceiptStore {
   async markDelivered(workId, eventId) { await this.#mutate((records) => { records[workId].outbox.find((entry) => entry.event.event_id === eventId).delivered = true; }); }
   async listUndelivered() { return Object.values(await this.#read()).filter((record) => record.outbox?.some((entry) => !entry.delivered)).map(clone); }
   async #read() { try { return JSON.parse(await readFile(this.path, "utf8")); } catch (error) { if (error.code === "ENOENT") return {}; throw error; } }
-  async #mutate(callback) { await mkdir(this.lockPath); try { const records = await this.#read(); const value = callback(records); const temporary = `${this.path}.tmp`; await writeFile(temporary, JSON.stringify(records)); await rename(temporary, this.path); return value; } finally { await rm(this.lockPath, { recursive: true, force: true }); } }
+  async #mutate(callback) {
+    // Railway's dispatcher is deliberately a single-replica service, but HTTP
+    // retries can still arrive concurrently.  Serialize mutations on the
+    // mounted receipt volume so a duplicate delivery observes the completed
+    // receipt instead of racing a second Modal launch.
+    await this.#acquireLock();
+    try {
+      const records = await this.#read();
+      const value = callback(records);
+      const temporary = `${this.path}.tmp`;
+      await writeFile(temporary, JSON.stringify(records));
+      await rename(temporary, this.path);
+      return value;
+    } finally {
+      await rm(this.lockPath, { recursive: true, force: true });
+    }
+  }
+
+  async #acquireLock() {
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      try { await mkdir(this.lockPath); return; }
+      catch (error) {
+        if (error.code !== "EEXIST") throw error;
+        if (Date.now() >= deadline) throw new Error("receipt store lock timed out");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+  }
 }
 
 function makeReceipt(order, workerId, events) { return { work_id: order.work_id, encounter_id: order.encounter_id, worker_id: workerId, status: events.at(-1).kind, request_fingerprint: digest(order), production_gate: clone(order.production_gate), events: events.map(clone), outbox: events.map((event) => ({ event: clone(event), delivered: false })) }; }

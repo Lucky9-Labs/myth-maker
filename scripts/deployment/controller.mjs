@@ -14,6 +14,7 @@ import { dirname, resolve } from "node:path";
 const SHA = /^[0-9a-f]{40}$/;
 const ENVIRONMENT = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROVIDER = /^[a-z][a-z0-9-]{0,31}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RECEIPT_PROVIDERS = new Set(["cloudflare", "railway", "modal", "terraform-foundation"]);
 
 export const providerDefinitions = Object.freeze({
@@ -29,9 +30,9 @@ export const providerDefinitions = Object.freeze({
   }),
   railway: Object.freeze({
     secretNames: ["RAILWAY_TOKEN"],
-    requiredFiles: [],
+    requiredFiles: ["Dockerfile", "railway.toml", "src/railway-server.js", "src/modal-bridge-backend.js", "modal/railway_modal_bridge.py"],
     preview: null,
-    deploy: null,
+    deploy: ["railway", ["up", "--ci", "--detach"]],
   }),
   modal: Object.freeze({
     // These are read only by the CI-owned bootstrap helper after the GitHub
@@ -190,6 +191,14 @@ export function providerCommand(provider, mode, environment) {
     return definition.preview;
   }
   if (mode !== "deploy") return null;
+  if (provider === "railway") {
+    const serviceId = process.env.RAILWAY_SERVICE_ID;
+    const environmentId = process.env.RAILWAY_ENVIRONMENT_ID;
+    if (!uuid(serviceId) || !uuid(environmentId)) {
+      throw new Error("RAILWAY_SERVICE_ID and RAILWAY_ENVIRONMENT_ID must be configured UUIDs in the GitHub Environment");
+    }
+    return [definition.deploy[0], [...definition.deploy[1], "--service", serviceId, "--environment", environmentId]];
+  }
   if (provider === "modal" && definition.deploy) {
     const evidencePath = process.env.MODAL_EVIDENCE_PATH;
     if (!evidencePath) throw new Error("MODAL_EVIDENCE_PATH is required for a Modal deployment receipt");
@@ -222,6 +231,8 @@ function assertReceiptProvider(value) {
 function assertEnvironment(value) {
   if (!ENVIRONMENT.test(value ?? "")) throw new Error("environment must be lowercase kebab-case");
 }
+
+function uuid(value) { return UUID.test(value ?? ""); }
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -283,6 +294,24 @@ function executeProviderCommand(invocation) {
   return execFileSync(invocation[0], invocation[1], { encoding: "utf8", env: process.env });
 }
 
+function executeRailwayDeployment(invocation) {
+  executeProviderCommand(invocation);
+  const serviceId = process.env.RAILWAY_SERVICE_ID;
+  const environmentId = process.env.RAILWAY_ENVIRONMENT_ID;
+  const deadline = Date.now() + 12 * 60_000;
+  while (Date.now() < deadline) {
+    const output = execFileSync("railway", ["deployment", "list", "--json", "--limit", "1", "--service", serviceId, "--environment", environmentId], { encoding: "utf8", env: process.env });
+    let deployments;
+    try { deployments = JSON.parse(output); } catch { throw new Error("Railway deployment list returned invalid JSON"); }
+    const current = Array.isArray(deployments) ? deployments[0] : undefined;
+    if (!current?.id || typeof current.status !== "string") throw new Error("Railway did not return a deployment receipt");
+    if (current.status === "SUCCESS") return { deployment_id: current.id, status: current.status };
+    if (["FAILED", "CRASHED", "CANCELED", "REMOVED"].includes(current.status)) throw new Error(`Railway deployment ${current.id} ended ${current.status}`);
+    execFileSync("sleep", ["5"]);
+  }
+  throw new Error("Railway deployment did not reach SUCCESS before the verification deadline");
+}
+
 function run(command, options) {
   const provider = options.provider;
   const environment = options.environment;
@@ -315,11 +344,15 @@ function run(command, options) {
   if (missingSecrets.length) {
     throw new Error(`${missingSecrets.join(", ")} are required only after the reviewed environment gate`);
   }
-  let output = executeProviderCommand(invocation);
-  if (provider === "modal") {
-    output = readFileSync(process.env.MODAL_EVIDENCE_PATH, "utf8");
+  if (provider === "railway") {
+    const evidence = executeRailwayDeployment(invocation);
+    process.stdout.write(`${JSON.stringify({ ...request, status: "deployed", evidence })}\n`);
+    return;
   }
-  const evidence = provider === "modal" ? parseModalDeploymentEvidence(output) : undefined;
+  executeProviderCommand(invocation);
+  const evidence = provider === "modal"
+    ? parseModalDeploymentEvidence(readFileSync(process.env.MODAL_EVIDENCE_PATH, "utf8"))
+    : undefined;
   process.stdout.write(`${JSON.stringify({ ...request, status: "deployed", ...(evidence ? { evidence } : {}) })}\n`);
 }
 
