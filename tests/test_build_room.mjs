@@ -75,24 +75,17 @@ test("adapter requires observed remote receipts and preserves artifact and packa
   const run = room.submit({ prompt: "Need a verified package" });
   const adapter = new CoordinatorEventAdapter(room, { trustedObservation: () => true });
 
-  assert.throws(() => adapter.ingest({
-    encounter_id: run.ids.encounterId,
-    worker_id: run.ids.workerId,
-    sequence: 9,
-    kind: "candidate_produced",
-    source: "modal_remote",
-  }), /receipt/);
+  assert.throws(() => adapter.ingest(adapterEvent(run, {
+    sequence: 9, source: "modal_remote",
+  })), /receipt/);
 
-  adapter.ingest({
-    encounter_id: run.ids.encounterId,
-    worker_id: run.ids.workerId,
+  adapter.ingest(adapterEvent(run, {
     sequence: 9,
-    kind: "candidate_produced",
     source: "modal_remote",
     receipt: { request_id: "modal-request-77", observed_at: "2026-09-08T12:02:00.000Z" },
     artifact: { artifact_id: "basilisk-mesh", revision: 2 },
     package: { package_id: "basilisk-package", revision: 3 },
-  });
+  }));
 
   const snapshot = room.snapshot(run.ids.encounterId);
   assert.equal(snapshot.artifacts[0].revision, 2);
@@ -104,10 +97,10 @@ test("adapter requires observed remote receipts and preserves artifact and packa
 test("receipt-shaped input remains unverified until a trusted local observer accepts it", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Reject forged evidence" });
-  const input = {
-    encounter_id: run.ids.encounterId, worker_id: run.ids.workerId, sequence: 7, kind: "progress", source: "modal_remote",
+  const input = adapterEvent(run, {
+    sequence: 7, source: "modal_remote",
     receipt: { request_id: "not-proof", observed_at: "2026-09-08T12:02:00.000Z" },
-  };
+  });
   assert.throws(() => new CoordinatorEventAdapter(room).ingest(input), /trusted local observer/);
   new CoordinatorEventAdapter(room, { trustedObservation: () => true }).ingest(input);
   assert.equal(room.snapshot(run.ids.encounterId).evidence.modal.length, 1);
@@ -128,17 +121,14 @@ test("Blender evidence is absent until an observed screenshot or stream receipt 
   const adapter = new CoordinatorEventAdapter(room, { trustedObservation: () => true });
 
   assert.deepEqual(room.snapshot(run.ids.encounterId).evidence.blender, []);
-  assert.throws(() => adapter.ingest({
-    encounter_id: run.ids.encounterId, worker_id: run.ids.workerId, sequence: 4, kind: "progress", source: "blender_window",
-  }), /screenshot_path or stream_url/);
-  adapter.ingest({
-    encounter_id: run.ids.encounterId,
-    worker_id: run.ids.workerId,
+  assert.throws(() => adapter.ingest(adapterEvent(run, {
+    sequence: 4, source: "blender_window",
+  })), /screenshot_path or stream_url/);
+  adapter.ingest(adapterEvent(run, {
     sequence: 4,
-    kind: "progress",
     source: "blender_window",
     receipt: { screenshot_path: "/tmp/observed-blender.png", observed_at: "2026-09-08T12:04:00.000Z" },
-  });
+  }));
   assert.equal(room.snapshot(run.ids.encounterId).evidence.blender[0].screenshot_path, "/tmp/observed-blender.png");
 });
 
@@ -257,11 +247,10 @@ test("both explicit SSE routes stream before generic detail routes and survive d
 test("adapter accepts the coordinator worker-event shape without upgrading its evidence claim", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Coordinator contract" });
-  new CoordinatorEventAdapter(room).ingest({
-    schema_version: "1", event_id: "event-remote-1", work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], encounter_id: run.ids.encounterId,
-    worker_id: run.ids.workerId, sequence: 2, occurred_at: "2026-09-08T12:02:00.000Z", kind: "candidate_produced",
-    module: { module_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" } },
-  });
+  new CoordinatorEventAdapter(room).ingest(adapterEvent(run, {
+    event_id: "event-remote-1", work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], sequence: 2,
+    artifact: { artifact_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" } },
+  }));
   const snapshot = room.snapshot(run.ids.encounterId);
   assert.equal(snapshot.events.at(-1).evidence.kind, "adapter_reported");
   assert.deepEqual(snapshot.artifacts[0], {
@@ -269,17 +258,57 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
   });
   assert.deepEqual(snapshot.topology.work_graph, [{
     work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
-    status: "running", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported",
+    status: "running", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported", elapsed_seconds: 0,
   }]);
   const restored = new BuildRoom().restore(room.exportState());
   assert.equal(restored.snapshot(run.ids.encounterId).topology.work_graph[0].work_id, "work-001");
+});
+
+test("work elapsed time advances while active and freezes at terminal updated_at", () => {
+  let now = "2026-09-08T12:00:10.000Z";
+  const room = new BuildRoom({ now: () => now, id: sequenceIds() });
+  const run = room.submit({ prompt: "Freeze terminal elapsed time" });
+  const adapter = new CoordinatorEventAdapter(room);
+  adapter.ingest(adapterEvent(run, { occurred_at: "2026-09-08T12:00:00.000Z", sequence: 1 }));
+  assert.equal(room.snapshot(run.ids.encounterId).topology.work_graph[0].elapsed_seconds, 10);
+  adapter.ingest(adapterEvent(run, { occurred_at: "2026-09-08T12:00:05.000Z", sequence: 2, kind: "completed" }));
+  now = "2026-09-08T12:00:30.000Z";
+  assert.equal(room.snapshot(run.ids.encounterId).topology.work_graph[0].elapsed_seconds, 5);
+});
+
+test("adapter ingress rejects malformed closed worker envelopes before projection state or health can change", async () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Reject malformed adapter events" });
+  const server = createBuildRoomServer({ room });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const before = room.snapshot(run.ids.encounterId);
+  try {
+    for (const malformed of [
+      adapterEvent(run, { occurred_at: {}, artifact: { artifact_id: "poisoned-timestamp", revision: 1 } }),
+      adapterEvent(run, { unknown_field: true, artifact: { artifact_id: "poisoned-key", revision: 1 } }),
+      adapterEvent(run, { kind: "unrecognised", artifact: { artifact_id: "poisoned-kind", revision: 1 } }),
+    ]) {
+      const response = await fetch(`${base}/api/ingest/coordinator`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(malformed) });
+      assert.equal(response.status, 400);
+    }
+    const after = room.snapshot(run.ids.encounterId);
+    assert.deepEqual(after.events, before.events);
+    assert.deepEqual(after.artifacts, before.artifacts);
+    assert.deepEqual(after.packages, before.packages);
+    assert.deepEqual(after.topology.work_graph, before.topology.work_graph);
+    assert.deepEqual(await (await fetch(`${base}/api/health`)).json(), { status: "ok", encounters: 1 });
+  } finally {
+    server.close();
+  }
 });
 
 test("malformed adapter work metadata is rejected before it can poison the projection", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Closed work metadata" });
   const before = room.snapshot(run.ids.encounterId);
-  assert.throws(() => new CoordinatorEventAdapter(room).ingest({ encounter_id: run.ids.encounterId, work_id: {}, lane: "valid.lane", depends_on_work_ids: ["not-an-id!"], worker_id: run.ids.workerId, sequence: 2, kind: "candidate_produced", module: { module_id: "rejected-artifact", revision: 1 } }), /invalid v1 work graph metadata/);
+  assert.throws(() => new CoordinatorEventAdapter(room).ingest(adapterEvent(run, { work_id: "work-002", lane: "valid.lane", depends_on_work_ids: ["not-an-id!"], sequence: 2, artifact: { artifact_id: "rejected-artifact", revision: 1 } })), /invalid v1 work graph metadata/);
   const after = room.snapshot(run.ids.encounterId);
   assert.deepEqual(after.events, before.events);
   assert.deepEqual(after.artifacts, before.artifacts);
@@ -291,6 +320,14 @@ function sequenceIds() {
   const values = ["encounter-001", "request-001", "worker-001"];
   let extra = 0;
   return () => values.shift() || `generated-${++extra}`;
+}
+
+function adapterEvent(run, overrides = {}) {
+  return {
+    schema_version: "1", event_id: "event-adapter-001", work_id: "work-adapter-001", lane: "adapter.lane", depends_on_work_ids: [],
+    encounter_id: run.ids.encounterId, worker_id: run.ids.workerId, sequence: 1, occurred_at: "2026-09-08T12:02:00.000Z", kind: "progress",
+    ...overrides,
+  };
 }
 
 async function eventually(read, predicate) {

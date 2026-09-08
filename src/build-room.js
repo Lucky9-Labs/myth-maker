@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isV1WorkerEvent } from "./worker.js";
 
 const EVIDENCE_LABELS = {
   fixture: "Simulated fixture (not live)",
@@ -113,7 +114,7 @@ export class BuildRoom {
         blender: [...run.evidence.blender],
       },
       steering: [...run.steering],
-      topology: topology(run, this.catalogProjection),
+      topology: topology(run, this.catalogProjection, this.now()),
     };
   }
 
@@ -242,16 +243,17 @@ export class CoordinatorEventAdapter {
   }
 
   ingest(input, context = {}) {
-    if (input?.work_id) validateWorkMetadata(input);
+    const workerEvent = validateAdapterWorkerEvent(input);
+    validateWorkMetadata(input);
     const evidence = evidenceFromAdapterInput(input, context, this.trustedObservation);
     const artifact = normaliseRevision(input.artifact, "artifact") || moduleRevision(input.module);
-    const event = this.room.record(input.encounter_id, {
-      eventId: input.event_id,
-      workerId: input.worker_id,
-      sequence: input.sequence,
-      occurredAt: input.occurred_at,
-      kind: input.kind,
-      message: input.message,
+    const event = this.room.record(workerEvent.encounter_id, {
+      eventId: workerEvent.event_id,
+      workerId: workerEvent.worker_id,
+      sequence: workerEvent.sequence,
+      occurredAt: workerEvent.occurred_at,
+      kind: workerEvent.kind,
+      message: workerEvent.message,
       artifact,
       package: normaliseRevision(input.package, "package"),
       evidence,
@@ -259,6 +261,18 @@ export class CoordinatorEventAdapter {
     this.room.upsertWork(input.encounter_id, input, event);
     return event;
   }
+}
+
+const WORKER_EVENT_FIELDS = ["schema_version", "event_id", "work_id", "encounter_id", "worker_id", "sequence", "occurred_at", "kind", "module", "progress", "message", "error_code", "retryable"];
+const ADAPTER_FIELDS = new Set([...WORKER_EVENT_FIELDS, "lane", "depends_on_work_ids", "work_order", "source", "receipt", "artifact", "package"]);
+
+function validateAdapterWorkerEvent(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => !ADAPTER_FIELDS.has(key))) {
+    throw new TypeError("adapter input must contain a closed v1 worker event envelope");
+  }
+  const workerEvent = Object.fromEntries(WORKER_EVENT_FIELDS.filter((key) => key in input).map((key) => [key, input[key]]));
+  if (!isV1WorkerEvent(workerEvent)) throw new TypeError("adapter input requires a valid closed v1 worker event");
+  return workerEvent;
 }
 
 function validateWorkMetadata(input) {
@@ -355,7 +369,7 @@ function cursorPosition(cursor) {
   return Number(cursor.slice(cursor.lastIndexOf(":") + 1));
 }
 
-function topology(run, catalogProjection) {
+function topology(run, catalogProjection, observedAt) {
   const events = orderedEvents(run.events);
   const workers = new Map();
   for (const event of events) {
@@ -364,7 +378,10 @@ function topology(run, catalogProjection) {
     workers.set(event.workerId, current);
   }
   return {
-    work_graph: [...run.workGraph.values()].sort((a, b) => a.work_id.localeCompare(b.work_id)),
+    work_graph: [...run.workGraph.values()].sort((a, b) => a.work_id.localeCompare(b.work_id)).map((work) => ({
+      ...work,
+      elapsed_seconds: elapsedSeconds(work, observedAt),
+    })),
     workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process"].includes(event.evidence.kind))).map((worker) => {
       const last = worker.events.at(-1);
       return {
@@ -376,6 +393,12 @@ function topology(run, catalogProjection) {
     }),
     catalog: catalogTopology(catalogProjection, run),
   };
+}
+
+function elapsedSeconds(work, observedAt) {
+  const start = Date.parse(work.started_at);
+  const end = Date.parse(["completed", "failed"].includes(work.status) ? work.updated_at : observedAt);
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.floor((end - start) / 1000)) : 0;
 }
 
 function catalogTopology(catalogProjection, run) {
