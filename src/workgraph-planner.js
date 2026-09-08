@@ -21,7 +21,7 @@ export function planEncounterWork(spec) {
     attempt: spec.attempt || 1,
     production_gate: structuredClone(spec.production_gate),
   };
-  const lanes = [
+  const lanes = spec.work_lanes || [
     { lane: "body-source", provides: "encounter.body.source" },
     { lane: "animation-recipe", provides: "encounter.animation.recipe" },
     { lane: "combat-recipe", provides: "encounter.combat.recipe" },
@@ -88,9 +88,20 @@ function assertEncounterSpec(spec) {
       || !uniqueTags(spec.desired_roles)) {
     throw new TypeError("planner requires an EncounterSpec-compatible v2 request");
   }
+  if (spec.work_lanes !== undefined && !validWorkLanes(spec.work_lanes)) {
+    throw new TypeError("planner requires unique generic work lanes");
+  }
   if (!validProductionGate(spec.production_gate)) {
     throw new TypeError("planner requires an unexpired compatible production gate");
   }
+}
+
+function validWorkLanes(lanes) {
+  return Array.isArray(lanes) && lanes.length > 0 && lanes.length <= 32
+    && lanes.every((lane) => closedRecord(lane, ["lane", "provides"])
+      && SEMANTIC_TAG.test(lane.lane) && SEMANTIC_TAG.test(lane.provides))
+    && new Set(lanes.map((lane) => lane.lane)).size === lanes.length
+    && new Set(lanes.map((lane) => lane.provides)).size === lanes.length;
 }
 
 function assertWorkOrder(order, encounterId) {

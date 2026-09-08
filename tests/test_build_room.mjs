@@ -183,6 +183,44 @@ test("HTTP submission executes the local planner-dispatcher path and projects te
   }
 });
 
+test("a high-fanout local compile exposes generic lane receipts and freezes its selected package", async () => {
+  const server = createBuildRoomServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const created = await fetch(`${base}/api/encounters`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: "Kraken demo brief: pressure across a readable tidal arena.",
+        compile_profile: "high_fanout",
+        freeze_current_package: true,
+      }),
+    });
+    assert.equal(created.status, 201);
+    const run = await created.json();
+    const final = await eventually(
+      async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()),
+      (value) => value.work_graph.length === 13 && value.packages[0]?.state === "frozen",
+    );
+
+    assert.equal(final.compile_profile, "high_fanout");
+    assert.equal(final.work_graph.filter((work) => work.status === "completed").length, 13);
+    assert.equal(new Set(final.work_graph.map((work) => work.worker_id)).size, 13);
+    assert.ok(final.work_graph.some((work) => work.lane === "material-texture" && work.component === "encounter.material.texture"));
+    assert.ok(final.work_graph.some((work) => work.lane === "arena-envelope" && work.component === "encounter.arena.envelope"));
+    assert.deepEqual(final.packages[0].outcomes, {
+      selected: final.packages[0].selection,
+      rejected: [],
+      fallback: { used_fallback: false, module_ids: [] },
+    });
+    assert.equal(final.packages[0].package_record.state, "frozen");
+    assert.ok(final.events.some((event) => event.message.includes("froze current package")));
+  } finally {
+    server.close();
+  }
+});
+
 test("the live builds index and request-keyed detail project direct SQLite catalog counters", async () => {
   const catalog = createSqliteCatalog();
   catalog.bootstrapOceanEncounter();
@@ -279,7 +317,7 @@ test("the Build Room page includes the evidence-driven revision loop and keeps i
   await once(server, "listening");
   try {
     const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
-    for (const expected of ["loop-flow", "Coordinator / planner", "Next revision / Blender", "Unity judge", "Concept-first gate", "Material", "Arena", "Build details and evidence"]) {
+    for (const expected of ["loop-flow", "Coordinator / planner", "Next revision / Blender", "Unity judge", "Concept-first gate", "Material", "Arena", "High-fanout", "Freeze current package", "Component", "Selected", "Rejected", "Fallback", "Build details and evidence"]) {
       assert.match(page, new RegExp(expected));
     }
   } finally {
@@ -300,7 +338,7 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
     artifact_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" },
   });
   assert.deepEqual(snapshot.topology.work_graph, [{
-    work_id: "work-001", lane: "arena.shell", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
+    work_id: "work-001", lane: "arena.shell", component: "unreported", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
     status: "running", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported", elapsed_seconds: 0,
   }]);
   const restored = new BuildRoom().restore(room.exportState());

@@ -7,7 +7,7 @@ import { planEncounterWork } from "./workgraph-planner.js";
 import { EncounterDispatcher } from "./encounter-dispatcher.js";
 import { LocalWorkerBackend } from "./local-worker-backend.js";
 import { LocalBlenderSliceBackend } from "./local-blender-slice-backend.js";
-import { assembleEncounterPackage } from "./encounter-package-assembler.js";
+import { assembleEncounterPackage, freezeEncounterPackage } from "./encounter-package-assembler.js";
 import { createSqliteCatalog } from "./catalog-sqlite.js";
 import { ingestGlbRuntimeCandidate } from "./glb-runtime-candidate-ingress.js";
 
@@ -57,6 +57,12 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
         if (!run.deduplicated) launchLocalBuild(room, run, persist, catalog, blenderBackend, absoluteArtifactRoot).catch((error) => recordLocalFailure(room, run, error, persist));
         return json(response, run.deduplicated ? 200 : 201, run);
       }
+      const freezeMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/freeze$/);
+      if (request.method === "POST" && freezeMatch) {
+        const snapshot = freezeCurrentPackage(room, freezeMatch[1]);
+        persist(room);
+        return json(response, 201, snapshot);
+      }
       const upgradeMatch = url.pathname.match(/^\/api\/encounters\/([^/]+)\/upgrades$/);
       if (request.method === "POST" && upgradeMatch) {
         const upgrade = room.requestNextUpgrade(upgradeMatch[1], await body(request));
@@ -101,7 +107,7 @@ export function createBuildRoomServer({ room = new BuildRoom(), persist = () => 
 }
 
 async function launchLocalBuild(room, run, persist, catalog, blenderBackend, artifactRoot, revision = 1) {
-  const spec = localSpec(run.ids.encounterId, run.seed, revision);
+  const spec = localSpec(run.ids.encounterId, run.seed, revision, run.compile_profile);
   const graph = planEncounterWork(spec);
   const localBackend = new LocalWorkerBackend({ workDurationMs: 5 });
   const backend = {
@@ -186,9 +192,11 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
       manifest_sha256: packageResult.package.manifest_sha256,
       package_record: packageResult.package,
       assembly_receipt: assemblyReceipt(packageResult.package, manifest, priorPackage),
+      outcomes: packageOutcomes(packageResult.package, packageResult.rejections),
     },
     evidence: { kind: "local_process", receipt: { process: "encounter-package-assembler", observed_at: new Date().toISOString() } },
   });
+  if (run.freeze_current_package) freezeCurrentPackage(room, run.ids.encounterId);
   if (revision > 1) {
     room.record(run.ids.encounterId, {
       workerId: "local-coordinator", sequence: revision + 1000, kind: "completed", occurredAt: new Date().toISOString(),
@@ -285,12 +293,35 @@ function recordLocalFailure(room, run, error, persist, revision = undefined) {
   persist(room);
 }
 
-function localSpec(encounterId, seed = 1, attempt = 1) {
-  return { schema_version: "2", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"], production_gate: bootstrapProductionGate() };
+function localSpec(encounterId, seed = 1, attempt = 1, compileProfile = "standard") {
+  const workLanes = workLanesFor(compileProfile);
+  return { schema_version: "2", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"], work_lanes: workLanes, production_gate: bootstrapProductionGate(workLanes) };
 }
 
-function bootstrapProductionGate() {
-  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: ["encounter.body.source", "encounter.animation.recipe", "encounter.combat.recipe", "encounter.validation.report"], not_concept_compliant: true } };
+function workLanesFor(compileProfile) {
+  const standard = [
+    { lane: "body-source", provides: "encounter.body.source" },
+    { lane: "animation-recipe", provides: "encounter.animation.recipe" },
+    { lane: "combat-recipe", provides: "encounter.combat.recipe" },
+  ];
+  if (compileProfile === "standard") return standard;
+  if (compileProfile !== "high_fanout") throw new TypeError("unknown local compile profile");
+  return [
+    ...standard,
+    { lane: "body-collision", provides: "encounter.body.collision" },
+    { lane: "material-texture", provides: "encounter.material.texture" },
+    { lane: "material-binding", provides: "encounter.material.binding" },
+    { lane: "combat-telegraph", provides: "encounter.combat.telegraph" },
+    { lane: "arena-envelope", provides: "encounter.arena.envelope" },
+    { lane: "arena-dressing", provides: "encounter.arena.dressing" },
+    { lane: "presentation-vfx", provides: "encounter.presentation.vfx" },
+    { lane: "presentation-audio", provides: "encounter.presentation.audio" },
+    { lane: "presentation-ui", provides: "encounter.presentation.ui" },
+  ];
+}
+
+function bootstrapProductionGate(workLanes) {
+  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: [...workLanes.map((work) => work.provides), "encounter.validation.report"], not_concept_compliant: true } };
 }
 
 function baselineModules(encounterId) {
@@ -309,6 +340,49 @@ function bindEmbeddedAnimationCandidate(manifest, bodyCandidate) {
     throw new TypeError("embedded animation candidate is not bound to the checked body runtime artifact");
   }
   return { module: structuredClone(animation.module), binding: structuredClone(animation.rig_binding) };
+}
+
+function packageOutcomes(packageRecord, rejections) {
+  return {
+    selected: [...packageRecord.module_ids],
+    rejected: rejections.map((rejection) => ({ module_id: rejection.module_id, reasons: [...rejection.reasons] })),
+    fallback: structuredClone(packageRecord.fallback_provenance),
+  };
+}
+
+function freezeCurrentPackage(room, encounterId) {
+  const snapshot = room.snapshot(encounterId);
+  const current = snapshot.packages.at(-1);
+  if (!current?.package_record) throw new TypeError("a current package is required before freezing");
+  if (current.package_record.state === "frozen") return snapshot;
+  const frozenAt = new Date().toISOString();
+  const frozen = freezeEncounterPackage(current.package_record, frozenAt);
+  room.record(encounterId, {
+    workerId: "local-assembler",
+    sequence: 1,
+    kind: "completed",
+    occurredAt: frozenAt,
+    message: `Local assembler froze current package revision ${frozen.revision}; later candidates cannot replace this package snapshot.`,
+    package: {
+      ...current,
+      state: frozen.state,
+      selection: [...frozen.module_ids],
+      fallback: structuredClone(frozen.fallback_provenance),
+      manifest_sha256: frozen.manifest_sha256,
+      package_record: frozen,
+      outcomes: packageOutcomes(frozen, current.rejections || []),
+      freeze_receipt: {
+        source: "local_process",
+        observed_at: frozenAt,
+        package_id: frozen.package_id,
+        revision: frozen.revision,
+        manifest_sha256: frozen.manifest_sha256,
+        frozen_from_assembly_receipt_sha256: current.assembly_receipt?.receipt_sha256,
+      },
+    },
+    evidence: { kind: "local_process", receipt: { process: "encounter-package-assembler", observed_at: frozenAt, action: "freeze-current-package", package_manifest_sha256: frozen.manifest_sha256 } },
+  });
+  return room.snapshot(encounterId);
 }
 
 function generatedArtifact(response, root, encodedRelativePath) {
@@ -397,7 +471,7 @@ const PAGE = String.raw`<!doctype html>
   .loop-panel { position: relative; padding: clamp(16px, 3vw, 32px); overflow-x: auto; border: 1px solid #214e68; background: linear-gradient(120deg, rgba(12, 42, 62, .9), rgba(4, 15, 29, .95)); }
   .loop-flow { display: flex; align-items: stretch; min-width: 1100px; padding: 4px 0 18px; } .loop-edge { position: relative; width: clamp(24px, 3vw, 48px); flex: 0 0 clamp(24px, 3vw, 48px); align-self: center; height: 2px; background: #3d7787; opacity: .78; } .loop-edge::after { content: ""; position: absolute; right: -1px; top: -4px; border: 5px solid transparent; border-left-color: #86f4e9; }
   .loop-node { position: relative; z-index: 1; display: flex; flex: 1 0 125px; min-height: 180px; flex-direction: column; border: 1px solid #315e73; background: rgba(4, 17, 31, .78); } .loop-node.current { border-color: #78e8e1; box-shadow: 0 0 0 1px #4cc8c6, 0 0 28px rgba(74, 221, 214, .30); } .loop-node.absent, .loop-node.pending { border-style: dashed; border-color: #355265; background: rgba(7, 18, 31, .42); } .node-head { display: flex; justify-content: space-between; gap: 8px; padding: 10px; border-bottom: 1px solid #234d63; } .node-head h2 { margin: 0; font-size: .9rem; } .glyph { color: #9affef; } .absent .glyph, .pending .glyph { color: #69818d; } .node-body { display: grid; flex: 1; place-items: center; min-height: 86px; overflow: hidden; color: #a7d3d6; font-size: .82rem; text-align: center; } .node-body img { display: block; width: 100%; height: 104px; object-fit: cover; } .node-foot { min-height: 42px; padding: 8px 10px; border-top: 1px solid #234d63; color: #9fc7ce; font-size: .75rem; } .absent .node-foot, .pending .node-foot { color: #647b88; }
-  .loop-meta { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-top: 14px; color: #9bb8c4; font-size: .82rem; } .loop-meta strong { color: #bdfcf3; } .quiet-lanes { display: flex; gap: 10px; flex-wrap: wrap; } .quiet-lane { color: #647b88; font-size: .76rem; } .loop-gates { display: flex; gap: 10px; margin-top: 13px; } .loop-gates .loop-node { flex: 0 1 230px; min-height: 72px; } .loop-gates .node-body { display: none; } .loop-gates .node-foot { min-height: auto; border-top: 0; }
+  .loop-meta { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-top: 14px; color: #9bb8c4; font-size: .82rem; } .loop-meta strong { color: #bdfcf3; } .quiet-lanes { display: flex; gap: 10px; flex-wrap: wrap; } .quiet-lane { color: #647b88; font-size: .76rem; } .lane-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 15px; } .lane-card { padding: 9px; border: 1px solid #315e73; background: rgba(4, 17, 31, .55); color: #a9c8ce; font-size: .76rem; } .lane-card strong { color: #c8f5f0; } .lane-card code { display: block; margin-top: 4px; } .loop-gates { display: flex; gap: 10px; margin-top: 13px; } .loop-gates .loop-node { flex: 0 1 230px; min-height: 72px; } .loop-gates .node-body { display: none; } .loop-gates .node-foot { min-height: auto; border-top: 0; }
   details.drawer { margin-top: 22px; border-top: 1px solid #31586c; border-bottom: 1px solid #31586c; background: rgba(3, 14, 27, .66); } summary { padding: 14px 4px; cursor: pointer; color: #c8f5f0; font-weight: 650; } .drawer-body { padding: 4px 4px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 22px; } .drawer-body h3 { margin-bottom: 8px; color: #a1e9e3; } .drawer-body ul { margin: 0; padding-left: 18px; } .drawer-body li { margin: 6px 0; color: #acc2cc; } code { color: #a8fcf0; overflow-wrap: anywhere; font-size: .8rem; }
   .build-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; } .build-link { display: block; padding: 14px; border: 1px solid #315e73; color: inherit; text-decoration: none; background: rgba(4, 18, 32, .65); } .build-link:hover { border-color: #82eade; } .empty-note { padding: 30px 4px; color: #819aa7; }
   @media (max-width: 800px) { .composer { grid-template-columns: 1fr; } .loop-panel { margin-inline: -4px; } .loop-meta, .masthead { align-items: flex-start; flex-direction: column; gap: 8px; } }
@@ -405,7 +479,7 @@ const PAGE = String.raw`<!doctype html>
 </style>
 <body>
   <header class="masthead"><div><h1>Myth Maker / Build Room</h1><p class="muted">Compose a playable encounter from observed pieces.</p></div><span class="quiet">D0 assembly surface</span></header>
-  <form id="submit" class="composer"><label for="prompt">What should this encounter do?<textarea id="prompt" required placeholder="Describe the encounter to assemble…"></textarea></label><div class="form-actions"><label><input id="generate-asset" type="checkbox" checked> Include local render</label><button>Assemble encounter</button></div></form>
+  <form id="submit" class="composer"><label for="prompt">What should this encounter do?<textarea id="prompt" required placeholder="Describe the encounter to assemble…"></textarea></label><div class="form-actions"><label><input id="generate-asset" type="checkbox" checked> Include local render</label><label><input id="high-fanout" type="checkbox"> High-fanout compile</label><label><input id="freeze-current-package" type="checkbox"> Freeze current package</label><button>Assemble encounter</button></div></form>
   <main id="empty">Preparing assembly table…</main>
   <script><!-- client --></script>
 </body>
@@ -431,7 +505,7 @@ const CLIENT_SCRIPT = String.raw`
     event.preventDefault();
     const prompt = document.querySelector("#prompt").value;
     const response = await fetch("/api/encounters", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, generate_asset: document.querySelector("#generate-asset").checked }),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, generate_asset: document.querySelector("#generate-asset").checked, compile_profile: document.querySelector("#high-fanout").checked ? "high_fanout" : "standard", freeze_current_package: document.querySelector("#freeze-current-package").checked }),
     });
     const run = await response.json();
     if (!response.ok) return alert(run.error);
@@ -462,12 +536,17 @@ const CLIENT_SCRIPT = String.raw`
     const reported = run && run.topology.work_graph.some((entry) => entry.lane === lane);
     return "<span class=\"quiet-lane\">" + esc(label) + " · " + (reported ? "reported" : "no lane receipt") + "</span>";
   }
+  function laneCards(run) {
+    if (!run || !run.topology.work_graph.length) return "<span class=\"quiet-lane\">No lane receipts yet.</span>";
+    return run.topology.work_graph.map((work) => "<article class=\"lane-card\"><strong>" + esc(work.lane) + " · " + esc(work.status) + "</strong><code>Component: " + esc(work.component) + "</code><code>Worker: " + esc(work.worker_id) + "</code></article>").join("");
+  }
   function assembly(run) {
     const artifacts = bodyRevisions(run);
     const body = latestRevision(artifacts);
     const revisionOne = artifacts.find((artifact) => artifact.revision === 1) || body;
     const revisionTwo = artifacts.find((artifact) => artifact.revision === 2);
     const packageRevision = run && latestRevision(run.packages);
+    const packageFrozen = packageRevision && packageRevision.state === "frozen";
     const latestRevisionNumber = body && body.revision;
     const hasRevisionTwo = Boolean(revisionTwo || latestRevisionNumber >= 2);
     const allWorkComplete = run && run.topology.work_graph.length > 0 && run.topology.work_graph.every((work) => work.status === "completed");
@@ -484,21 +563,22 @@ const CLIENT_SCRIPT = String.raw`
       loopNode("Immutable catalog" + (revisionOne ? " · r" + revisionOne.revision : ""), catalogStatus, revisionOne ? "<span class=\"glyph\" aria-hidden=\"true\">◆</span>" : "<span>no asset receipt</span>", revisionOne ? "asset revision recorded" : "awaiting artifact", Boolean(revisionOne)),
       loopNode(hasRevisionTwo ? "Next revision / Blender · r2" : "Request next revision", revisionStatus, hasRevisionTwo ? "<img src=\"" + esc(revisionTwo.thumbnail_url) + "\" alt=\"Observed local render for body revision 2\">" : "<span>bounded local upgrade</span>", hasRevisionTwo ? "Blender revision observed" : run && run.upgrade?.active ? "worker running" : "ready after package r1", hasRevisionTwo || Boolean(run && run.upgrade?.active)),
       loopNode("Catalog asset" + (revisionTwo ? " · r" + revisionTwo.revision : " · r2"), revisionTwo ? "completed" : "pending", revisionTwo ? "<span class=\"glyph\" aria-hidden=\"true\">◆</span>" : "<span>awaiting revision 2</span>", revisionTwo ? "immutable revision" : "no asset receipt", hasRevisionTwo),
-      loopNode("Package assembler" + (packageRevision ? " · r" + packageRevision.revision : ""), packageStatus, packageRevision ? "<span class=\"glyph\" aria-hidden=\"true\">✦</span>" : "<span>no package receipt</span>", packageRevision ? "local package selected" : "awaiting compatible candidate", Boolean(packageRevision)),
+      loopNode("Package assembler" + (packageRevision ? " · r" + packageRevision.revision : ""), packageStatus, packageRevision ? "<span class=\"glyph\" aria-hidden=\"true\">✦</span>" : "<span>no package receipt</span>", packageRevision ? packageFrozen ? "local package frozen" : "local package selected" : "awaiting compatible candidate", Boolean(packageRevision)),
       loopNode("Unity judge", unityStatus, "<span>no host receipt</span>", unityReceipt ? "host acceptance not observed" : "no package receipt", false),
     ];
     const flow = nodes.map((node, index) => (index ? edge() : "") + node).join("");
     const conceptGate = loopNode("Concept-first gate", "pending", "", "runtime enforcement pending", false);
     const caption = run ? "Current path is highlighted; node state comes from this build's local events and receipts." : "Submit a build to project its real local worker and revision receipts.";
-    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + quietLane(run, "Material", "material") + quietLane(run, "Arena", "arena") + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
+    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + quietLane(run, "Material", "material") + quietLane(run, "Arena", "arena") + "</div><div class=\"lane-grid\" aria-label=\"Lane and component status\">" + laneCards(run) + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
   }
   function eventRows(events) { return events.map((entry) => "<li><strong>" + esc(entry.kind) + "</strong> · " + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "<br>" + esc(entry.message) + "</li>").join(""); }
-  function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + "<br>worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
+  function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + "<br>Component <code>" + esc(item.component) + "</code>; worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
   function artifactRows(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> · rev " + esc(row.revision) + "<br>" + json(row) + "</li>").join("") + "</ul>" : "<p class=\"muted\">None observed.</p>"; }
   function steerRows(rows) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row.steer_id) + "</code> · " + esc(row.status) + "</li>").join("") + "</ul>" : "<p class=\"muted\">No steering receipts.</p>"; }
   function catalogRows(catalog) { return "<ul>" + Object.entries(catalog).map(([name, row]) => "<li>" + esc(name.replaceAll("_", " ")) + ": " + esc(row.count) + " · " + esc(row.evidence) + "</li>").join("") + "</ul>"; }
+  function outcomeRows(run) { const current = latestRevision(run.packages); const outcomes = current && current.outcomes; if (!outcomes) return "<p class=\"muted\">No package outcome yet.</p>"; return "<ul><li><strong>Selected</strong>: " + outcomes.selected.map(esc).join(", ") + "</li><li><strong>Rejected</strong>: " + (outcomes.rejected.length ? outcomes.rejected.map((row) => esc(row.module_id) + " (" + row.reasons.map(esc).join(", ") + ")").join(", ") : "none") + "</li><li><strong>Fallback</strong>: " + (outcomes.fallback.used_fallback ? esc(outcomes.fallback.module_ids.join(", ")) : "not used") + "</li></ul>"; }
   function details(run) {
-    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package, fallback, and rejections</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section><section><h3>Steer this build</h3><form id=\"steer\"><label for=\"steer-instruction\">Instruction<textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea></label><button>Queue steer</button></form>" + steerRows(run.steering) + "</section></div></details>";
+    return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li><li>profile <code>" + esc(run.compile_profile) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package outcomes</h3>" + outcomeRows(run) + "<h3>Package receipt</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section><section><h3>Steer this build</h3><form id=\"steer\"><label for=\"steer-instruction\">Instruction<textarea id=\"steer-instruction\" required placeholder=\"Optional steering instruction…\"></textarea></label><button>Queue steer</button></form>" + steerRows(run.steering) + "</section></div></details>";
   }
   function buildCard(build) { return "<a class=\"build-link\" href=\"" + esc(build.navigation_url) + "\"><strong>" + esc(build.terminal ? "Completed assembly" : "Active assembly") + "</strong><br><span class=\"quiet\">" + esc(build.encounter_id) + "</span></a>"; }
   function renderDashboard(index) {
@@ -507,14 +587,20 @@ const CLIENT_SCRIPT = String.raw`
   }
   async function submitSteer(event) { event.preventDefault(); const instruction = document.querySelector("#steer-instruction").value; const response = await fetch("/api/builds/" + encodeURIComponent(activeRequest) + "/steer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction }) }); if (!response.ok) alert((await response.json()).error); }
   async function requestUpgrade() { const button = document.querySelector("#upgrade"); button.disabled = true; const response = await fetch("/api/encounters/" + encodeURIComponent(active) + "/upgrades", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }); const result = await response.json(); if (!response.ok) { button.disabled = false; return alert(result.error); } render(result); }
+  async function requestFreeze() { const button = document.querySelector("#freeze"); button.disabled = true; const response = await fetch("/api/encounters/" + encodeURIComponent(active) + "/freeze", { method: "POST" }); const result = await response.json(); if (!response.ok) { button.disabled = false; return alert(result.error); } render(result); }
   function render(run) {
     main.innerHTML = assembly(run) + details(run);
     const inspector = main.querySelector(".drawer .drawer-body");
     const upgrade = document.createElement("section");
     upgrade.innerHTML = "<h3>Request next revision</h3><p class=\"muted\">Creates one bounded local revision; earlier source, render, GLB, and package receipts remain inspectable above.</p><button id=\"upgrade\" " + (!run.generate_asset || run.upgrade?.active ? "disabled" : "") + ">Request next revision</button>";
     inspector.append(upgrade);
+    const currentPackage = latestRevision(run.packages);
+    const freeze = document.createElement("section");
+    freeze.innerHTML = "<h3>Freeze current package</h3><p class=\"muted\">Creates an immutable local package snapshot from the current selected package; it is not host-game acceptance.</p><button id=\"freeze\" " + (!currentPackage || currentPackage.state === "frozen" ? "disabled" : "") + ">Freeze current package</button>";
+    inspector.append(freeze);
     document.querySelector("#steer").addEventListener("submit", submitSteer);
     document.querySelector("#upgrade").addEventListener("click", requestUpgrade);
+    document.querySelector("#freeze").addEventListener("click", requestFreeze);
   }
 
   function watch(encounterId) {

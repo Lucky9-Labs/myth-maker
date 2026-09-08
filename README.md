@@ -208,6 +208,16 @@ For one complete, local-only generated-asset receipt, run:
 npm run demo:local-blender
 ```
 
+For a local high-fanout planner/dispatcher receipt with generic body, material,
+arena, combat, animation, and presentation lanes, run:
+
+```sh
+npm run demo:build-room-stress -- --output evidence/build-room-kraken-high-fanout-stress.json
+```
+
+See [`docs/build-room-high-fanout-stress.md`](docs/build-room-high-fanout-stress.md)
+for the D0 step 9, C3, and C4 mapping and the explicit evidence boundary.
+
 That command submits a bounded Build Room request and uses the installed local
 Blender CLI to create one simple appendage demo blueprint from a deterministic
 seed. It persists a content-addressed `.blend` checkpoint, checked `glb.v1`
