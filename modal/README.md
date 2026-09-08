@@ -150,3 +150,17 @@ authenticated maintainer profile because Modal's CLI cannot mint a scoped token
 without a browser session. Rotate both GitHub Modal secrets to a dedicated
 least-privilege CI token as soon as one is created; do not use local worker
 credentials for ordinary dispatches.
+
+### Roadmap assessment
+
+This activation proves one observed Modal function call and terminal generic
+work-order receipt only. It does **not** complete C3: Build Room does not yet
+show this remote worker beside a current package, steer its next priority, or
+freeze a package from this receipt. It does **not** complete C4: this bounded
+probe is not a real body-lane draft and does not demonstrate two independent
+lanes completing in either order with absence-tolerant assembly. It does
+**not** complete D0: it produces no request-scoped Blender artifact, strict GLB
+validation, immutable catalog revision, assembly receipt, or player-facing
+package. Build Room may label an event `modal_remote` only after its
+authenticated observer validates this provider receipt; this CI activation does
+not inject one into Build Room.

@@ -163,14 +163,14 @@ test("Modal receipts accept only parsed deployment and healthy resource evidence
     deployment_id: "depl-123",
     version_id: "ver-123",
     resource_ids: ["volume-123", "dict-123"],
-    health: { status: "healthy" },
-    dispatch: { status: "completed", function_call_id: "fc-123", function_id: "fu-123" },
+    health: { status: "healthy", dedicated_secret_verified: true, verified_secret_name: "myth-maker-encounter-openai" },
+    dispatch: { status: "completed", function_call_id: "fc-123", function_id: "fu-123", input_id: "in-123", worker_id: "in-123" },
   })), {
     deployment_id: "depl-123",
     version_id: "ver-123",
     resource_ids: ["volume-123", "dict-123"],
-    health: { status: "healthy" },
-    dispatch: { status: "completed", function_call_id: "fc-123", function_id: "fu-123" },
+    health: { status: "healthy", dedicated_secret_verified: true, verified_secret_name: "myth-maker-encounter-openai" },
+    dispatch: { status: "completed", function_call_id: "fc-123", function_id: "fu-123", input_id: "in-123", worker_id: "in-123" },
   });
   for (const output of ["not-json", JSON.stringify({ deployment_id: "depl-123" }), JSON.stringify({
     deployment_id: "depl-123", version_id: "ver-123", resource_ids: [], health: { status: "unhealthy" },
@@ -238,7 +238,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
     { encoding: "utf8" },
   ));
-  assert.match(deploy.jobs["release-readiness"].steps[0].uses, /^actions\/checkout@/);
+  assert.match(deploy.jobs["write-unavailable-provider-receipts"].steps[0].uses, /^actions\/checkout@/);
   for (const job of [
     "terraform-foundation-preview",
     "cloudflare-preview",

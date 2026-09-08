@@ -147,8 +147,12 @@ export function parseModalDeploymentEvidence(output) {
     || typeof versionId !== "string" || !versionId
     || !Array.isArray(resourceIds) || resourceIds.length === 0 || resourceIds.some((value) => typeof value !== "string" || !value)
     || health?.status !== "healthy"
+    || health?.dedicated_secret_verified !== true
+    || typeof health?.verified_secret_name !== "string" || !health.verified_secret_name
     || typeof dispatch?.function_call_id !== "string" || !dispatch.function_call_id
     || typeof dispatch?.function_id !== "string" || !dispatch.function_id
+    || typeof dispatch?.input_id !== "string" || !dispatch.input_id
+    || typeof dispatch?.worker_id !== "string" || !dispatch.worker_id
     || dispatch?.status !== "completed"
   ) {
     throw new Error("Modal deployment evidence requires deployment_id, version_id, resource_ids, healthy status, and a completed remote dispatch receipt");

@@ -117,7 +117,14 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
         "deployment_id": app["App ID"],
         "version_id": history[0]["Version"],
         "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id],
-        "health": {"status": "healthy", "environment": environment, "app_id": app["App ID"], "run_draft_function_id": draft.object_id, "verified_secret_name": SECRET_NAME},
+        "health": {
+            "status": "healthy",
+            "environment": environment,
+            "app_id": app["App ID"],
+            "run_draft_function_id": draft.object_id,
+            "verified_secret_name": SECRET_NAME,
+            "dedicated_secret_verified": True,
+        },
         "dispatch": dispatch,
     }
 
