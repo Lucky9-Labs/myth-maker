@@ -1,0 +1,19 @@
+{
+  "name": "myth-maker-encounter-runtime",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-08",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ENCOUNTER_COORDINATOR",
+        "class_name": "EncounterCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EncounterCoordinator"]
+    }
+  ]
+}

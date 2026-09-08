@@ -1,0 +1,8 @@
+{
+  "name": "myth-maker-encounter-runtime",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:cloudflare": "node --test tests/test_cloudflare_worker.mjs"
+  }
+}
