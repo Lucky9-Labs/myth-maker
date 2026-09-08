@@ -95,12 +95,27 @@ variable "work_dispatch_token" {
   sensitive   = true
 }
 
-variable "steering_worker_token" {
-  description = "Coordinator/worker authentication token for steering commands and receipt reports. Never commit this value."
+variable "steering_command_token" {
+  description = "Coordinator-to-steering-worker command credential. Never reuse it as a reporting credential."
   type        = string
   default     = null
   nullable    = true
   sensitive   = true
+}
+
+variable "steering_report_token" {
+  description = "Steering-worker-to-coordinator receipt credential. Never reuse it as a command credential."
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+}
+
+variable "steering_worker_owner_id" {
+  description = "Stable single-owner V0 identifier for the provisioned steering-worker service."
+  type        = string
+  default     = null
+  nullable    = true
 }
 
 variable "release_revision" {

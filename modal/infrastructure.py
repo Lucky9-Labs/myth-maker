@@ -52,7 +52,9 @@ def application_contract(environment: str = "dev") -> dict:
             "required_secret_names": [
                 "AGENT_INGRESS_TOKEN",
                 "WORK_DISPATCH_TOKEN",
-                "STEERING_WORKER_TOKEN",
+                "STEERING_COMMAND_TOKEN",
+                "STEERING_REPORT_TOKEN",
+                "STEERING_WORKER_OWNER_ID",
             ],
             "required_plain_configuration": [
                 "WORK_DISPATCH_URL",

@@ -23,15 +23,20 @@ receipt persists a client steering ID, input SHA-256, bounded user input,
 request time, lifecycle status, and successor response ID. The receipt's event
 list is suitable for a build-room timeline.
 
-`ResponsesSteeringWorker` owns the upgraded Responses connection in the worker
-process. It reports an attempt and lifecycle receipts through the dedicated
-worker token; the coordinator never accepts a socket or treats an ingress token
-as worker identity. `SteeringWorkerAdapter` carries a queued user command to
-that owner. The lane is never sent over HTTP.
+`src/responses-steering-worker-main.js` is the deployable Node worker entrypoint.
+That process opens and owns each Responses socket, persists its lane state and
+required-input results in `JsonSteeringStore`, and reports lifecycle receipts to
+the coordinator. The coordinator never accepts a socket. `STEERING_COMMAND_TOKEN`
+is only for coordinator-to-worker commands; `STEERING_REPORT_TOKEN` is only for
+worker-to-coordinator reports. `STEERING_WORKER_OWNER_ID` pins this V0 to one
+configured worker owner: the authenticated report header, attempt, receipt, and
+command must all name that exact owner. The lane is never sent over HTTP.
 
 The beta event correlation is nested under `event.steer`: its server steering
-ID, parent response ID, and lane identify a receipt. `accepted` and `pending`
-are non-commit states; an explicit server `failed` is terminal. A dropped
+ID, parent response ID, and lane identify a receipt. A lifecycle event without
+that complete correlation is ignored, and generic response errors are never
+attributed to a steer. `accepted` and `pending` are non-commit states; an
+explicit server `failed` (whose code is `event.error.code`) is terminal. A dropped
 connection remains `pending` with reconciliation metadata—never replayed—until
 the worker can report a definitive server outcome.
 
@@ -50,10 +55,13 @@ content. The active lane writes exactly this beta frame:
 means the request is server-owned, not applied. It becomes `committed` only on
 the automatic successor `response.created` whose `previous_response_id` matches
 the receipt. An incomplete response whose reason is `steered` remains `pending`.
-Required-input stubs become `required_input`; the worker resolves them from its
-saved results and sends exactly one explicit `response.create` continuation per
-parent, without rerunning a tool or resending the steer. A completed response
-uses the same explicit `response.create` continuation path.
+`response.steer.pending` may carry its root `reason` and `required_input`
+stubs. Those stubs become `required_input`; the worker accepts only saved
+`function_call_output` values with the exact `call_id`, or `approval_response`
+values with the exact `approval_request_id`. It sends exactly one explicit
+`response.create` continuation per parent, without rerunning a tool or
+resending the steer. A completed response uses the same explicit continuation
+path.
 
 Multi-agent, conversation, automatic-compaction, and unsupported-model
 attempts return an `unsupported` receipt without writing to a lane.
@@ -72,5 +80,6 @@ artifact.
   provides current user input examples for image and file analysis.
 
 The beta `response.steer` frame is isolated in `ResponsesSteeringGateway` and
-is covered by a fake WebSocket lane. This repository makes no live API call or
-claim of account-level beta availability.
+is covered by a fake WebSocket lane plus a restartable worker-process store.
+This repository makes no live API call or claim of account-level beta
+availability.
