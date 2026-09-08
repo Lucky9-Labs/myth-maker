@@ -46,3 +46,28 @@ test("all relative schema references resolve to a published v1 schema", async ()
     }
   }
 });
+
+test("v2 composition contracts are closed, versioned, and internally resolvable", async () => {
+  const directory = path.join(here, "..", "contracts", "v2");
+  const files = (await readdir(directory)).filter((file) => file.endsWith(".schema.json"));
+  assert.ok(files.length >= 5);
+  const known = new Set(files);
+  for (const file of files) {
+    const schema = JSON.parse(await readFile(path.join(directory, file), "utf8"));
+    assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
+    assert.match(schema.$id, /^https:\/\/myth-maker\.dev\/contracts\/v2\//);
+    if (schema.type === "object") {
+      assert.equal(schema.additionalProperties, false, `${file} must reject undeclared top-level fields`);
+      assert.equal(schema.properties.schema_version.const, "2");
+    }
+    const pending = [schema];
+    while (pending.length) {
+      const value = pending.pop();
+      if (!value || typeof value !== "object") continue;
+      if (typeof value.$ref === "string" && !value.$ref.startsWith("#")) {
+        assert.ok(known.has(value.$ref.split("#")[0]), `${file} references a missing v2 schema`);
+      }
+      pending.push(...Object.values(value));
+    }
+  }
+});

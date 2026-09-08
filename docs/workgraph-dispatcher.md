@@ -34,6 +34,13 @@ per-worker order, but deliberately does **not** enforce `resource_leases`.
 Coordinator PR #6 owns lease admission before it delivers a work order; do not
 expose this adapter directly to uncoordinated lease-bearing work.
 
+The v2 `CompositionSwarmCoordinator` is the first consumer that performs this
+admission: it checks worker capabilities/ownership, revision dependencies, and
+ordered resource claims before projecting work into this v1 dispatcher. A
+terminal dispatcher receipt is deliberately not an accepted composition result;
+v2 requires separately recorded validation evidence before it releases a
+dependent work item.
+
 Run the offline concurrency proof:
 
 ```sh

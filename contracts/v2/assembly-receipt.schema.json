@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v2/assembly-receipt.schema.json",
+  "title": "AssemblyReceipt",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "receipt_id", "revision", "assembled_at", "selected_modules", "rejected_conflicts", "validation_evidence", "fallback_provenance", "source_package_sha256", "geometric_stitching", "receipt_sha256"],
+  "properties": { "schema_version": { "const": "2" }, "receipt_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "assembled_at": { "type": "string", "format": "date-time" }, "selected_modules": { "type": "array", "minItems": 1, "items": { "type": "object" } }, "rejected_conflicts": { "type": "array" }, "validation_evidence": { "type": "array", "items": { "type": "string" } }, "fallback_provenance": { "type": "object" }, "source_package_sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "geometric_stitching": { "type": "object" }, "receipt_sha256": { "$ref": "common.schema.json#/$defs/sha256" } }
+}

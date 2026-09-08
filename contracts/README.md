@@ -35,3 +35,14 @@ These schemas intentionally do not standardize the internal Unity command API,
 artifact file formats, scoring algorithm, or coordinator persistence layout.
 Those interfaces remain ambiguous until their implementation spikes establish
 what the target player and generation services can actually support.
+
+## Composition v2
+
+`v2/` adds the closed, generic composition coordination contract while keeping
+the stable v1 dispatcher and package interfaces intact. It names immutable
+module content hashes and exact revision references; capability/ownership-aware
+work items with ordered resource claims; and a receipt/projection for the
+current coherent whole. See
+[`docs/composition-swarm-coordinator.md`](../docs/composition-swarm-coordinator.md)
+for the explicit implementation boundary, including the machine-visible
+unimplemented geometric-stitching limitation.

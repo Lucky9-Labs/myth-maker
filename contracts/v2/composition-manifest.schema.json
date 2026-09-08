@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v2/composition-manifest.schema.json",
+  "title": "CompositionManifest",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "manifest_id", "composition_id", "host_capabilities", "baseline_modules", "upgrade_candidates", "module_graph", "required_provides", "geometric_stitching"],
+  "properties": {
+    "schema_version": { "const": "2" }, "manifest_id": { "$ref": "common.schema.json#/$defs/id" }, "composition_id": { "$ref": "common.schema.json#/$defs/id" }, "host_capabilities": { "type": "object" },
+    "baseline_modules": { "type": "array", "minItems": 1, "items": { "$ref": "composition-module.schema.json" } }, "upgrade_candidates": { "type": "array", "items": { "$ref": "composition-module.schema.json" } },
+    "module_graph": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["module_ref", "depends_on"], "properties": { "module_ref": { "$ref": "common.schema.json#/$defs/moduleRef" }, "depends_on": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/moduleRef" } } } } },
+    "required_provides": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/tag" } },
+    "geometric_stitching": { "type": "object", "additionalProperties": false, "required": ["state", "reason"], "properties": { "state": { "enum": ["implemented", "unimplemented"] }, "reason": { "type": "string" } } }
+  }
+}
