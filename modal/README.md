@@ -101,3 +101,19 @@ does not emit `candidate_produced` or invent an `EncounterModule`. A reviewed
 importer must transform the source into a host-loadable module before emitting
 that candidate event. This is an additive contract gap for a later sidecar or
 v2, not a reason to modify the published v1 schemas here.
+
+## Dispatcher Modal backend (preflight only by default)
+
+`modal_dispatch_backend.py` is the opt-in bridge from a dispatcher receipt to
+the existing `draft_trial.run_draft.remote` entrypoint. `preflight(work_order)`
+is local-only: it validates the existing five-file input package and prints the
+stable `work_id`-derived `part` and `draft-gui-<work_id>-a<attempt>` job ID. It
+does not import Modal, inspect credentials, create resources, launch a
+container, or make a paid/cloud call.
+
+`run(work_order)` resolves the existing Modal remote function only when the
+backend's deployed `cloud_execution_enabled` policy is true. This is a service
+configuration decision, not a per-call human approval gate. Tests and local
+workgraphs keep it false. Runtime credentials, spend limits, volume access, and
+GUI-output review remain separate operational checks; the local example is not
+evidence that Modal is deployable or that a Blender candidate is accepted.

@@ -5,6 +5,7 @@
   "scripts": {
     "example:assembler": "node examples/assemble-encounter-package.mjs",
     "example:catalog": "node examples/catalog-v0.mjs",
+    "example:workgraph": "node examples/run-workgraph.mjs",
     "test": "node --test tests/*.mjs && python3 -m unittest tests/test_*.py",
     "test:cloudflare": "node --test tests/test_cloudflare_worker.mjs",
     "test:contracts": "node --test tests/test_contracts.mjs",
