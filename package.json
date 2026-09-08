@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "example:assembler": "node examples/assemble-encounter-package.mjs",
     "test": "node --test tests/*.mjs",
     "test:cloudflare": "node --test tests/test_cloudflare_worker.mjs",
     "test:contracts": "node --test tests/test_contracts.mjs"
