@@ -54,6 +54,19 @@ or simulated fixture cannot substitute for any link in the chain. The render
 and selected package must be tied to the same request, catalog revision, and
 assembly receipt by stable IDs and hashes.
 
+### Current first ladder-stage status
+
+The local Blender/Build Room slice now produces one simple appendage demo
+blueprint with a real embedded GLB sway clip. Its selected package contains
+generic `encounter.body` and `encounter.animation` modules bound to the same
+checked runtime hash; SQLite appends immutable revisions for both domains and
+preserves exact parent hashes and prior package fallback history. The second
+revision stays in this first stage by changing only the one appendage's recovery
+arc and clip duration. A time-bounded maintenance waiver is recorded because
+concept-first runtime enforcement has not landed. These are local Blender CLI
+and automated GLB-structure receipts only—not host runtime loading, player
+combat, or proof that the gate is enforced.
+
 ### Concept-first asset-production gate
 
 Every new production dispatch for every asset type—model, material/texture,

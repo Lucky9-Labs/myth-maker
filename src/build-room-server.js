@@ -128,10 +128,14 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
   const bodyOrder = graph.work_orders.find((order) => order.lane === "body-source");
   const manifest = run.generate_asset ? blenderBackend.resultFor(bodyOrder.work_id) : undefined;
   const candidate = manifest ? ingestGlbRuntimeCandidate({ module: manifest.module, loaderProfile: manifest.loader_profile }) : undefined;
+  const animationCandidate = manifest ? bindEmbeddedAnimationCandidate(manifest, candidate) : undefined;
   if (manifest) {
     const priorAsset = catalog.getAsset(manifest.asset_id);
     if (priorAsset) catalog.appendAssetRevision(catalogAsset(manifest, priorAsset));
     else catalog.createAsset(catalogAsset(manifest));
+    const priorAnimation = catalog.getAnimation(manifest.animation.animation_id);
+    if (priorAnimation) catalog.appendAnimationRevision(catalogAnimation(manifest, priorAnimation));
+    else catalog.createAnimation(catalogAnimation(manifest));
   }
   for (const order of graph.work_orders) {
     for (const event of result.events.filter((candidate) => candidate.work_id === order.work_id)) {
@@ -142,7 +146,7 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
         ...(isBlender && manifest && event.kind === "candidate_produced" ? { artifact: artifactRevision(manifest, artifactUrl(artifactRoot, manifest.visual.path)) } : {}),
         evidence: isBlender
           ? manifest
-            ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, source_inspection: manifest.source_inspection, manifest_path: manifest.manifest_path } }
+            ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, source_inspection: manifest.source_inspection, embedded_animation: manifest.animation.embedded_glb, concept_first_lineage: manifest.concept_first_lineage, manifest_path: manifest.manifest_path } }
             : { kind: "local_blender_cli_failed", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, failure: event.message, note: "Local Blender CLI failed; assembler retained the baseline fallback." } }
           : { kind: "local_process", receipt: { work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at } },
       });
@@ -164,14 +168,14 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
     host: spec.host_capabilities,
     encounterId: run.ids.encounterId,
     packageId,
-    baselineModules: [baselineModule(run.ids.encounterId)],
-    candidateModules: candidate ? [candidate.module] : [],
+    baselineModules: baselineModules(run.ids.encounterId),
+    candidateModules: candidate && animationCandidate ? [candidate.module, animationCandidate.module] : [],
     previousPackage: priorPackage,
     assembledAt: new Date().toISOString(),
   });
   room.record(run.ids.encounterId, {
     workerId: "local-assembler", sequence: 0, kind: "completed", occurredAt: new Date().toISOString(),
-    message: candidate ? `Local assembler re-evaluated encounter package revision ${packageResult.package.revision} and selected the checked local Blender runtime candidate; host-game acceptance remains absent.` : "Local assembler preserved the compatible baseline fallback after terminal worker receipts.",
+    message: candidate && animationCandidate ? `Local assembler re-evaluated encounter package revision ${packageResult.package.revision} and selected checked local Blender body and embedded-animation candidates; host-game acceptance remains absent.` : "Local assembler preserved the compatible baseline fallback after terminal worker receipts.",
     package: {
       package_id: packageResult.package.package_id,
       revision: packageResult.package.revision,
@@ -208,6 +212,11 @@ function assemblyReceipt(packageRecord, manifest, previousPackage = undefined) {
       module_id: manifest.module.module_id,
       revision: manifest.module.revision,
       artifact_sha256: manifest.runtime.sha256,
+    }, {
+      module_id: manifest.animation.module.module_id,
+      revision: manifest.animation.module.revision,
+      artifact_sha256: manifest.animation.module.artifact.sha256,
+      binding: manifest.animation.rig_binding,
     }] : packageRecord.module_ids.map((module_id) => ({ module_id, revision: 1, artifact_sha256: null })),
     fallback_provenance: packageRecord.fallback_provenance,
     validation: manifest ? [{
@@ -215,7 +224,17 @@ function assemblyReceipt(packageRecord, manifest, previousPackage = undefined) {
       status: "passed",
       artifact_sha256: manifest.runtime.sha256,
       evidence_scope: "local_blender_cli_only",
+    }, {
+      kind: "embedded-glb-animation",
+      status: manifest.animation.embedded_glb.status,
+      artifact_sha256: manifest.animation.module.artifact.sha256,
+      evidence_scope: "local_blender_cli_only",
+      target_channel_count: manifest.animation.embedded_glb.target_channel_count,
     }] : [{ kind: "baseline-contract", status: "passed", artifact_sha256: null, evidence_scope: "local_process_only" }],
+    concept_first_lineage: manifest ? {
+      enforcement: "bootstrap-waiver-not-runtime-enforced",
+      lineage: manifest.concept_first_lineage,
+    } : undefined,
     host_acceptance: "not_observed",
     ...(previousPackage ? { preserved_fallback_history: { package_revision: previousPackage.revision, package_manifest_sha256: previousPackage.manifest_sha256 } } : {}),
   };
@@ -231,7 +250,24 @@ function catalogAsset(manifest, prior = undefined) {
     runtimeArtifact: { uri: manifest.runtime.uri, sha256: manifest.runtime.sha256, mediaType: manifest.runtime.media_type, byteLength: manifest.runtime.byte_length },
     visualArtifact: { uri: `sha256:${manifest.visual.sha256}`, sha256: manifest.visual.sha256, mediaType: manifest.visual.media_type, byteLength: manifest.visual.byte_length },
     sourceAcceptanceState: "accepted", runtimeAcceptanceState: "candidate",
+    conceptFirstLineage: manifest.concept_first_lineage,
     provenance: { producer: "local-blender-cli", createdAt: manifest.created_at, label: "newly-produced-local-blender", ...(prior ? { parentRefs: [{ domain: "asset", stableId: prior.assetId, revision: prior.revision, contentSha256: prior.contentSha256 }] } : {}) },
+  };
+}
+
+function catalogAnimation(manifest, prior = undefined) {
+  const animation = manifest.animation;
+  return {
+    animationId: animation.animation_id, revision: prior ? prior.revision : 1, createdAt: manifest.created_at,
+    kind: animation.kind, durationMs: animation.duration_ms,
+    functionalTags: ["animation.generated", "animation.embedded-glb", "body.generated"], aestheticTags: ["aesthetic.ocean.demo"],
+    compatibility: { platforms: ["local"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], bindingIds: [animation.rig_binding.rig_binding_id] },
+    rigBinding: { rigBindingId: animation.rig_binding.rig_binding_id, modelBindingId: animation.rig_binding.model_binding_id },
+    sourceReceipt: { receiptId: `${manifest.work_id}-animation-source-${manifest.source.artifact.sha256.slice(0, 16)}`, uri: manifest.source.artifact.uri, sha256: manifest.source.artifact.sha256, receivedAt: manifest.created_at },
+    runtimeArtifact: { uri: manifest.runtime.uri, sha256: manifest.runtime.sha256, mediaType: manifest.runtime.media_type, byteLength: manifest.runtime.byte_length },
+    sourceAcceptanceState: "accepted", runtimeAcceptanceState: "candidate",
+    conceptFirstLineage: manifest.concept_first_lineage,
+    provenance: { producer: "local-blender-animation-export", createdAt: manifest.created_at, label: "embedded-glb-animation", ...(prior ? { parentRefs: [{ domain: "animation", stableId: prior.animationId, revision: prior.revision, contentSha256: prior.contentSha256 }] } : {}) },
   };
 }
 
@@ -250,11 +286,25 @@ function recordLocalFailure(room, run, error, persist, revision = undefined) {
 }
 
 function localSpec(encounterId, seed = 1, attempt = 1) {
-  return { schema_version: "1", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
+  return { schema_version: "1", encounter_id: encounterId, seed, attempt, deadline_at: "2026-12-31T00:00:00Z", host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"] };
 }
 
-function baselineModule(encounterId) {
-  return { schema_version: "1", module_id: `baseline-${encounterId.slice(-24)}`, revision: 1, execution_kind: "recipe", provides: ["encounter.body"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "known-playable-baseline" }, fallback_module_ids: [] };
+function baselineModules(encounterId) {
+  return [
+    { schema_version: "1", module_id: `baseline-${encounterId.slice(-24)}`, revision: 1, execution_kind: "recipe", provides: ["encounter.body"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "known-playable-baseline" }, fallback_module_ids: [] },
+    { schema_version: "1", module_id: `baseline-animation-${encounterId.slice(-14)}`, revision: 1, execution_kind: "recipe", provides: ["encounter.animation"], requires: [], conflicts: [], compatibility: { host_contract_version: "1" }, quality: { tier: 0, score: 1 }, inline_recipe: { kind: "known-playable-animation-baseline" }, fallback_module_ids: [] },
+  ];
+}
+
+function bindEmbeddedAnimationCandidate(manifest, bodyCandidate) {
+  const animation = manifest?.animation;
+  if (!animation?.module || !bodyCandidate?.module || animation.module.execution_kind !== "runtime_asset"
+    || animation.module.artifact?.sha256 !== bodyCandidate.module.artifact?.sha256
+    || animation.module.compatibility?.bindings?.[animation.rig_binding?.rig_binding_id] !== bodyCandidate.module.module_id
+    || animation.embedded_glb?.status !== "passed" || animation.embedded_glb?.target_channel_count < 1) {
+    throw new TypeError("embedded animation candidate is not bound to the checked body runtime artifact");
+  }
+  return { module: structuredClone(animation.module), binding: structuredClone(animation.rig_binding) };
 }
 
 function generatedArtifact(response, root, encodedRelativePath) {

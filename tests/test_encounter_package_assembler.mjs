@@ -91,6 +91,29 @@ test("replaces a baseline provider with a higher-ranked candidate for the same c
   assert.deepEqual(result.package.fallback_provenance, { used_fallback: false, module_ids: [] });
 });
 
+test("selects a runtime animation only when its declared body binding is host-compatible", () => {
+  const bindingHost = { ...host, loaders: [...host.loaders, "animation.binding.encounter-body.v1"] };
+  const baselineBody = recipe("baseline-body", { provides: ["encounter.body"] });
+  const baselineAnimation = recipe("baseline-animation", { provides: ["encounter.animation"] });
+  const body = recipe("generated-body", { provides: ["encounter.body"], quality: { tier: 0, score: 2 } });
+  const animation = {
+    ...recipe("generated-animation", {
+      execution_kind: "runtime_asset", provides: ["encounter.animation"], quality: { tier: 0, score: 2 },
+      compatibility: { host_contract_version: "1", bindings: { "animation.binding.encounter-body.v1": "generated-body" } },
+    }),
+    artifact: artifact(),
+    fallback_module_ids: ["baseline-animation"],
+  };
+  const result = assembleEncounterPackage({
+    host: bindingHost, encounterId: "encounter-animation-binding", packageId: "package-animation-binding",
+    baselineModules: [baselineBody, baselineAnimation], candidateModules: [body, animation],
+    assembledAt: "2026-09-08T00:00:00.000Z",
+  });
+
+  assert.deepEqual(result.package.module_ids, ["generated-animation", "generated-body"]);
+  assert.deepEqual(result.rejections, []);
+});
+
 test("chooses one deterministic provider per capability regardless of candidate order", () => {
   const baseline = recipe("baseline-body", { provides: ["body.core"] });
   const winner = recipe("body-winner", { provides: ["body.core"], quality: { tier: 0, score: 5 } });

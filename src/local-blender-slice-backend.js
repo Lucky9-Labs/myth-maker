@@ -78,8 +78,13 @@ function validateManifest(manifest, order, workerId, revision) {
     || manifest.evidence_scope !== "local_blender_cli_only" || manifest.work_id !== order.work_id
     || manifest.encounter_id !== order.encounter_id || manifest.worker_id !== workerId || manifest.revision !== revision
     || !manifest.source?.artifact?.sha256 || !manifest.runtime?.sha256 || !manifest.visual?.sha256
-    || !manifest.module || manifest.module.revision !== revision || !manifest.loader_profile || !manifest.worker_receipt?.commands?.length
-    || (revision >= 2 && (manifest.source_inspection?.body_shape !== "curved-tapered-appendages-v2" || manifest.source_inspection?.appendage_count < 1))) {
+    || !manifest.module || manifest.module.revision !== revision || !manifest.animation?.module
+    || manifest.animation.module.revision !== revision || manifest.animation.module.provides?.join(",") !== "encounter.animation"
+    || manifest.animation.module.artifact?.sha256 !== manifest.runtime.sha256
+    || manifest.animation.embedded_glb?.status !== "passed" || manifest.animation.embedded_glb?.target_channel_count < 1
+    || !manifest.loader_profile || !manifest.worker_receipt?.commands?.length
+    || (manifest.source_inspection?.body_shape !== "single-curved-tapered-appendage-v1"
+      || manifest.source_inspection?.appendage_count !== 1 || manifest.source_inspection?.clips?.length !== 1)) {
     throw new Error("local Blender slice returned an incomplete manifest");
   }
 }
