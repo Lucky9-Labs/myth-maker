@@ -14,6 +14,7 @@ The firm contracts are:
 | `WorkerEvent` | Worker/coordinator boundary | Appends observable lifecycle events and candidate receipts. |
 | `EncounterModule` | Worker/assembler boundary | Describes one composable behavior, asset, or remote-logic contribution. |
 | `PlayableEncounterPackage` | Assembler/host boundary | Names one immutable, compatible module selection that can be preloaded and frozen. |
+| `CatalogSeedManifest` | Host export/import boundary | Declares explicitly selected catalog candidates, provenance, compatibility, and evidence without importing a source tree. |
 
 ## Stability rules
 
@@ -35,3 +36,5 @@ These schemas intentionally do not standardize the internal Unity command API,
 artifact file formats, scoring algorithm, or coordinator persistence layout.
 Those interfaces remain ambiguous until their implementation spikes establish
 what the target player and generation services can actually support.
+
+The catalog seeder is described in [`../docs/catalog-seeder.md`](../docs/catalog-seeder.md).

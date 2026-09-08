@@ -42,3 +42,8 @@ and artifacts demonstrate metadata, revision, query, and evidence behavior;
 they are not Mech-project exports and do not prove a Unity import or host load.
 The fixture's `runtimeAcceptanceState: "accepted"` means accepted by this V0
 catalog fixture only, not player-facing host validation.
+
+For the generic, explicit-input bootstrap seam that adds ownership notes,
+source/runtime format state, rig metadata, and evidence tiers, see
+[`catalog-seeder.md`](catalog-seeder.md). It does not ingest a checkout or
+upgrade candidate metadata to host/player acceptance.

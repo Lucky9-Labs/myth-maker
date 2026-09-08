@@ -37,8 +37,19 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     appendAssetRevision(record) {
       return transaction(() => appendRevision("asset_revisions", "asset_id", "assetId", "asset", normalizeAsset(record), insertAsset));
     },
+    /**
+     * Creates the first immutable catalog revision or appends the next one.
+     * This is deliberately separate from appendAssetRevision(): importers may
+     * create a stable ID exactly once but still cannot overwrite it.
+     */
+    seedAssetRevision(record) {
+      return transaction(() => seedRevision("asset_revisions", "asset_id", "assetId", "asset", normalizeAsset(record), insertAsset));
+    },
     appendAnimationRevision(record) {
       return transaction(() => appendRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation));
+    },
+    seedAnimationRevision(record) {
+      return transaction(() => seedRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation));
     },
     getSemanticEntity(entityId, revision = undefined) {
       return getRecord("semantic_entity_revisions", "entity_id", "entityId", entityId, revision);
@@ -97,6 +108,35 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
         animation_revisions: count("animation_revisions"),
       };
     },
+    /** A metadata-only build-room projection; it never invents thumbnails. */
+    buildRoomInventoryProjection() {
+      const records = [
+        ...latestRecords("asset_revisions", "asset_id", "assetId").map((record) => ({ ...record, domain: "asset" })),
+        ...latestRecords("animation_revisions", "animation_id", "animationId").map((record) => ({ ...record, domain: "animation" })),
+      ].filter((record) => record.seedMetadata);
+      const summary = {
+        ...catalog.projectionSummary(),
+        seeded_entries: records.length,
+        seeded_revisions: records.reduce((total, record) => total + record.revision, 0),
+        source_declared: records.filter((record) => record.seedMetadata.evidenceTier === "source_declared").length,
+        source_observed: records.filter((record) => record.seedMetadata.evidenceTier === "source_observed").length,
+        accepted_runtime: records.filter((record) => record.seedMetadata.evidenceTier === "accepted_runtime").length,
+        player_proven: records.filter((record) => record.seedMetadata.evidenceTier === "player_proven").length,
+      };
+      return {
+        summary,
+        preview: records.map((record) => ({
+          stable_id: record.assetId || record.animationId,
+          domain: record.domain,
+          revision: record.revision,
+          source_format: record.seedMetadata.sourceFormat,
+          runtime_format: record.seedMetadata.runtimeFormat,
+          runtime_state: record.seedMetadata.runtimeState,
+          evidence_tier: record.seedMetadata.evidenceTier,
+          thumbnail_state: "not_provided",
+        })).sort((a, b) => a.stable_id.localeCompare(b.stable_id)),
+      };
+    },
     close() { db.close(); },
   };
 
@@ -134,6 +174,16 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     const next = finalize({ ...record, revision: previous.revision + 1 });
     return insert(next);
   }
+  function seedRevision(table, column, property, domain, record, insert) {
+    const previous = getRecord(table, column, property, record[property]);
+    if (!previous) {
+      if (record.revision !== 1) throw new TypeError("first seeded revision must be 1");
+      return insert(record);
+    }
+    if (record.revision !== previous.revision) throw new TypeError("seed input must carry the current revision");
+    assertImmediateParent(record.provenance, domain, record[property], previous);
+    return insert(finalize({ ...record, revision: previous.revision + 1 }));
+  }
   function getRevision(table, column, id, revision) {
     return db.prepare(`SELECT data_json FROM ${table} WHERE ${column} = ? AND revision = ?`).get(id, revision);
   }
@@ -149,6 +199,16 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     return db.prepare(`SELECT data_json FROM ${table} ORDER BY ${column}, revision DESC`).all()
       .map((row) => JSON.parse(row.data_json))
       .filter((record) => compatible(record, host, functionalTags, aestheticTags, rigBindingId))
+      .filter((record) => {
+        if (selectedIds.has(record[property])) return false;
+        selectedIds.add(record[property]);
+        return true;
+      });
+  }
+  function latestRecords(table, column, property) {
+    const selectedIds = new Set();
+    return db.prepare(`SELECT data_json FROM ${table} ORDER BY ${column}, revision DESC`).all()
+      .map((row) => JSON.parse(row.data_json))
       .filter((record) => {
         if (selectedIds.has(record[property])) return false;
         selectedIds.add(record[property]);

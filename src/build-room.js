@@ -409,14 +409,33 @@ function catalogTopology(catalogProjection, run) {
     semantic_entity_revisions: { count: 0, evidence: "not_connected" },
     asset_revisions: { count: 0, evidence: "not_connected" },
     animation_revisions: { count: 0, evidence: "not_connected" },
+    seeded_entries: { count: 0, evidence: "not_connected" },
+    seeded_revisions: { count: 0, evidence: "not_connected" },
+    source_declared: { count: 0, evidence: "not_connected" },
+    source_observed: { count: 0, evidence: "not_connected" },
+    accepted_runtime: { count: 0, evidence: "not_connected" },
+    player_proven: { count: 0, evidence: "not_connected" },
   };
-  if (!catalogProjection) return { ...unavailable, package_revisions: { count: run.packages.size, evidence: "local_projection" } };
-  const summary = catalogProjection();
+  if (!catalogProjection) return {
+    ...unavailable,
+    package_revisions: { count: run.packages.size, evidence: "local_projection" },
+    inventory_preview: { items: [], evidence: "not_connected", thumbnail_state: "not_provided" },
+  };
+  const value = catalogProjection();
+  const summary = value?.summary || value;
   const projected = Object.fromEntries(Object.keys(unavailable).map((key) => [key, {
     count: Number.isInteger(summary?.[key]) && summary[key] >= 0 ? summary[key] : 0,
     evidence: "local_sqlite_query",
   }]));
-  return { ...projected, package_revisions: { count: run.packages.size, evidence: "local_projection" } };
+  return {
+    ...projected,
+    package_revisions: { count: run.packages.size, evidence: "local_projection" },
+    inventory_preview: {
+      items: Array.isArray(value?.preview) ? value.preview.map((item) => ({ ...item, thumbnail_state: "not_provided" })) : [],
+      evidence: "local_sqlite_query",
+      thumbnail_state: "not_provided",
+    },
+  };
 }
 
 function workerStatus(kind) {

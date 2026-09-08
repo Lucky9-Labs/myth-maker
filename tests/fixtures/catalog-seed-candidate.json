@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "manifest_id": "host-asset-catalog-20260908",
+  "revision": 1,
+  "created_at": "2026-09-08T13:00:00.000Z",
+  "provenance": {
+    "producer": "host-catalog-export",
+    "source_locator": "explicit://host-export/2026-09-08",
+    "ownership_note": "Host-owned candidate; no redistribution grant asserted.",
+    "license_note": "Internal evaluation only."
+  },
+  "items": [{
+    "stable_key": "host-scout-mesh", "domain": "asset", "catalog_revision": 1, "created_at": "2026-09-08T13:00:00.000Z",
+    "source": { "locator": "fixture://host/scout.mesh", "sha256": "7598b3e257297debbb8b9a72a82f2733289abf65c150cdc2c03dca5776cdd47e", "media_type": "model/gltf-binary", "format": "glb", "format_state": "available" },
+    "runtime": { "format": "unity-assetbundle", "format_state": "candidate" },
+    "host_compatibility": { "platforms": ["windows"], "loaders": ["host.assetbundle"], "contracts": ["host.actor.v1"], "binding_ids": ["host.scout.rig.v1"] },
+    "rig_compatibility": { "skeleton_id": "host.scout.skeleton.v1", "skeleton_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "binding_id": "host.scout.rig.v1", "model_binding_id": "host.scout.model.v1", "animation_compatibility": "unknown" },
+    "functional_tags": ["actor.scout"], "aesthetic_tags": ["style.neutral"]
+  }]
+}

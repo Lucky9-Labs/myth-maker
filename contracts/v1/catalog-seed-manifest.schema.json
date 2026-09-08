@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/catalog-seed-manifest.schema.json",
+  "title": "CatalogSeedManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_id", "revision", "created_at", "provenance", "items"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "manifest_id": { "$ref": "common.schema.json#/$defs/id" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/item" } }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["producer", "source_locator", "ownership_note", "license_note"],
+      "properties": {
+        "producer": { "type": "string", "minLength": 1 },
+        "source_locator": { "type": "string", "minLength": 1 },
+        "ownership_note": { "type": "string", "minLength": 1 },
+        "license_note": { "type": "string", "minLength": 1 }
+      }
+    },
+    "item": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stable_key", "domain", "catalog_revision", "created_at", "source", "runtime", "host_compatibility", "rig_compatibility", "functional_tags", "aesthetic_tags"],
+      "properties": {
+        "stable_key": { "type": "string", "minLength": 1 },
+        "domain": { "enum": ["asset", "animation"] },
+        "catalog_revision": { "type": "integer", "minimum": 1 },
+        "created_at": { "type": "string", "format": "date-time" },
+        "source": { "$ref": "#/$defs/source" },
+        "runtime": { "$ref": "#/$defs/runtime" },
+        "host_compatibility": { "$ref": "#/$defs/host_compatibility" },
+        "rig_compatibility": { "$ref": "#/$defs/rig_compatibility" },
+        "functional_tags": { "$ref": "#/$defs/tags" },
+        "aesthetic_tags": { "$ref": "#/$defs/tags" },
+        "evidence": { "$ref": "#/$defs/evidence" },
+        "animation": { "$ref": "#/$defs/animation" }
+      },
+      "allOf": [{
+        "if": { "properties": { "domain": { "const": "animation" } }, "required": ["domain"] },
+        "then": { "required": ["animation"] },
+        "else": { "not": { "required": ["animation"] } }
+      }]
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["locator", "sha256", "media_type", "format", "format_state"],
+      "properties": {
+        "locator": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "media_type": { "type": "string", "minLength": 1 }, "format": { "type": "string", "minLength": 1 },
+        "format_state": { "enum": ["declared", "available", "rejected"] }
+      }
+    },
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "format_state"],
+      "properties": {
+        "format": { "type": "string", "minLength": 1 }, "format_state": { "enum": ["not_started", "candidate", "accepted", "rejected"] },
+        "artifact": { "$ref": "#/$defs/artifact" }, "acceptance": { "$ref": "#/$defs/acceptance" }
+      },
+      "allOf": [{
+        "if": { "properties": { "format_state": { "const": "accepted" } }, "required": ["format_state"] },
+        "then": { "required": ["artifact", "acceptance"] },
+        "else": { "not": { "required": ["acceptance"] } }
+      }]
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["locator", "sha256", "media_type"],
+      "properties": { "locator": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "media_type": { "type": "string", "minLength": 1 } }
+    },
+    "acceptance": {
+      "type": "object", "additionalProperties": false, "required": ["accepted_by", "accepted_at", "host_build"],
+      "properties": { "accepted_by": { "type": "string", "minLength": 1 }, "accepted_at": { "type": "string", "format": "date-time" }, "host_build": { "type": "string", "minLength": 1 } }
+    },
+    "host_compatibility": {
+      "type": "object", "additionalProperties": false, "required": ["platforms", "loaders", "contracts", "binding_ids"],
+      "properties": { "platforms": { "$ref": "#/$defs/strings" }, "loaders": { "$ref": "#/$defs/strings" }, "contracts": { "$ref": "#/$defs/strings" }, "binding_ids": { "$ref": "#/$defs/strings" } }
+    },
+    "rig_compatibility": {
+      "type": "object", "additionalProperties": false, "required": ["skeleton_id", "binding_id", "model_binding_id", "animation_compatibility"],
+      "properties": {
+        "skeleton_id": { "type": "string", "minLength": 1 }, "skeleton_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "binding_id": { "type": "string", "minLength": 1 }, "model_binding_id": { "type": "string", "minLength": 1 },
+        "animation_compatibility": { "enum": ["unknown", "compatible", "incompatible"] }
+      }
+    },
+    "evidence": {
+      "type": "object", "additionalProperties": false, "required": ["tier"],
+      "properties": { "tier": { "enum": ["source_declared", "source_observed", "accepted_runtime", "player_proven"] }, "player_evidence": { "$ref": "#/$defs/player_evidence" } },
+      "allOf": [{
+        "if": { "properties": { "tier": { "const": "player_proven" } }, "required": ["tier"] },
+        "then": { "required": ["player_evidence"] },
+        "else": { "not": { "required": ["player_evidence"] } }
+      }]
+    },
+    "player_evidence": {
+      "type": "object", "additionalProperties": false, "required": ["observer", "observed_at", "session_locator", "assertion_sha256"],
+      "properties": { "observer": { "type": "string", "minLength": 1 }, "observed_at": { "type": "string", "format": "date-time" }, "session_locator": { "type": "string", "minLength": 1 }, "assertion_sha256": { "$ref": "common.schema.json#/$defs/sha256" } }
+    },
+    "animation": {
+      "type": "object", "additionalProperties": false, "required": ["kind", "duration_ms"],
+      "properties": { "kind": { "enum": ["clip", "recipe"] }, "duration_ms": { "type": "integer", "minimum": 0 } }
+    },
+    "strings": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "tags": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/semanticTag" } }
+  }
+}
