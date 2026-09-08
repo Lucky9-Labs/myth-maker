@@ -1,0 +1,19 @@
+name: Deploy Railway provider
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      source_sha:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/provider-executor.yml
+    with:
+      provider: railway
+      environment: ${{ inputs.environment }}
+      source_sha: ${{ inputs.source_sha }}

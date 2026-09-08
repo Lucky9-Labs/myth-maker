@@ -1,0 +1,123 @@
+name: Deployment preview
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-change-scope:
+    name: Deployment preview scope
+    runs-on: ubuntu-24.04
+    outputs:
+      terraform: ${{ steps.scope.outputs.terraform }}
+      cloudflare: ${{ steps.scope.outputs.cloudflare }}
+      railway: ${{ steps.scope.outputs.railway }}
+      modal: ${{ steps.scope.outputs.modal }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        name: Classify deployment-owned changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/deployment/preview-scope.mjs --base "$BASE_SHA" --head "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+  terraform-foundation-preview:
+    name: Terraform foundation (non-mutating)
+    needs: deployment-change-scope
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: myth-maker-pr-terraform-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          persist-credentials: false
+      - if: needs.deployment-change-scope.outputs.terraform == 'true'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - name: Validate only; never initialize a remote backend or apply
+        if: needs.deployment-change-scope.outputs.terraform == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d infra/terraform ]]; then
+            terraform -chdir=infra/terraform init -backend=false -input=false
+            terraform -chdir=infra/terraform fmt -check -recursive
+            terraform -chdir=infra/terraform validate
+            terraform -chdir=infra/terraform plan -refresh=false -lock=false -input=false -detailed-exitcode || status=$?
+            test "${status:-0}" -eq 0 || test "$status" -eq 2
+          else
+            echo "Terraform foundation adapter: not present on this main revision."
+          fi
+      - name: Explicit non-mutating skip
+        if: needs.deployment-change-scope.outputs.terraform != 'true'
+        run: |
+          echo "Non-mutating skip: no Terraform deployment-owned files changed."
+
+  cloudflare-preview:
+    name: Cloudflare preview (non-mutating)
+    needs: deployment-change-scope
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: myth-maker-pr-cloudflare-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          persist-credentials: false
+      - if: needs.deployment-change-scope.outputs.cloudflare == 'true'
+        run: node scripts/deployment/controller.mjs preview --event pull_request --provider cloudflare --environment dev
+      - name: Explicit non-mutating skip
+        if: needs.deployment-change-scope.outputs.cloudflare != 'true'
+        run: |
+          echo "Non-mutating skip: no Cloudflare deployment-owned files changed."
+
+  railway-preview:
+    name: Railway preview (non-mutating)
+    needs: deployment-change-scope
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: myth-maker-pr-railway-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          persist-credentials: false
+      - if: needs.deployment-change-scope.outputs.railway == 'true'
+        run: node scripts/deployment/controller.mjs preview --event pull_request --provider railway --environment dev
+      - name: Explicit non-mutating skip
+        if: needs.deployment-change-scope.outputs.railway != 'true'
+        run: |
+          echo "Non-mutating skip: no Railway deployment-owned files changed."
+
+  modal-preview:
+    name: Modal preview (non-mutating)
+    needs: deployment-change-scope
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: myth-maker-pr-modal-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          persist-credentials: false
+      - name: Validate the offline Modal contract only
+        if: needs.deployment-change-scope.outputs.modal == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile modal/draft_trial.py modal/draft_support.py modal/infrastructure.py
+          python3 modal/preview_contract.py
+          python3 -m unittest tests/test_infrastructure_contract.py tests/test_draft_support.py
+      - if: needs.deployment-change-scope.outputs.modal == 'true'
+        run: node scripts/deployment/controller.mjs preview --event pull_request --provider modal --environment dev
+      - name: Explicit non-mutating skip
+        if: needs.deployment-change-scope.outputs.modal != 'true'
+        run: |
+          echo "Non-mutating skip: no Modal deployment-owned files changed."
