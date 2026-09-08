@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   apply:
@@ -29,6 +30,7 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 1
+          persist-credentials: false
       - name: Derive and validate the trusted immutable main revision in the Terraform executor
         id: preflight
         shell: bash
@@ -37,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$SOURCE_SHA" = "$GITHUB_SHA"
-          node scripts/deployment/controller.mjs assert-github-deployment --checkout-sha "$(git rev-parse HEAD)"
+          node scripts/deployment/controller.mjs assert-github-deployment
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
       - name: Initialize approved remote state, review the exact plan, then apply it

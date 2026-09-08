@@ -34,11 +34,13 @@ export const providerDefinitions = Object.freeze({
     deploy: null,
   }),
   modal: Object.freeze({
-    // OPENAI_API_KEY is a Modal runtime secret, not a Modal CLI credential.
-    secretNames: ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"],
+    // Modal deploy has no machine-readable evidence/health query seam yet.
+    // Do not run it until a successful command can produce verifiable receipt
+    // facts; OPENAI_API_KEY remains a runtime secret, never a CI CLI input.
+    secretNames: [],
     requiredFiles: ["modal/draft_trial.py"],
     preview: null,
-    deploy: ["uvx", ["--from", "modal==1.0.3", "modal", "deploy"]],
+    deploy: null,
   }),
 });
 
@@ -102,6 +104,32 @@ export function trustedDeploymentContext(environment = process.env) {
   return { eventName, sourceSha };
 }
 
+export function releaseReadiness({ environment, deploymentReady }) {
+  assertEnvironment(environment);
+  if (deploymentReady !== true) {
+    return { ready: false, reason: "DEPLOYMENT_READY is not true; no provider command was invoked" };
+  }
+  const unavailable = Object.entries(providerDefinitions)
+    .filter(([, definition]) => definition.deploy === null)
+    .map(([provider]) => provider);
+  if (unavailable.length) {
+    return { ready: false, reason: `provider deploy commands are unavailable: ${unavailable.join(", ")}` };
+  }
+  return { ready: true, reason: "environment bootstrap and provider commands are ready" };
+}
+
+export function validateGitHubOidcClaims(claims, trusted) {
+  if (
+    claims?.iss !== "https://token.actions.githubusercontent.com"
+    || claims.repository !== "Lucky9-Labs/myth-maker"
+    || claims.ref !== "refs/heads/main"
+    || claims.sha !== trusted.sourceSha
+  ) {
+    throw new Error("GitHub OIDC identity does not match the trusted main revision");
+  }
+  return true;
+}
+
 export function parseModalDeploymentEvidence(output) {
   let parsed;
   try {
@@ -154,7 +182,7 @@ export function providerCommand(provider, mode, environment) {
     return definition.preview;
   }
   if (mode !== "deploy") return null;
-  if (provider === "modal") {
+  if (provider === "modal" && definition.deploy) {
     return [definition.deploy[0], [...definition.deploy[1], "--env", environment, "modal/draft_trial.py"]];
   }
   return definition.deploy;
@@ -204,21 +232,41 @@ function validateLocalFiles(provider) {
   if (missing.length) throw new Error(`missing required ${provider} deployment files: ${missing.join(", ")}`);
 }
 
-function assertTrustedGitHubDeployment(checkoutSha) {
+function assertTrustedGitHubDeployment() {
   const trusted = trustedDeploymentContext();
-  const actualCheckoutSha = checkoutSha ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  execFileSync("git", ["fetch", "origin", "main", "--depth=1"], { stdio: "ignore" });
-  const isReachableFromMain = (() => {
-    try {
-      execFileSync("git", ["merge-base", "--is-ancestor", trusted.sourceSha, "origin/main"], { stdio: "ignore" });
-      return true;
-    } catch {
-      return false;
-    }
-  })();
+  assertGitHubOidcIdentity(trusted);
+  const actualCheckoutSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  // The GitHub-issued OIDC claims bind this SHA to refs/heads/main. That is
+  // authoritative even for an older queued/main retry, where a shallow local
+  // checkout cannot prove ancestry against a newer remote tip.
+  const isReachableFromMain = true;
   const isClean = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() === "";
   assertDeploymentRequest({ ...trusted, checkoutSha: actualCheckoutSha, isReachableFromMain, isClean });
   return trusted;
+}
+
+function assertGitHubOidcIdentity(trusted) {
+  const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!requestUrl || !requestToken || process.env.GITHUB_REPOSITORY !== "Lucky9-Labs/myth-maker") {
+    throw new Error("deployments require a GitHub-issued OIDC identity for this repository");
+  }
+  const url = new URL(requestUrl);
+  if (url.protocol !== "https:" || !url.hostname.endsWith(".actions.githubusercontent.com")) {
+    throw new Error("deployments require the GitHub Actions OIDC endpoint");
+  }
+  url.searchParams.set("audience", "myth-maker-deployment");
+  const response = JSON.parse(execFileSync("curl", [
+    "--fail", "--silent", "--show-error", "--header", `Authorization: bearer ${requestToken}`, url.toString(),
+  ], { encoding: "utf8" }));
+  const payload = String(response.value ?? "").split(".")[1];
+  let claims;
+  try {
+    claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("GitHub OIDC endpoint returned an invalid identity token");
+  }
+  validateGitHubOidcClaims(claims, trusted);
 }
 
 function executeProviderCommand(invocation) {
@@ -228,10 +276,10 @@ function executeProviderCommand(invocation) {
 function run(command, options) {
   const provider = options.provider;
   const environment = options.environment;
-  const trusted = command === "deploy" ? assertTrustedGitHubDeployment(options.checkout_sha) : null;
-  if (command === "deploy" && options.event !== undefined) {
-    throw new Error("deploy event is derived from trusted GitHub Actions context, not --event");
+  if (command === "deploy" && (options.event !== undefined || options.checkout_sha !== undefined)) {
+    throw new Error("deploy event and checkout are derived from trusted GitHub Actions context, not CLI arguments");
   }
+  const trusted = command === "deploy" ? assertTrustedGitHubDeployment() : null;
   const request = validateProviderRequest({
     eventName: trusted?.eventName ?? options.event,
     mode: command,
@@ -286,9 +334,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const { command, options } = parseArgs(process.argv.slice(2));
     if (command === "receipt") writeReceipt(options);
-    else if (command === "assert-github-deployment") process.stdout.write(`${JSON.stringify(assertTrustedGitHubDeployment(options.checkout_sha))}\n`);
+    else if (command === "assert-github-deployment") {
+      if (options.checkout_sha !== undefined) throw new Error("trusted checkout is derived from git, not --checkout-sha");
+      process.stdout.write(`${JSON.stringify(assertTrustedGitHubDeployment())}\n`);
+    }
+    else if (command === "release-readiness") process.stdout.write(`${JSON.stringify(releaseReadiness({ environment: options.environment, deploymentReady: options.deployment_ready === "true" }))}\n`);
     else if (new Set(["validate", "preview", "deploy"]).has(command)) run(command, options);
-    else throw new Error("command must be validate, preview, deploy, receipt, or assert-github-deployment");
+    else throw new Error("command must be validate, preview, deploy, receipt, assert-github-deployment, or release-readiness");
   } catch (error) {
     process.stderr.write(`deployment-controller: ${error.message}\n`);
     process.exitCode = 1;

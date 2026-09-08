@@ -32,7 +32,7 @@ Store only the indicated CLI credentials in the environment that needs them:
 | --- | --- |
 | Cloudflare adapter | None while Terraform remains the sole Worker/binding authority |
 | Railway adapter | None while no verified Railway deploy/acknowledgement command exists |
-| Modal | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` |
+| Modal adapter | None until a documented machine-readable deploy/health query seam exists |
 
 The environment boundary lives in the shared executor, before any credential is
 passed to a command. Runtime secrets stay in their owning Terraform or provider
@@ -48,7 +48,8 @@ enabled, configure branch protection to require the PR preview, the environment
 configuration, and `DEPLOYMENT_READY=true`. Missing readiness produces an honest
 skipped receipt rather than a partial release. An arbitrary local command cannot
 deploy: every mutating executor derives event/SHA from GitHub Actions, requires
-`refs/heads/main`, validates main ancestry, and rejects a dirty checkout.
+`refs/heads/main`, obtains a GitHub-issued OIDC token bound to this repository
+and SHA, validates main ancestry from those claims, and rejects a dirty checkout.
 
 The `CI-owned deployment` workflow runs automatically for covered changes on
 `main`. A manual dispatch is only an immutable retry of its GitHub Actions main
@@ -80,9 +81,10 @@ to local state or synthesizes backend credentials.
 The additive `deployment_receipt_facts` Terraform output supplies Cloudflare
 worker/version/deployment IDs, Railway project/environment/service IDs, module
 SHA-256s, and configured non-secret variable names when those resources are
-managed; disabled resources are null or empty. Modal CLI success is admitted
-only when parsed output contains a deployment ID, version ID, named resources,
-and healthy status—never from a command exit code alone.
+managed; disabled resources are null or empty. Modal has no documented
+machine-readable deploy/health query seam in this controller, so it is skipped.
+If enabled later, success must require parsed deployment ID, version ID, named
+resources, and healthy status—never a command exit code alone.
 
 Current release status is intentionally conservative. The merged
 `src/railway-dispatcher.js` supplies an in-repository work-graph dispatcher, but

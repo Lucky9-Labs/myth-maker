@@ -10,7 +10,9 @@ import {
   parseModalDeploymentEvidence,
   providerDefinitions,
   providerCommand,
+  releaseReadiness,
   trustedDeploymentContext,
+  validateGitHubOidcClaims,
   selectProviderOutcome,
   validateProviderRequest,
 } from "../scripts/deployment/controller.mjs";
@@ -74,6 +76,35 @@ test("a deploy request derives its immutable source from trusted GitHub Actions 
   }
 });
 
+test("a release cannot begin until bootstrap and every provider deploy command are ready", () => {
+  assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: false }), {
+    ready: false,
+    reason: "DEPLOYMENT_READY is not true; no provider command was invoked",
+  });
+  assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: true }), {
+    ready: false,
+    reason: "provider deploy commands are unavailable: cloudflare, railway, modal",
+  });
+});
+
+test("GitHub OIDC claims bind a provider executor to this repository, main, and one SHA", () => {
+  const trusted = { eventName: "push", sourceSha: "a".repeat(40) };
+  const claims = {
+    iss: "https://token.actions.githubusercontent.com",
+    repository: "Lucky9-Labs/myth-maker",
+    ref: "refs/heads/main",
+    sha: trusted.sourceSha,
+  };
+  assert.equal(validateGitHubOidcClaims(claims, trusted), true);
+  for (const altered of [
+    { ...claims, repository: "example/other" },
+    { ...claims, ref: "refs/heads/feature" },
+    { ...claims, sha: "b".repeat(40) },
+  ]) {
+    assert.throws(() => validateGitHubOidcClaims(altered, trusted), /OIDC identity/);
+  }
+});
+
 test("provider-environment locks isolate providers and serialize duplicates", () => {
   const first = deploymentConcurrencyGroup("cloudflare", "production");
   assert.equal(first, deploymentConcurrencyGroup("cloudflare", "production"));
@@ -85,7 +116,7 @@ test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
   assert.deepEqual(providerDefinitions.cloudflare.secretNames, []);
   assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
-  assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
+  assert.deepEqual(providerDefinitions.modal.secretNames, []);
 });
 
 test("an unsupported Railway deployment is skipped rather than presented as a preview or success", () => {
@@ -116,10 +147,15 @@ test("only non-mutating provider checks run on a pull request, and local deploy 
   assert.equal(providerCommand("railway", "preview", "dev"), null);
 
   const localDeploy = spawnSync(process.execPath, [
-    "scripts/deployment/controller.mjs", "deploy", "--event", "push", "--provider", "cloudflare", "--environment", "dev",
+    "scripts/deployment/controller.mjs", "deploy", "--provider", "cloudflare", "--environment", "dev",
   ], { encoding: "utf8" });
   assert.notEqual(localDeploy.status, 0, localDeploy.stdout);
   assert.match(localDeploy.stderr, /trusted GitHub Actions context/);
+  const callerOverride = spawnSync(process.execPath, [
+    "scripts/deployment/controller.mjs", "deploy", "--event", "push", "--checkout-sha", "a".repeat(40), "--provider", "cloudflare", "--environment", "dev",
+  ], { encoding: "utf8" });
+  assert.notEqual(callerOverride.status, 0, callerOverride.stdout);
+  assert.match(callerOverride.stderr, /not CLI arguments/);
 });
 
 test("Modal receipts accept only parsed deployment and healthy resource evidence", () => {
@@ -171,17 +207,20 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /release-readiness/);
   assert.match(deployWorkflow, /write-skipped-release-receipts/);
   assert.match(deployWorkflow, /DEPLOYMENT_READY/);
+  assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
   assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
   assert.match(executor, /if: inputs\.provider == 'modal'/);
   assert.match(executor, /assert-github-deployment/);
+  assert.match(executor, /id-token: write/);
   assert.doesNotMatch(executor, /controller\.mjs deploy --event/);
   assert.doesNotMatch(executor, /CLOUDFLARE_API_TOKEN:[\s\S]{0,400}MODAL_TOKEN_SECRET:/);
   assert.match(terraformFoundation, /init -reconfigure/);
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
+  assert.match(terraformFoundation, /id-token: write/);
 
   const preview = JSON.parse(execFileSync(
     "ruby",
@@ -253,7 +292,7 @@ test("provider workflow gives credentials only to a provider command that consum
   const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable receipt")).env;
   assert.deepEqual(Object.keys(cloudflare).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
   assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
-  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "RESULT"]);
+  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
   assert.doesNotMatch(JSON.stringify({ cloudflare, railway }), /TOKEN|OPENAI|TF_VAR/);
   assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "CLOUDFLARE_STATUS", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "RAILWAY_STATUS", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
 });

@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: myth-maker-release-${{ inputs.environment || 'dev' }}
@@ -28,12 +29,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
+          persist-credentials: false
       - name: Derive and validate the trusted immutable main revision
         id: trust
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/deployment/controller.mjs assert-github-deployment --checkout-sha "$(git rev-parse HEAD)"
+          node scripts/deployment/controller.mjs assert-github-deployment
           printf 'source_sha=%s\n' "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
   release-readiness:
@@ -47,17 +49,17 @@ jobs:
     steps:
       - id: readiness
         name: Check explicit environment bootstrap readiness without reading credentials
-        env:
-          DEPLOYMENT_READY: ${{ vars.DEPLOYMENT_READY }}
         run: |
           set -euo pipefail
-          if [[ "$DEPLOYMENT_READY" == true ]]; then
-            echo 'ready=true' >> "$GITHUB_OUTPUT"
-            echo 'reason=explicit environment bootstrap is ready' >> "$GITHUB_OUTPUT"
-          else
-            echo 'ready=false' >> "$GITHUB_OUTPUT"
-            echo 'reason=DEPLOYMENT_READY is not true; no provider command was invoked' >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/deployment/controller.mjs release-readiness \
+            --environment "$DEPLOYMENT_ENVIRONMENT" \
+            --deployment-ready "$DEPLOYMENT_READY" > "$RUNNER_TEMP/readiness.json"
+          node -e 'const result = require(process.env.RESULT); console.log(`ready=${result.ready}`); console.log(`reason=${result.reason}`)' \
+            >> "$GITHUB_OUTPUT"
+        env:
+          DEPLOYMENT_READY: ${{ vars.DEPLOYMENT_READY }}
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          RESULT: ${{ runner.temp }}/readiness.json
 
   write-skipped-release-receipts:
     needs: [assert-deployment-input, release-readiness]
@@ -70,6 +72,7 @@ jobs:
         with:
           ref: ${{ needs.assert-deployment-input.outputs.source_sha }}
           fetch-depth: 1
+          persist-credentials: false
       - name: Record the unconfigured release as skipped without provider credentials
         env:
           SOURCE_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}

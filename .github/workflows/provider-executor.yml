@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   deploy:
@@ -29,6 +30,7 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 1
+          persist-credentials: false
       - name: Derive and validate the trusted immutable main revision in this provider executor
         id: preflight
         shell: bash
@@ -37,13 +39,14 @@ jobs:
         run: |
           set -euo pipefail
           test "$SOURCE_SHA" = "$GITHUB_SHA"
-          node scripts/deployment/controller.mjs assert-github-deployment --checkout-sha "$(git rev-parse HEAD)"
+          node scripts/deployment/controller.mjs assert-github-deployment
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - name: Run Cloudflare provider adapter without runtime credentials
         id: deploy
         if: inputs.provider == 'cloudflare'
         run: |
           set -euo pipefail
+          node scripts/deployment/controller.mjs preview --event "$GITHUB_EVENT_NAME" --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT"
           node scripts/deployment/controller.mjs deploy --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT" > "$RUNNER_TEMP/provider-result.json"
           node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
         env:
@@ -59,12 +62,10 @@ jobs:
           set -euo pipefail
           node scripts/deployment/controller.mjs deploy --provider railway --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
           node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
-      - name: Deploy Modal through the provider adapter with CLI-only credentials
+      - name: Record unavailable Modal deployment without injecting runtime credentials
         id: modal
         if: inputs.provider == 'modal'
         env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           RESULT: ${{ runner.temp }}/provider-result.json
         run: |
