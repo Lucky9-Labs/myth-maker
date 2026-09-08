@@ -338,6 +338,24 @@ test("Railway control-plane handler matches Cloudflare's stable x-work-id delive
   assert.equal(unauthorized.status, 401);
 });
 
+test("Railway accepts the exact closed-v1 Modal work order without a v2 production-gate rewrite", async () => {
+  const order = {
+    schema_version: "1", work_id: "modal-v1-body-source", encounter_id: "modal-v1-encounter", lane: "body-source",
+    deadline_at: "2026-09-09T12:00:00Z", requested_provides: ["encounter.body.source"], input_module_ids: [], depends_on_work_ids: [], attempt: 1,
+    instruction: "Draft one bounded body source.", host_capabilities: hostCapabilities,
+  };
+  const forwarded = [];
+  const handler = createRailwayDispatchHandler({
+    dispatcher: new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }) }), dispatchToken: "dispatch",
+    eventSink: { append: async (_workId, event) => forwarded.push(event) },
+  });
+  const result = await handler(new Request("https://railway.example/v1/dispatch", {
+    method: "POST", headers: { authorization: "Bearer dispatch", "content-type": "application/json", "x-work-id": order.work_id }, body: JSON.stringify(order),
+  }));
+  assert.equal(result.status, 202);
+  assert.deepEqual(forwarded.map((event) => event.sequence), [0, 1, 2]);
+});
+
 test("dispatcher stores terminal failed receipts instead of relaunching stable work", async () => {
   const order = planEncounterWork(fixture).work_orders[0];
   let launches = 0;
