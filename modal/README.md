@@ -24,14 +24,35 @@ this function.
 ## Configuration before any deployment
 
 Create independent Modal resources only after a preflight verifies credentials,
-model computer-tool access, volume access, and spending limits:
+model computer-tool access, volume access, and spending limits. Resource names
+and the selected Modal environment are declared in
+[`infrastructure.py`](infrastructure.py); it has no Modal SDK dependency and can
+render the non-secret handoff locally:
 
 ```sh
-modal secret create myth-maker-encounter-openai OPENAI_API_KEY='...'
+python3 modal/infrastructure.py --environment dev --check-files
 ```
 
-The app expects the private Volume `myth-maker-encounter-submissions` and the
-lease dictionary `myth-maker-encounter-component-leases`. Do not reuse the
+The `dev` environment must already exist before deployment. The app's Volume,
+Dict, and secret handles intentionally omit an explicit environment name, so
+Modal resolves them in the `modal deploy --env <environment>` target rather than
+pinning every deployment to `dev`. The CI deployment controller—not an
+implementation worker—creates those resources after the preflight, using:
+
+```sh
+# CI deployment controller only
+modal secret create --env dev myth-maker-encounter-openai OPENAI_API_KEY='...'
+modal volume create --env dev myth-maker-encounter-submissions
+modal dict create --env dev myth-maker-encounter-component-leases
+modal deploy --env dev modal/draft_trial.py
+```
+
+Its receipt must identify the immutable source revision, Modal app deployment
+ID/version, named resource verification, and the non-secret handoff revision.
+
+The app expects the private Volume `myth-maker-encounter-submissions`, the lease
+dictionary `myth-maker-encounter-component-leases`, and the secret
+`myth-maker-encounter-openai` with an `OPENAI_API_KEY` key. Do not reuse the
 source project's resources, secrets, jobs, or artifacts. The image pins Blender
 5.2.1 and verifies its archive SHA-256 before extraction. Its download may retry
 during image construction only; worker-function and OpenAI API retries remain

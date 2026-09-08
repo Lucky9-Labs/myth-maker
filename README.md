@@ -44,6 +44,27 @@ Cloudflare remain responsible for deciding what to ask the computer-use workers
 to do. The GPU/Blender worker integration remains deliberately unshipped until
 its desktop runtime has a passing cloud smoke test.
 
+## Infrastructure foundation
+
+[`infra/terraform/`](infra/terraform/) contains an offline-reviewable,
+environment-oriented Cloudflare and Railway foundation. It names the ingress
+Worker, preserves the coordinator Durable Object migration, and models an empty
+Railway dispatcher seam without claiming an image, endpoint, or domain exists.
+Modal remains code-deployed; [`modal/infrastructure.py`](modal/infrastructure.py)
+generates the non-secret configuration handoff across all three platforms.
+
+```sh
+terraform -chdir=infra/terraform init -backend=false
+terraform -chdir=infra/terraform fmt -check -recursive
+terraform -chdir=infra/terraform validate
+python3 modal/infrastructure.py --environment dev --check-files
+```
+
+These commands are offline-safe except for Terraform downloading pinned provider
+binaries. They never create remote resources. See
+[`infra/terraform/README.md`](infra/terraform/README.md) for the explicit
+credentialed bootstrap and remote-state guidance.
+
 ## Architecture reference and engineering audit
 
 The intended end-state is documented in Miro as [Boss Encounter Generation —

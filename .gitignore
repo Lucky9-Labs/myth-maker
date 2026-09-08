@@ -9,3 +9,9 @@ __pycache__/
 *.png
 *.webp
 review-package/
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+!*.tfvars.example

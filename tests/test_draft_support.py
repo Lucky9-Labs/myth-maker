@@ -71,6 +71,8 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertIn("part_leases.get(lease_key) == job_id", text)
         self.assertIn("BLENDER_ARCHIVE_SHA256", text)
         self.assertIn("sha256sum --check --status", text)
+        self.assertIn('"infrastructure.py", "/opt/infrastructure.py"', text)
+        self.assertNotIn("create_if_missing=True", text)
         self.assertNotIn("bpy.", text)
 
 
