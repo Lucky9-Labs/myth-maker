@@ -23,6 +23,11 @@ combat. Fallback provenance is set only when a rejected primary's declared
 fallback is actually selected; an upgrade that succeeds does not falsely report
 its displaced baseline as a used fallback.
 
+Because `PlayableEncounterPackage` records module IDs but not module revisions,
+V0 rejects a repeated candidate ID and a candidate ID that collides with a
+baseline ID. This prevents an ambiguous package from silently choosing one of
+two revisions; callers must supply one unambiguous revision per stable ID.
+
 ## Deliberate V0 limitation
 
 `provides` is a capability list, not an atomic replacement-group contract. A
