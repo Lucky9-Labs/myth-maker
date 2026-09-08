@@ -5,10 +5,12 @@
   "scripts": {
     "build-room": "node --watch --watch-preserve-output src/build-room-server.js",
     "example:assembler": "node examples/assemble-encounter-package.mjs",
+    "example:glb-assembly": "node examples/assemble-glb-runtime-asset.mjs",
     "example:catalog": "node examples/catalog-v0.mjs",
     "demo:local-blender": "node examples/run-local-blender-slice.mjs",
     "example:workgraph": "node examples/run-workgraph.mjs",
     "demo:build-room-stress": "node examples/run-build-room-stress.mjs",
+    "demo:encounter-stress": "node examples/run-encounter-stress.mjs",
     "test": "node --test tests/*.mjs && python3 -m unittest tests/test_*.py",
     "test:cloudflare": "node --test tests/test_cloudflare_worker.mjs",
     "test:contracts": "node --test tests/test_contracts.mjs",

@@ -12,4 +12,4 @@ for obj in appendages:
     if action:
         clips.append({"target_node":obj.name,"clip_name":action.name,"fcurve_count":1,"frame_start":action.frame_range[0],"frame_end":action.frame_range[1]})
 result={"body_shape":"single-curved-tapered-appendage-v1","appendage_count":len(appendages),"straight_cone_count":len(cones),"appendages":details,"clips":clips}
-open('/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/1424dad8-ebd2-4735-9ad9-2b81fd752c66/wg-c5247053c3b24132696ee3ecda93825d/staging/source-inspection.json',"w",encoding="utf-8").write(json.dumps(result,sort_keys=True))
+open('/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/261fc2b0-1cf2-4a17-8d1f-b10b97b8ff42/wg-8340e6fcb9c609d3ddc8281669373364/staging/source-inspection.json',"w",encoding="utf-8").write(json.dumps(result,sort_keys=True))

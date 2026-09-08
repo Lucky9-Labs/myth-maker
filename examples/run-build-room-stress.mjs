@@ -32,7 +32,7 @@ try {
     const result = await fetch(`${base}/api/encounters/${submitted.ids.encounterId}`);
     if (!result.ok) throw new Error(`Build Room projection failed: ${result.status}`);
     return result.json();
-  }, (value) => value.work_graph.length === 13 && value.packages.at(-1)?.state === "frozen");
+  }, (value) => value.work_graph.length === 18 && value.packages.at(-1)?.state === "frozen");
   const bundle = {
     schema_version: "1",
     receipt_kind: "build-room-high-fanout-local-stress",

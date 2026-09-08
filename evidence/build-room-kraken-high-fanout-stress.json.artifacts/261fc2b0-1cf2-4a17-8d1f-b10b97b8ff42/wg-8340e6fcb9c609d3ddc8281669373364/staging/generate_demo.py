@@ -1,5 +1,5 @@
 import bpy, math, random, mathutils
-random.seed(4207906518)
+random.seed(1252926558)
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete(use_global=False)
 for item in list(bpy.data.materials): bpy.data.materials.remove(item)
@@ -88,7 +88,7 @@ scene.render.resolution_x=512
 scene.render.resolution_y=512
 scene.render.resolution_percentage=100
 scene.render.image_settings.file_format="PNG"
-scene.render.filepath='/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/1424dad8-ebd2-4735-9ad9-2b81fd752c66/wg-c5247053c3b24132696ee3ecda93825d/staging/wg-c5247053c3b24132696ee3ecda93825d.png'
+scene.render.filepath='/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/261fc2b0-1cf2-4a17-8d1f-b10b97b8ff42/wg-8340e6fcb9c609d3ddc8281669373364/staging/wg-8340e6fcb9c609d3ddc8281669373364.png'
 scene.world.color=(0.008,0.015,0.03)
-bpy.ops.wm.save_as_mainfile(filepath='/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/1424dad8-ebd2-4735-9ad9-2b81fd752c66/wg-c5247053c3b24132696ee3ecda93825d/staging/wg-c5247053c3b24132696ee3ecda93825d.blend')
+bpy.ops.wm.save_as_mainfile(filepath='/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/261fc2b0-1cf2-4a17-8d1f-b10b97b8ff42/wg-8340e6fcb9c609d3ddc8281669373364/staging/wg-8340e6fcb9c609d3ddc8281669373364.blend')
 bpy.ops.render.render(write_still=True)

@@ -173,8 +173,8 @@ test("HTTP submission executes the local planner-dispatcher path and projects te
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Real local path" }) })).json();
-    const final = await eventually(async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()), (value) => value.work_graph.length === 4 && value.packages.length === 1);
-    assert.equal(final.work_graph.length, 4);
+    const final = await eventually(async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()), (value) => value.work_graph.length >= 10 && value.packages.length === 1);
+    assert.ok(final.work_graph.length >= 10);
     assert.ok(final.work_graph.every((work) => work.status === "completed"));
     assert.equal(final.packages[0].revision, 1);
     assert.ok(final.events.some((event) => event.evidence.kind === "local_process" && event.workerId.startsWith("local-")));
@@ -202,15 +202,15 @@ test("a high-fanout local compile exposes generic lane receipts and freezes its 
     const run = await created.json();
     const final = await eventually(
       async () => (await (await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).json()),
-      (value) => value.work_graph.length === 13 && value.packages[0]?.state === "frozen",
+      (value) => value.work_graph.length === 18 && value.packages[0]?.state === "frozen",
     );
 
     assert.equal(final.compile_profile, "high_fanout");
     assert.ok(final.remaining_seconds > 0 && final.remaining_seconds <= 3600);
     assert.ok(final.deadline_at.endsWith("Z"));
-    assert.equal(final.work_graph.filter((work) => work.status === "completed").length, 13);
-    assert.equal(new Set(final.work_graph.map((work) => work.worker_id)).size, 13);
-    assert.ok(final.work_graph.some((work) => work.lane === "material-texture" && work.component === "encounter.material.texture"));
+    assert.equal(final.work_graph.filter((work) => work.status === "completed").length, 18);
+    assert.equal(new Set(final.work_graph.map((work) => work.worker_id)).size, 18);
+    assert.ok(final.work_graph.some((work) => work.lane === "material-binding" && work.component === "encounter.material.binding"));
     assert.ok(final.work_graph.some((work) => work.lane === "arena-envelope" && work.component === "encounter.arena.envelope"));
     assert.ok(final.work_graph.every((work) => work.deadline_at === final.deadline_at));
     assert.deepEqual(final.packages[0].outcomes, {

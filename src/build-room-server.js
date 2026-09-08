@@ -294,34 +294,12 @@ function recordLocalFailure(room, run, error, persist, revision = undefined) {
 }
 
 function localSpec(encounterId, seed = 1, attempt = 1, compileProfile = "standard", deadlineAt = "2026-12-31T00:00:00Z") {
-  const workLanes = workLanesFor(compileProfile);
-  return { schema_version: "2", encounter_id: encounterId, seed, attempt, deadline_at: deadlineAt, host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: ["pressure"], work_lanes: workLanes, production_gate: bootstrapProductionGate(workLanes) };
+  const desiredRoles = compileProfile === "high_fanout" ? ["pressure", "support", "control"] : ["pressure"];
+  return { schema_version: "2", encounter_id: encounterId, seed, attempt, deadline_at: deadlineAt, host_capabilities: { schema_version: "1", host_id: "local-build-room", host_build: "local-blender-v1", platform: "local", scripting_backend: "il2cpp", execution_kinds: ["recipe", "runtime_asset"], loaders: ["gltf", "urp", "animation.binding.encounter-body.v1"], contracts: ["encounter-module.v1"], limits: { memory_mb: 1024, preload_seconds: 30, artifact_bytes: 50000000 } }, objective: { kind: "survive", parameters: {} }, arena_envelope: { bounds: { width: 1, height: 1, depth: 1 }, navigation_profiles: ["ground"] }, desired_roles: desiredRoles, production_gate: bootstrapProductionGate() };
 }
 
-function workLanesFor(compileProfile) {
-  const standard = [
-    { lane: "body-source", provides: "encounter.body.source" },
-    { lane: "animation-recipe", provides: "encounter.animation.recipe" },
-    { lane: "combat-recipe", provides: "encounter.combat.recipe" },
-  ];
-  if (compileProfile === "standard") return standard;
-  if (compileProfile !== "high_fanout") throw new TypeError("unknown local compile profile");
-  return [
-    ...standard,
-    { lane: "body-collision", provides: "encounter.body.collision" },
-    { lane: "material-texture", provides: "encounter.material.texture" },
-    { lane: "material-binding", provides: "encounter.material.binding" },
-    { lane: "combat-telegraph", provides: "encounter.combat.telegraph" },
-    { lane: "arena-envelope", provides: "encounter.arena.envelope" },
-    { lane: "arena-dressing", provides: "encounter.arena.dressing" },
-    { lane: "presentation-vfx", provides: "encounter.presentation.vfx" },
-    { lane: "presentation-audio", provides: "encounter.presentation.audio" },
-    { lane: "presentation-ui", provides: "encounter.presentation.ui" },
-  ];
-}
-
-function bootstrapProductionGate(workLanes) {
-  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: [...workLanes.map((work) => work.provides), "encounter.validation.report"], not_concept_compliant: true } };
+function bootstrapProductionGate() {
+  return { kind: "bootstrap_waiver", waiver: { kind: "bootstrap_waiver", bounded_reason: "The D0 local Blender path predates concept-first lineage and remains pre-gate bootstrap evidence only.", approver: "local-demo-owner", approved_at: "2026-09-08T00:00:00Z", expires_at: "2026-12-31T00:00:00Z", requested_provides: ["encounter.body.source", "encounter.body.segment.source", "encounter.critical-spot.module", "encounter.motion.clip", "encounter.material.binding", "encounter.arena.envelope", "encounter.combat.recipe", "encounter.assembly.receipt", "encounter.validation.report"], not_concept_compliant: true } };
 }
 
 function baselineModules(encounterId) {

@@ -56,7 +56,10 @@ export class EncounterDispatcher {
     const pending = new Map(graph.work_orders.map((order) => [order.work_id, order]));
     const receipts = new Map(), events = [], deduplicated = [];
     while (pending.size) {
-      const ready = [...pending.values()].filter((order) => (order.depends_on_work_ids || []).every((id) => receipts.get(id)?.status === "completed"));
+      // Final validation and assembly own fallback selection. They may run once
+      // each dependency is terminal, rather than treating one absent optional
+      // lane as a graph-wide deadlock.
+      const ready = [...pending.values()].filter((order) => (order.depends_on_work_ids || []).every((id) => TERMINAL.has(receipts.get(id)?.status)));
       if (!ready.length) throw new Error("no ready work orders; dependency receipts are incomplete");
       ready.forEach((order) => pending.delete(order.work_id));
       await Promise.all(ready.map(async (order) => { const result = await this.dispatchWorkOrder(order); receipts.set(order.work_id, result.receipt); events.push(...result.events); if (result.deduplicated) deduplicated.push(order.work_id); }));

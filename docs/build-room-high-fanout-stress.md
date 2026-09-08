@@ -25,8 +25,10 @@ their worker IDs, dependencies, receipts, artifacts, and revision counts; and
 shows compatible selection, fallback, or rejection outcome with honest evidence
 tiering.
 
-This slice provides twelve generic root lanes plus validation. They include
-`material-texture`, `material-binding`, `arena-envelope`, and `arena-dressing`.
+This slice uses the generic immutable component graph with sixteen component
+roots, assembly, and validation. It includes `material-binding` and
+`arena-envelope` alongside independently revisioned body segments, critical
+spots, and motion clips for each requested role.
 The live Build Room surface reports each lane's component tag, worker ID,
 dependency list, elapsed time, deadline timer, status, evidence kind, catalog counters, package revisions,
 and explicit selected/rejected/fallback outcome. `freeze_current_package` makes
@@ -46,10 +48,10 @@ to alter a worker's next priority. There is no external coordinator observation.
 
 ### C4 — horizontal draft lanes
 
-Observed locally: the generic planner emits independent body, animation, combat,
-material, arena, and presentation lanes; the dispatcher launches root lanes in
-parallel and validates only after they complete. The stress receipt preserves
+Observed locally: the generic planner emits independent body, body-segment,
+critical-spot, motion, material, arena, and combat lanes; the dispatcher launches
+component roots in parallel, then assembly and validation. The stress receipt preserves
 their individual completion records and the baseline selection remains valid
-when no candidate modules arrive. Material, arena, and presentation workers do
+when no candidate modules arrive. Material, arena, and non-body component workers do
 not yet produce immutable candidate artifacts, so this is worker-observability
 and fallback proof, not production asset-worker or host-runtime proof.
