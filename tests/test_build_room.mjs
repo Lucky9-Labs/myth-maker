@@ -51,7 +51,7 @@ test("projection orders events by sequence, then receipt time, while retaining r
 test("adapter requires observed remote receipts and preserves artifact and package revisions", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "Need a verified package" });
-  const adapter = new CoordinatorEventAdapter(room);
+  const adapter = new CoordinatorEventAdapter(room, { trustedObservation: () => true });
 
   assert.throws(() => adapter.ingest({
     encounter_id: run.ids.encounterId,
@@ -79,10 +79,31 @@ test("adapter requires observed remote receipts and preserves artifact and packa
   assert.equal(evidenceLabel(snapshot.events.at(-1).evidence), "Modal remote receipt (observed)");
 });
 
+test("receipt-shaped input remains unverified until a trusted local observer accepts it", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Reject forged evidence" });
+  const input = {
+    encounter_id: run.ids.encounterId, worker_id: run.ids.workerId, sequence: 7, kind: "progress", source: "modal_remote",
+    receipt: { request_id: "not-proof", observed_at: "2026-09-08T12:02:00.000Z" },
+  };
+  assert.throws(() => new CoordinatorEventAdapter(room).ingest(input), /trusted local observer/);
+  new CoordinatorEventAdapter(room, { trustedObservation: () => true }).ingest(input);
+  assert.equal(room.snapshot(run.ids.encounterId).evidence.modal.length, 1);
+});
+
+test("projection state survives a local persistence round-trip for replay after a watch restart", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Persist replay" });
+  const firstCursor = run.events[0].cursor;
+  const restored = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z" }).restore(room.exportState());
+  assert.equal(restored.replay(run.ids.encounterId, firstCursor)[0].evidence.kind, "fixture");
+  assert.equal(restored.snapshot(run.ids.encounterId).topology.workers.length, 1);
+});
+
 test("Blender evidence is absent until an observed screenshot or stream receipt arrives", () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
   const run = room.submit({ prompt: "No invented Blender window" });
-  const adapter = new CoordinatorEventAdapter(room);
+  const adapter = new CoordinatorEventAdapter(room, { trustedObservation: () => true });
 
   assert.deepEqual(room.snapshot(run.ids.encounterId).evidence.blender, []);
   assert.throws(() => adapter.ingest({
@@ -115,6 +136,26 @@ test("the local HTTP submit path returns a replayable room projection", async ()
     const projection = await replay.json();
     assert.equal(projection.events.length, 1);
     assert.equal(projection.events[0].evidence.kind, "fixture");
+  } finally {
+    server.close();
+  }
+});
+
+test("the live builds index and request-keyed detail are projections, not a fixture list", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const created = await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Indexed build" }) });
+    const run = await created.json();
+    const index = await (await fetch(`${base}/api/builds`)).json();
+    assert.equal(index.active.length, 1);
+    assert.equal(index.active[0].request_id, run.ids.requestId);
+    assert.equal(index.active[0].navigation_url, `/?build=${encodeURIComponent(run.ids.requestId)}`);
+    const detail = await (await fetch(`${base}/api/builds/${run.ids.requestId}`)).json();
+    assert.equal(detail.ids.encounterId, run.ids.encounterId);
+    assert.equal(detail.topology.catalog.observed_package_revisions, 0);
   } finally {
     server.close();
   }

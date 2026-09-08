@@ -18,6 +18,7 @@ export class BuildRoom {
     this.now = now;
     this.id = id;
     this.runs = new Map();
+    this.listeners = new Set();
   }
 
   submit({ prompt }) {
@@ -59,7 +60,9 @@ export class BuildRoom {
       message: "Simulated fixture: previewing the pipeline only; no remote worker was started.",
       evidence: { kind: "fixture" },
     });
-    return this.snapshot(ids.encounterId);
+    const snapshot = this.snapshot(ids.encounterId);
+    this.notify(ids.encounterId);
+    return snapshot;
   }
 
   record(encounterId, input) {
@@ -71,6 +74,7 @@ export class BuildRoom {
     if (event.evidence.kind === "local_process") run.evidence.local.push(event.evidence.receipt);
     if (event.evidence.kind === "modal_remote") run.evidence.modal.push(event.evidence.receipt);
     if (event.evidence.kind === "blender_window") run.evidence.blender.push(event.evidence.receipt);
+    this.notify(encounterId);
     return event;
   }
 
@@ -88,6 +92,7 @@ export class BuildRoom {
         modal: [...run.evidence.modal],
         blender: [...run.evidence.blender],
       },
+      topology: topology(run),
     };
   }
 
@@ -102,6 +107,56 @@ export class BuildRoom {
     return [...this.runs.keys()].map((encounterId) => this.snapshot(encounterId));
   }
 
+  buildIndex({ terminalLimit = 20 } = {}) {
+    const builds = this.list().map(buildSummary).sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return {
+      active: builds.filter((build) => !build.terminal),
+      recent_terminal: builds.filter((build) => build.terminal).slice(0, terminalLimit),
+      terminal_limit: terminalLimit,
+    };
+  }
+
+  buildDetail(requestId) {
+    const run = this.list().find((candidate) => candidate.ids.requestId === requestId);
+    if (!run) throw new RangeError(`unknown request ${requestId}`);
+    return { ...run, navigation_url: `/?build=${encodeURIComponent(requestId)}` };
+  }
+
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  notify(encounterId) {
+    const snapshot = this.snapshot(encounterId);
+    for (const listener of this.listeners) listener(encounterId, snapshot);
+  }
+
+  exportState() {
+    return {
+      version: 1,
+      runs: [...this.runs.values()].map((run) => ({
+        ...run,
+        artifacts: [...run.artifacts.entries()],
+        packages: [...run.packages.entries()],
+      })),
+    };
+  }
+
+  restore(state) {
+    if (state?.version !== 1 || !Array.isArray(state.runs)) throw new TypeError("invalid build-room state");
+    this.runs.clear();
+    for (const stored of state.runs) {
+      if (!stored?.ids?.encounterId || !Array.isArray(stored.events)) throw new TypeError("invalid stored build-room run");
+      this.runs.set(stored.ids.encounterId, {
+        ...stored,
+        artifacts: new Map(stored.artifacts || []),
+        packages: new Map(stored.packages || []),
+      });
+    }
+    return this;
+  }
+
   requireRun(encounterId) {
     const run = this.runs.get(encounterId);
     if (!run) throw new RangeError(`unknown encounter ${encounterId}`);
@@ -111,12 +166,13 @@ export class BuildRoom {
 
 /** Translate coordinator or dispatcher payloads without claiming their source is live. */
 export class CoordinatorEventAdapter {
-  constructor(room) {
+  constructor(room, { trustedObservation = () => false } = {}) {
     this.room = room;
+    this.trustedObservation = trustedObservation;
   }
 
-  ingest(input) {
-    const evidence = evidenceFromAdapterInput(input);
+  ingest(input, context = {}) {
+    const evidence = evidenceFromAdapterInput(input, context, this.trustedObservation);
     const artifact = normaliseRevision(input.artifact, "artifact") || moduleRevision(input.module);
     return this.room.record(input.encounter_id, {
       eventId: input.event_id,
@@ -157,18 +213,20 @@ function normaliseEvent(input, run, now, id, cursor) {
   };
 }
 
-function evidenceFromAdapterInput(input) {
+function evidenceFromAdapterInput(input, context, trustedObservation) {
   const source = input?.source || "adapter_reported";
   if (source === "modal_remote") {
     if (!input.receipt?.request_id || !input.receipt?.observed_at) {
       throw new TypeError("an observed Modal receipt requires request_id and observed_at");
     }
+    if (!trustedObservation(input, context)) throw new TypeError("Modal evidence requires a trusted local observer");
     return { kind: "modal_remote", receipt: input.receipt };
   }
   if (source === "blender_window") {
     if (!input.receipt?.observed_at || (!input.receipt.screenshot_path && !input.receipt.stream_url)) {
       throw new TypeError("observed Blender evidence requires screenshot_path or stream_url and observed_at");
     }
+    if (!trustedObservation(input, context)) throw new TypeError("Blender evidence requires a trusted local observer");
     return { kind: "blender_window", receipt: input.receipt };
   }
   if (source === "fixture") return { kind: "fixture" };
@@ -210,6 +268,56 @@ function orderedEvents(events) {
   return [...events].sort((a, b) => a.sequence - b.sequence
     || a.occurredAt.localeCompare(b.occurredAt)
     || a.cursor.localeCompare(b.cursor));
+}
+
+function topology(run) {
+  const events = orderedEvents(run.events);
+  const workers = new Map();
+  for (const event of events) {
+    const current = workers.get(event.workerId) || { workerId: event.workerId, events: [] };
+    current.events.push(event);
+    workers.set(event.workerId, current);
+  }
+  return {
+    workers: [...workers.values()].map((worker) => {
+      const last = worker.events.at(-1);
+      return {
+        worker_id: worker.workerId,
+        status: last.kind === "completed" ? "completed" : last.kind === "failed" ? "failed" : "active",
+        current_stage: last.kind,
+        evidence_kind: last.evidence.kind,
+      };
+    }),
+    catalog: {
+      semantic_entities: 0,
+      assets: run.artifacts.size,
+      animations: 0,
+      observed_artifact_revisions: run.artifacts.size,
+      observed_package_revisions: run.packages.size,
+    },
+  };
+}
+
+function buildSummary(run) {
+  const events = run.events;
+  const updatedAt = events.at(-1)?.occurredAt || run.submittedAt;
+  const workers = run.topology.workers.map((worker) => ({
+    ...worker,
+    updated_at: events.filter((event) => event.workerId === worker.worker_id).at(-1)?.occurredAt || run.submittedAt,
+  }));
+  const terminal = workers.length > 0 && workers.every((worker) => ["completed", "failed"].includes(worker.status));
+  return {
+    encounter_id: run.ids.encounterId,
+    request_id: run.ids.requestId,
+    submitted_at: run.submittedAt,
+    updated_at: updatedAt,
+    terminal,
+    work_graph: { stages: ["request", "planner", "coordinator", "dispatcher", "workers"], workers },
+    catalog: run.topology.catalog,
+    revisions: { artifacts: run.artifacts.length, packages: run.packages.length },
+    evidence_tier: workers.map((worker) => worker.evidence_kind),
+    navigation_url: `/?build=${encodeURIComponent(run.ids.requestId)}`,
+  };
 }
 
 function randomStableId(prefix) {

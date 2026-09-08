@@ -151,9 +151,11 @@ npm run build-room
 
 It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
 restarts it when its source changes, so the local viewer remains easy to patch;
-its in-memory request history resets after such a restart. The browser creates
-local encounter, request, and worker-correlation IDs and shows elapsed time, a
-pipeline graph, sequence-ordered worker events, and artifact/package revisions.
+the projection and replay log are persisted to `.build-room-state.json` across
+those restarts. The browser creates local encounter, request, and
+worker-correlation IDs and shows elapsed time, an event-driven directed topology
+(request/encounter → planner → coordinator → dispatcher → worker lanes),
+sequence-ordered worker events, catalog counters, and artifact/package revisions.
 
 The evidence label is deliberate:
 
@@ -166,7 +168,9 @@ The evidence label is deliberate:
   receipt with `request_id` and `observed_at`.
 - **Blender window/screenshot/stream (observed)** requires
   `source: "blender_window"` plus an observed screenshot path or stream URL and
-  an observation timestamp.
+  an observation timestamp. Both Modal and Blender labels also require a local
+  bridge to present the configured `x-build-room-observer-token`; otherwise
+  receipt-shaped input is rejected rather than displayed as observed.
 
 The adapter seam is `POST /api/ingest/coordinator` or
 `POST /api/ingest/dispatcher`. It accepts the coordinator's worker-event fields
@@ -176,4 +180,13 @@ defaults its evidence to unverified. It does not connect to a deployed
 coordinator or synthesize Modal/Blender receipts. A thin authenticated bridge
 may relay real `GET /v1/encounters/:encounterId`, work-item event, and freeze
 responses into that seam once those endpoints and credentials are actually in
-scope.
+scope. The browser uses Server-Sent Events for projection updates; it does not
+poll and requires no rebuild or page refresh after a trusted adapter event.
+
+`GET /api/builds` returns active builds plus a bounded (20-entry) recent terminal
+history. Each live derived record includes request/encounter IDs, the directed
+work-graph worker summaries and evidence tiers, timestamps, catalog counters,
+revision totals, and a navigation URL. `GET /api/builds/:requestId` is the
+request-keyed detail projection. The root page lists these live records and
+opens detail at `/?build=:requestId`; the detail view always links back to the
+dashboard.
