@@ -261,7 +261,15 @@ async function createBuildRoomUnityHandoff(packageRecord, manifest, buildRoomAss
     assemblyId: `unity-${packageRecord.package_id.slice(-56)}`,
     frozenPackage,
     selectedAssets: [selectedAsset],
-    selectedAnimations: [],
+    selectedAnimations: [{
+      animation_id: manifest.animation.animation_id,
+      revision: manifest.animation.module.revision,
+      uri: pathToFileURL(manifest.runtime.path).href,
+      path: manifest.runtime.path,
+      sha256: manifest.animation.module.artifact.sha256,
+      media_type: manifest.animation.module.artifact.media_type,
+      byte_length: manifest.animation.module.artifact.byte_length,
+    }],
     assembledAt: packageRecord.assembled_at,
     sourceEvidence: {
       kind: "local_blender_cli",
@@ -274,7 +282,7 @@ async function createBuildRoomUnityHandoff(packageRecord, manifest, buildRoomAss
     handoffId: `handoff-${packageRecord.package_id.slice(-55)}`,
     assemblyReceipt: assembly,
     loadDeadlineMs: 8000,
-    conceptLineage: { kind: "not_recorded", reason: "pre_gate_bootstrap" },
+    conceptLineage: manifest.concept_first_lineage,
   });
   const manifestPath = join(dirname(manifest.manifest_path), "unity-host-handoff.json");
   await writeUnityHostHandoff(manifestPath, handoff);

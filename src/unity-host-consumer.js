@@ -23,7 +23,7 @@ export async function createAssemblyReceipt({ assemblyId, frozenPackage, selecte
   assertTimestamp(assembledAt, "assembledAt");
   const assets = await validateSelections(selectedAssets, "asset_id", true);
   const animations = await validateSelections(selectedAnimations, "animation_id", false);
-  assertSourceEvidence(sourceEvidence, assets, frozenPackage);
+  assertSourceEvidence(sourceEvidence, [...assets, ...animations], frozenPackage);
   const unsigned = {
     schema_version: "1",
     assembly_id: assemblyId,
@@ -75,8 +75,8 @@ export async function validateAssemblyReceipt(receipt) {
   if (receipt.encounter_id !== receipt.frozen_package.encounter_id || receipt.package_manifest_sha256 !== receipt.frozen_package.manifest_sha256) throw new TypeError("assembly receipt package identity mismatch");
   assertTimestamp(receipt.assembled_at, "assembled_at");
   const assets = await validateSelections(receipt.selected_assets, "asset_id", true);
-  await validateSelections(receipt.selected_animations, "animation_id", false);
-  assertSourceEvidence(receipt.source_evidence, assets, receipt.frozen_package);
+  const animations = await validateSelections(receipt.selected_animations, "animation_id", false);
+  assertSourceEvidence(receipt.source_evidence, [...assets, ...animations], receipt.frozen_package);
   if (!SHA256.test(receipt.assembly_sha256 || "")) throw new TypeError("assembly receipt requires assembly_sha256");
   const { assembly_sha256, ...unsigned } = receipt;
   if (assembly_sha256 !== digest(unsigned)) throw new TypeError("assembly receipt hash mismatch");
@@ -132,7 +132,7 @@ function assertSourceEvidence(value, selectedAssets, frozenPackage) {
 }
 
 function assertBuildRoomReceipt(receipt, selectedAssets, frozenPackage) {
-  const fields = ["schema_version", "receipt_id", "package_id", "package_revision", "package_manifest_sha256", "assembled_at", "selected_modules", "fallback_provenance", "validation", "host_acceptance", "preserved_fallback_history", "receipt_sha256"];
+  const fields = ["schema_version", "receipt_id", "package_id", "package_revision", "package_manifest_sha256", "assembled_at", "selected_modules", "fallback_provenance", "validation", "concept_first_lineage", "host_acceptance", "preserved_fallback_history", "receipt_sha256"];
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) || Object.keys(receipt).some((key) => !fields.includes(key))) throw new TypeError("source evidence Build Room receipt is invalid");
   const required = ["schema_version", "receipt_id", "package_id", "package_revision", "package_manifest_sha256", "assembled_at", "selected_modules", "fallback_provenance", "validation", "host_acceptance", "receipt_sha256"];
   if (required.some((key) => !(key in receipt)) || receipt.schema_version !== "1" || !ID.test(receipt.receipt_id || "") || receipt.package_id !== frozenPackage.package_id || receipt.package_revision !== frozenPackage.revision || !SHA256.test(receipt.package_manifest_sha256 || "") || receipt.host_acceptance !== "not_observed" || !SHA256.test(receipt.receipt_sha256 || "")) throw new TypeError("source evidence Build Room receipt is invalid");
@@ -151,12 +151,13 @@ function assertConceptLineage(value) {
     if (value.reason !== "pre_gate_bootstrap") throw new TypeError("unrecorded lineage reason is invalid");
     return;
   }
-  if (value.kind === "bootstrap_waiver") {
-    assertExactKeys(value, ["kind", "waiver_id", "bounded_reason", "approver", "approved_at", "expires_at", "asset_ids"], "bootstrap waiver");
-    assertId(value.waiver_id, "waiver_id"); assertId(value.approver, "waiver approver");
-    if (typeof value.bounded_reason !== "string" || value.bounded_reason.length < 1 || value.bounded_reason.length > 512 || !Array.isArray(value.asset_ids) || value.asset_ids.length === 0 || value.asset_ids.some((id) => !ID.test(id)) || new Set(value.asset_ids).size !== value.asset_ids.length) throw new TypeError("bootstrap waiver is invalid");
-    assertTimestamp(value.approved_at, "waiver approved_at"); assertTimestamp(value.expires_at, "waiver expires_at");
-    if (Date.parse(value.expires_at) <= Date.parse(value.approved_at)) throw new TypeError("bootstrap waiver must expire after approval");
+  if (value.kind === "reuse_maintenance_waiver") {
+    assertExactKeys(value, ["kind", "waiver"], "bootstrap waiver");
+    const waiver = value.waiver;
+    assertExactKeys(waiver, ["kind", "bounded_reason", "approver", "approved_at", "expires_at", "asset_ids"], "bootstrap waiver details");
+    if (!["reuse", "maintenance"].includes(waiver.kind) || !ID.test(waiver.approver || "") || typeof waiver.bounded_reason !== "string" || waiver.bounded_reason.length < 1 || waiver.bounded_reason.length > 512 || !Array.isArray(waiver.asset_ids) || waiver.asset_ids.length === 0 || waiver.asset_ids.some((id) => !ID.test(id)) || new Set(waiver.asset_ids).size !== waiver.asset_ids.length) throw new TypeError("bootstrap waiver is invalid");
+    assertTimestamp(waiver.approved_at, "waiver approved_at"); assertTimestamp(waiver.expires_at, "waiver expires_at");
+    if (Date.parse(waiver.expires_at) <= Date.parse(waiver.approved_at)) throw new TypeError("bootstrap waiver must expire after approval");
     return;
   }
   if (value.kind === "concept_lineage") {

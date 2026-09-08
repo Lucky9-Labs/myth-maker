@@ -63,7 +63,9 @@ test("a Build Room selects a checked embedded animation and appends body and ani
     assert.equal(unityHandoff.assembly_receipt.source_evidence.build_room_assembly_receipt.receipt_sha256, finished.packages[0].assembly_receipt.receipt_sha256);
     assert.equal(unityHandoff.assembly_receipt.selected_assets[0].sha256, artifact.runtime_sha256);
     assert.equal(sha256(await readFile(unityHandoff.assembly_receipt.selected_assets[0].path)), artifact.runtime_sha256);
-    assert.deepEqual(unityHandoff.assembly_receipt.selected_animations, []);
+    assert.equal(unityHandoff.assembly_receipt.selected_animations.length, 1);
+    assert.equal(unityHandoff.assembly_receipt.selected_animations[0].animation_id, manifestAnimationId(finished.packages[0].assembly_receipt.selected_modules));
+    assert.equal(unityHandoff.assembly_receipt.selected_animations[0].sha256, artifact.runtime_sha256);
     assert.deepEqual(unityHandoff.evidence, { source: "local_blender_cli_observed", host_load: "not_observed", player_facing: "not_observed" });
     assert.equal(JSON.parse(await readFile(unityHandoff.manifest_path, "utf8")).handoff_sha256, unityHandoff.handoff_sha256);
     assert.equal(finished.topology.catalog.assets.count, 1);
@@ -222,3 +224,4 @@ function workerEvent(order, worker_id, sequence, kind, details = {}) {
 }
 
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
+function manifestAnimationId(selectedModules) { return selectedModules.find((module) => module.binding).module_id.replace("animation-module", "animation"); }

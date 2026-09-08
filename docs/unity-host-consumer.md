@@ -18,8 +18,9 @@ observed. Its `host_load` and `player_facing` fields are both `not_observed`.
 Loading this manifest in a Unity adapter is the next task; this repository does
 not claim that the host imported, rendered, or played it.
 
-`concept_lineage` is explicit: current D0 output records
-`not_recorded/pre_gate_bootstrap`. The closed manifest also reserves a bounded
-`bootstrap_waiver` (ID, reason, approver, approval/expiry timestamps, and asset
-scope) and exact concept revision references, so the concept-first enforcement
-task can reject absent or expired lineage without changing the consumer shape.
+`concept_lineage` is explicit: current D0 output carries the source
+`reuse_maintenance_waiver`, including its bounded reason, approver,
+approval/expiry timestamps, and asset scope. `not_recorded/pre_gate_bootstrap`
+remains available only for older bootstrap material. Exact concept revision
+references are also supported, so the concept-first enforcement task can reject
+absent or expired lineage without changing the consumer shape.
