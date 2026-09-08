@@ -448,7 +448,11 @@ function topology(run, catalogProjection, observedAt) {
       ...work,
       elapsed_seconds: elapsedSeconds(work, observedAt),
     })),
-    workers: [...workers.values()].filter((worker) => worker.events.some((event) => !["fixture", "local_process", "local_blender_cli", "local_blender_cli_failed"].includes(event.evidence.kind))).map((worker) => {
+    // Local workers are evidence too. Keep their summaries in the projection so
+    // the Build Room can distinguish a local CLI/process from an absent lane;
+    // consumers can still inspect the evidence kind before making any remote or
+    // host-runtime claim.
+    workers: [...workers.values()].map((worker) => {
       const last = worker.events.at(-1);
       return {
         worker_id: worker.workerId,

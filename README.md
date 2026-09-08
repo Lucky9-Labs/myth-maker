@@ -208,24 +208,28 @@ npm run demo:local-blender
 ```
 
 That command submits a bounded Build Room request and uses the installed local
-Blender CLI to create a small ocean-inspired demo mesh from a deterministic
+Blender CLI to create one simple appendage demo blueprint from a deterministic
 seed. It persists a content-addressed `.blend` checkpoint, checked `glb.v1`
-output, rendered PNG thumbnail, exact Blender command receipts, a newly
-produced catalog asset revision, and an assembler package revision under
-`.local-blender-artifacts/`. The demo creature is bootstrap content only; the
-module remains the generic `encounter.body` capability. It is **local Blender
-CLI evidence only**, not Modal/cloud execution, Unity-load validation, or
-player-facing proof.
+output with an embedded sway clip, rendered PNG thumbnail, exact Blender
+command receipts, newly produced immutable asset **and animation** catalog
+revisions, and an assembler package revision under
+`.local-blender-artifacts/`. The demo blueprint is bootstrap content only; the
+selected modules remain the generic `encounter.body` and `encounter.animation`
+capabilities. An explicit, time-bounded maintenance waiver records that
+concept-first runtime enforcement is not yet implemented. This is **local
+Blender CLI evidence only**, not Modal/cloud execution, Unity-load validation,
+or player-facing proof.
 
 After the first package completes, the viewer exposes **Request next
 revision**, or callers can `POST {}` to
 `/api/encounters/<encounter-id>/upgrades`. This bounded action runs a later
-local Blender work order for the same encounter. Revision 2 provides six curved,
-tapered appendage as local Blender demo data; a prompt may call it a tentacle,
-then preserves both revisions' `.blend`, PNG, GLB, package, and receipt history.
-The catalog appends revision 2 under the same asset ID with an exact revision-1
-parent hash; the assembly receipt records the retained revision-1 fallback
-history while selecting the compatible revision-2 runtime candidate.
+local Blender work order for the same encounter. Revision 2 remains within the
+first ladder stage: it keeps one curved, tapered appendage but makes its body
+recovery arc and embedded sway clip explicitly longer. It preserves both
+revisions' `.blend`, PNG, GLB, package, and receipt history. The catalog
+appends revision 2 under the same asset and animation IDs with exact revision-1
+parent hashes; the assembly receipt records retained package fallback history
+while selecting the compatible body and animation bindings.
 
 It listens at [http://127.0.0.1:4173](http://127.0.0.1:4173). Node's watch mode
 restarts it when its source changes, so the local viewer remains easy to patch;

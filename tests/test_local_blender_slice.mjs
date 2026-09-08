@@ -11,7 +11,7 @@ import { createBuildRoomServer } from "../src/build-room-server.js";
 import { createSqliteCatalog } from "../src/catalog-sqlite.js";
 import { LocalBlenderSliceBackend } from "../src/local-blender-slice-backend.js";
 
-test("a Build Room preserves local Blender revision 1 and appends a generic curved revision 2 with exact provenance", { timeout: 180_000 }, async () => {
+test("a Build Room selects a checked embedded animation and appends body and animation revisions with exact provenance", { timeout: 180_000 }, async () => {
   const artifactRoot = await mkdtemp(path.join(tmpdir(), "myth-maker-build-room-"));
   const catalog = createSqliteCatalog();
   const backend = new LocalBlenderSliceBackend({ outputDir: artifactRoot });
@@ -39,12 +39,23 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     const thumbnail = await fetch(`${base}${artifact.thumbnail_url}`);
     assert.equal(thumbnail.headers.get("content-type"), "image/png");
     assert.ok((await thumbnail.arrayBuffer()).byteLength > 0);
-    assert.equal(finished.packages[0].selection.length, 1);
-    assert.notEqual(finished.packages[0].selection[0], `baseline-${run.ids.encounterId.slice(-24)}`);
+    assert.equal(finished.packages[0].selection.length, 2);
+    assert.ok(!finished.packages[0].selection.includes(`baseline-${run.ids.encounterId.slice(-24)}`));
+    assert.ok(!finished.packages[0].selection.includes(`baseline-animation-${run.ids.encounterId.slice(-14)}`));
     assert.match(finished.packages[0].manifest_sha256, /^[a-f0-9]{64}$/);
     assert.equal(finished.packages[0].assembly_receipt.package_manifest_sha256, finished.packages[0].manifest_sha256);
     assert.equal(finished.packages[0].assembly_receipt.selected_modules[0].artifact_sha256, artifact.runtime_sha256);
+    const firstAnimationModule = finished.packages[0].assembly_receipt.selected_modules.find((module) => module.binding);
+    assert.ok(firstAnimationModule, "the selected package must include a separately declared generic animation capability");
+    assert.equal(firstAnimationModule.artifact_sha256, artifact.runtime_sha256, "the animation must be bound to the checked generated GLB");
+    assert.equal(firstAnimationModule.binding.model_binding_id, finished.packages[0].assembly_receipt.selected_modules[0].module_id);
     assert.equal(finished.packages[0].assembly_receipt.validation[0].kind, "glb.v1-checked");
+    assert.deepEqual(finished.packages[0].assembly_receipt.validation[1], {
+      kind: "embedded-glb-animation", status: "passed", artifact_sha256: artifact.runtime_sha256,
+      evidence_scope: "local_blender_cli_only", target_channel_count: 1,
+    });
+    assert.equal(finished.packages[0].assembly_receipt.concept_first_lineage.enforcement, "bootstrap-waiver-not-runtime-enforced");
+    assert.equal(finished.packages[0].assembly_receipt.concept_first_lineage.lineage.kind, "reuse_maintenance_waiver");
     assert.equal(finished.packages[0].assembly_receipt.host_acceptance, "not_observed");
     assert.match(finished.packages[0].assembly_receipt.receipt_sha256, /^[a-f0-9]{64}$/);
     const unityHandoff = finished.packages[0].unity_host_handoff;
@@ -57,13 +68,19 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     assert.equal(JSON.parse(await readFile(unityHandoff.manifest_path, "utf8")).handoff_sha256, unityHandoff.handoff_sha256);
     assert.equal(finished.topology.catalog.assets.count, 1);
     assert.equal(finished.topology.catalog.asset_revisions.count, 1);
+    assert.equal(finished.topology.catalog.animations.count, 1);
+    assert.equal(finished.topology.catalog.animation_revisions.count, 1);
     const receipt = blenderEvent.evidence.receipt;
-    assert.equal(receipt.note, "Observed local Blender CLI evidence; not Modal, Unity-load, or player proof.");
+    assert.equal(receipt.note, "Observed local Blender CLI evidence; embedded GLB animation was structure-checked, but this is not Modal, Unity-load, or player proof.");
     assert.equal(receipt.commands.length, 3);
     assert.ok(receipt.commands.every((command) => command.returncode === 0 && Array.isArray(command.argv)));
     assert.equal(sha256(await readFile(receipt.source.path)), artifact.source_sha256);
     assert.equal(sha256(await readFile(receipt.runtime.path)), artifact.runtime_sha256);
     assert.equal(sha256(await readFile(receipt.visual.path)), artifact.visual_sha256);
+    assert.equal(receipt.source_inspection.body_shape, "single-curved-tapered-appendage-v1");
+    assert.deepEqual(receipt.source_inspection.clips.map(({ target_node, clip_name, frame_end }) => ({ target_node, clip_name, frame_end })), [{ target_node: "generated-tentacle-0", clip_name: "encounter-appendage-sway-r1", frame_end: 32 }]);
+    assert.equal(receipt.concept_first_lineage.waiver.kind, "maintenance");
+    assert.ok(receipt.concept_first_lineage.waiver.asset_ids.includes(artifact.artifact_id));
     const upgradeResponse = await fetch(`${base}/api/encounters/${run.ids.encounterId}/upgrades`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotency_key: "real-blender-upgrade-002" }),
     });
@@ -90,6 +107,10 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     assert.equal(secondPackage.assembly_receipt.package_revision, 2);
     assert.equal(secondPackage.assembly_receipt.selected_modules[0].revision, 2);
     assert.equal(secondPackage.assembly_receipt.selected_modules[0].artifact_sha256, secondArtifact.runtime_sha256);
+    const secondAnimationModule = secondPackage.assembly_receipt.selected_modules.find((module) => module.binding);
+    assert.equal(secondAnimationModule.revision, 2);
+    assert.equal(secondAnimationModule.artifact_sha256, secondArtifact.runtime_sha256);
+    assert.equal(secondAnimationModule.binding.model_binding_id, secondPackage.assembly_receipt.selected_modules[0].module_id);
     assert.deepEqual(secondPackage.assembly_receipt.preserved_fallback_history, {
       package_revision: 1, package_manifest_sha256: firstPackage.manifest_sha256,
     });
@@ -99,6 +120,8 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     assert.equal(sha256(Buffer.from(JSON.stringify(receiptWithoutHash))), secondPackage.assembly_receipt.receipt_sha256);
     assert.equal(upgraded.topology.catalog.assets.count, 1);
     assert.equal(upgraded.topology.catalog.asset_revisions.count, 2);
+    assert.equal(upgraded.topology.catalog.animations.count, 1);
+    assert.equal(upgraded.topology.catalog.animation_revisions.count, 2);
     const catalogRevision1 = catalog.getAsset(firstArtifact.artifact_id, 1);
     const catalogRevision2 = catalog.getAsset(firstArtifact.artifact_id, 2);
     assert.equal(catalogRevision1.sourceReceipt.sha256, firstArtifact.source_sha256);
@@ -110,13 +133,26 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     assert.deepEqual(catalogRevision2.provenance.parentRefs, [{
       domain: "asset", stableId: catalogRevision1.assetId, revision: 1, contentSha256: catalogRevision1.contentSha256,
     }]);
-    const upgradedWorker = upgraded.events.find((event) => event.evidence.receipt?.source_inspection?.body_shape === "curved-tapered-appendages-v2");
-    assert.ok(upgradedWorker, "revision 2 must carry a local Blender source inspection receipt");
+    const animationRevision1 = catalog.getAnimation(firstAnimationModule.module_id.replace("animation-module", "animation"), 1);
+    const animationRevision2 = catalog.getAnimation(firstAnimationModule.module_id.replace("animation-module", "animation"), 2);
+    assert.equal(animationRevision1.runtimeArtifact.sha256, firstArtifact.runtime_sha256);
+    assert.equal(animationRevision2.runtimeArtifact.sha256, secondArtifact.runtime_sha256);
+    assert.deepEqual(animationRevision2.provenance.parentRefs, [{
+      domain: "animation", stableId: animationRevision1.animationId, revision: 1, contentSha256: animationRevision1.contentSha256,
+    }]);
+    assert.deepEqual(animationRevision2.conceptFirstLineage, catalogRevision2.conceptFirstLineage);
+    const upgradedWorker = upgraded.events.find((event) => event.evidence.receipt?.source_inspection?.body_shape === "single-curved-tapered-appendage-v1" && event.evidence.receipt?.runtime?.sha256 === secondArtifact.runtime_sha256);
+    assert.ok(upgradedWorker, "revision 2 must carry a local Blender source and GLB animation inspection receipt");
     assert.equal(upgradedWorker.evidence.receipt.source_inspection.appendage_count, 1);
     assert.equal(upgradedWorker.evidence.receipt.source_inspection.straight_cone_count, 0);
     assert.ok(upgradedWorker.evidence.receipt.source_inspection.appendages.every((appendage) => appendage.type === "CURVE" && appendage.tapered));
+    assert.equal(upgradedWorker.evidence.receipt.source_inspection.clips.length, 1);
+    assert.deepEqual(upgradedWorker.evidence.receipt.source_inspection.clips.map(({ clip_name, frame_end }) => ({ clip_name, frame_end })), [{ clip_name: "encounter-appendage-sway-r2", frame_end: 40 }]);
+    assert.ok(animationRevision2.durationMs > animationRevision1.durationMs, "revision 2 must carry an inspectably longer embedded motion clip without adding a larger encounter stage");
     assert.equal(upgradedWorker.evidence.receipt.commands.length, 3);
     assert.ok(upgraded.events.some((event) => event.workerId === "local-coordinator" && event.kind === "completed" && event.message.includes("re-evaluated")));
+    assert.ok(upgraded.topology.workers.some((worker) => worker.worker_id.startsWith("blender-cli-") && worker.status === "completed" && worker.evidence_kind === "local_blender_cli"));
+    assert.ok(upgraded.topology.workers.some((worker) => worker.worker_id === "local-assembler" && worker.status === "completed" && worker.evidence_kind === "local_process"));
     const replay = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt: "Make one curved tapered tentacle as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
@@ -158,7 +194,8 @@ test("a failed local Blender worker leaves an observed failure and assembles the
       (value) => value.packages.length === 1,
     );
     assert.equal(finished.artifacts.length, 0);
-    assert.equal(finished.packages[0].selection[0], `baseline-${run.ids.encounterId.slice(-24)}`);
+    assert.ok(finished.packages[0].selection.includes(`baseline-${run.ids.encounterId.slice(-24)}`));
+    assert.ok(finished.packages[0].selection.includes(`baseline-animation-${run.ids.encounterId.slice(-14)}`));
     assert.equal(finished.events.find((event) => event.kind === "failed")?.evidence.kind, "local_blender_cli_failed");
     assert.equal(finished.work_graph.find((work) => work.lane === "validation")?.status, "failed");
   } finally {

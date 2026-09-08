@@ -51,6 +51,17 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     appendAnimationRevision(record) {
       return transaction(() => appendRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation));
     },
+    /** Persist the first immutable revision for a newly-produced animation. */
+    createAnimation(record) {
+      return transaction(() => {
+        const normalized = normalizeAnimation(record);
+        if (normalized.revision !== 1) throw new TypeError("new animation must start at revision 1");
+        if (getRecord("animation_revisions", "animation_id", "animationId", normalized.animationId)) {
+          throw new TypeError(`animationId ${normalized.animationId} already exists`);
+        }
+        return insertAnimation(normalized);
+      });
+    },
     getSemanticEntity(entityId, revision = undefined) {
       return getRecord("semantic_entity_revisions", "entity_id", "entityId", entityId, revision);
     },
@@ -190,6 +201,7 @@ function normalizeAsset(input) {
   validateTags(record.functionalTags, "functionalTags"); validateTags(record.aestheticTags, "aestheticTags");
   validateProvenance(record.provenance); validateCompatibility(record.compatibility);
   validateSource(record);
+  validateConceptFirstLineage(record.conceptFirstLineage, record.assetId);
   validateRuntimeArtifact(record);
   if (record.visualArtifact !== undefined) validateVisualArtifact(record.visualArtifact);
   return finalize(record);
@@ -202,6 +214,7 @@ function normalizeAnimation(input) {
   if (!Number.isInteger(record.durationMs) || record.durationMs < 0) throw new TypeError("durationMs must be a non-negative integer");
   validateTags(record.functionalTags, "functionalTags"); validateTags(record.aestheticTags, "aestheticTags");
   validateProvenance(record.provenance); validateCompatibility(record.compatibility); validateSource(record);
+  validateConceptFirstLineage(record.conceptFirstLineage, record.animationId);
   if (!record.rigBinding || typeof record.rigBinding !== "object") throw new TypeError("rigBinding is required");
   nonEmpty(record.rigBinding.rigBindingId, "rigBinding.rigBindingId"); nonEmpty(record.rigBinding.modelBindingId, "rigBinding.modelBindingId");
   if (record.kind === "clip") validateRuntimeArtifact(record);
@@ -266,6 +279,26 @@ function validateProvenance(value) {
     assertRevision(parent.revision);
     assertHash(parent.contentSha256, "provenance.parentRefs.contentSha256");
   }
+}
+function validateConceptFirstLineage(value, stableId) {
+  // The catalog stores the gate record as an inspectable adoption seam.  It
+  // does not claim that the current Build Room enforces it at dispatch time.
+  if (value === undefined) return;
+  if (!value || value.kind !== "reuse_maintenance_waiver" || !value.waiver || typeof value.waiver !== "object") {
+    throw new TypeError("conceptFirstLineage must be an explicit concept gate waiver");
+  }
+  const waiver = value.waiver;
+  if (waiver.kind !== "reuse" && waiver.kind !== "maintenance") throw new TypeError("concept gate waiver kind is invalid");
+  if (typeof waiver.bounded_reason !== "string" || !waiver.bounded_reason || waiver.bounded_reason.length > 512
+    || !ID.test(waiver.approver || "") || !validFutureTimestamp(waiver.approved_at, waiver.expires_at)
+    || !Array.isArray(waiver.asset_ids) || new Set(waiver.asset_ids).size !== waiver.asset_ids.length
+    || !waiver.asset_ids.some((id) => id === stableId) || waiver.asset_ids.some((id) => !ID.test(id))) {
+    throw new TypeError("concept gate waiver is incomplete or outside its asset scope");
+  }
+}
+function validFutureTimestamp(approvedAt, expiresAt) {
+  return typeof approvedAt === "string" && typeof expiresAt === "string" && !Number.isNaN(Date.parse(approvedAt))
+    && !Number.isNaN(Date.parse(expiresAt)) && Date.parse(expiresAt) > Date.parse(approvedAt);
 }
 function assertImmediateParent(provenance, domain, stableId, previous) {
   const parents = provenance?.parentRefs;
