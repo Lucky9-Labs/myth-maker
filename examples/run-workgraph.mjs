@@ -31,7 +31,9 @@ const fixture = {
 };
 
 const graph = planEncounterWork(fixture);
-const result = await new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 180 }) }).dispatch(graph);
+// Leave enough run time for the overlap receipt to remain observable even when
+// the independent local child processes start under a loaded CI host.
+const result = await new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 800 }) }).dispatch(graph);
 const roots = graph.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
 const rootEvents = roots.map((order) => result.events.filter((event) => event.work_id === order.work_id));
 const starts = rootEvents.map((events) => events.find((event) => event.kind === "started").occurred_at);
