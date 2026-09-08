@@ -69,12 +69,14 @@ test("the worker-process JSON store survives restart with required-input results
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("the concrete worker service reconnects persisted lanes before accepting commands", async () => {
+test("the concrete worker service never substitutes a new socket for a persisted lane", async () => {
   const directory = await mkdtemp(join(tmpdir(), "myth-steering-service-")); const stateFile = join(directory, "state.json"); const opened = [];
   const options = { coordinatorUrl: "https://coordinator", commandToken: "command-secret", reportToken: "report-secret", ownerId: "owner-one", stateFile, fetcher: async () => new Response("", { status: 202 }), openResponsesSocket: async () => { const lane = new Lane(); opened.push(lane); return lane; } };
   try {
     const first = await createResponsesSteeringWorkerService(options); await first.registerAttempt(attempt());
     const second = await createResponsesSteeringWorkerService(options);
-    assert.equal(opened.length, 2); assert.ok(second.worker.gateway.lanes.has("lane-alpha"));
+    assert.equal(opened.length, 1); assert.equal(second.worker.gateway.lanes.has("lane-alpha"), false);
+    const receipt = await second.worker.acceptCommand({ owner_id: "owner-one", attempt_id: "attempt-alpha", request: request() });
+    assert.equal(receipt.status, "pending"); assert.equal(receipt.error_code, "steering_transport_unavailable_after_reconnect");
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

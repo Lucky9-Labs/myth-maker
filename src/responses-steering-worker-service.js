@@ -15,7 +15,7 @@ export async function createResponsesSteeringWorkerService({ coordinatorUrl, com
   const service = {
     worker,
     async registerAttempt(attempt) { return worker.registerAttempt(attempt, await openResponsesSocket(attempt)); },
-    async reconnectPersistedAttempts() { return worker.gateway.reconnectPersistedLanes(openResponsesSocket); },
+    async markPersistedAttemptsUncertain() { return worker.gateway.markPersistedLanesUncertain(); },
     async handle(request, body) {
       if (request.method === "POST" && request.url === "/v1/steering/attempts") {
         if (request.headers.authorization !== `Bearer ${commandToken}`) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
@@ -24,7 +24,7 @@ export async function createResponsesSteeringWorkerService({ coordinatorUrl, com
       return command(asRequest(request, body));
     },
   };
-  await service.reconnectPersistedAttempts();
+  await service.markPersistedAttemptsUncertain();
   return service;
 }
 

@@ -31,6 +31,9 @@ is only for coordinator-to-worker commands; `STEERING_REPORT_TOKEN` is only for
 worker-to-coordinator reports. `STEERING_WORKER_OWNER_ID` pins this V0 to one
 configured worker owner: the authenticated report header, attempt, receipt, and
 command must all name that exact owner. The lane is never sent over HTTP.
+After a worker-process restart, a new WebSocket is never treated as the old
+attempt's lane. Existing receipts are retained as transport-uncertain and the
+producer must register a fresh attempt once it has a genuinely active socket.
 
 The beta event correlation is nested under `event.steer`: its server steering
 ID, parent response ID, and lane identify a receipt. A lifecycle event without
