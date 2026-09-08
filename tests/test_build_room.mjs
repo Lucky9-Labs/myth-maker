@@ -124,7 +124,9 @@ test("projection state survives a local persistence round-trip for replay after 
   const firstCursor = run.events[0].cursor;
   const restored = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z" }).restore(room.exportState());
   assert.deepEqual(restored.replay(run.ids.encounterId, firstCursor), []);
-  assert.equal(restored.snapshot(run.ids.encounterId).topology.workers.length, 0);
+  assert.deepEqual(restored.snapshot(run.ids.encounterId).topology.workers, [{
+    worker_id: "worker-001", status: "active", current_stage: "accepted", evidence_kind: "local_process",
+  }]);
 });
 
 test("Blender evidence is absent until an observed screenshot or stream receipt arrives", () => {
@@ -266,6 +268,20 @@ test("both explicit SSE routes stream before generic detail routes and survive d
     }
     assert.equal((await fetch(`${base}/api/builds/${run.ids.requestId}`)).status, 200);
     assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}`)).status, 200);
+  } finally {
+    server.close();
+  }
+});
+
+test("the Build Room page includes the evidence-driven revision loop and keeps its raw-evidence drawer", async () => {
+  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
+    for (const expected of ["loop-flow", "Coordinator / planner", "Next revision / Blender", "Unity judge", "Concept-first gate", "Material", "Arena", "Build details and evidence"]) {
+      assert.match(page, new RegExp(expected));
+    }
   } finally {
     server.close();
   }

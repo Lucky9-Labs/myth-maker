@@ -17,7 +17,7 @@ import time
 from typing import Any
 
 from encounter_worker_adapter import HashAddressedArtifact, SourceArtifactReceipt
-from glb_source_importer import BlenderCliGlbConverter, GlbSourceImporter
+from glb_source_importer import BlenderCliGlbConverter, GlbSourceImporter, validate_glb
 
 
 def sha256_file(path: Path) -> str:
@@ -69,38 +69,46 @@ body.name="generated-body"
 body.scale=(0.82,0.62,0.70)
 body.data.materials.append(mat)
 body.parent=origin
-if {revision} == 1:
-    for index in range(4):
-        angle=index*math.tau/4+0.2
-        bpy.ops.mesh.primitive_cone_add(vertices=16, radius1=0.12, radius2=0.22, depth=1.0, location=(math.cos(angle)*0.58,math.sin(angle)*0.48,-0.05))
-        limb=bpy.context.object
-        limb.name=f"generated-fin-{{index}}"
-        limb.rotation_euler=(0.45,0.0,angle)
-        limb.data.materials.append(accent)
-        limb.parent=origin
-else:
-    for index in range(1):
-        angle=index*math.tau+0.18
-        direction=mathutils.Vector((math.cos(angle),math.sin(angle),0))
-        tangent=mathutils.Vector((-math.sin(angle),math.cos(angle),0))
-        root=direction*0.52+mathutils.Vector((0,0,0.22))
-        curve=bpy.data.curves.new(f"generated-tentacle-{{index}}","CURVE")
-        curve.dimensions="3D"
-        curve.resolution_u=16
-        curve.bevel_depth=0.14
-        curve.bevel_resolution=4
-        spline=curve.splines.new("NURBS")
-        spline.points.add(3)
-        points=[root, root+direction*0.34+tangent*0.20+mathutils.Vector((0,0,-0.18)), root+direction*0.72-tangent*0.24+mathutils.Vector((0,0,-0.48)), root+direction*0.96+tangent*0.10+mathutils.Vector((0,0,-0.30))]
-        for point_index, (point, radius) in enumerate(zip(points,[1.35,1.0,0.52,0.12])):
-            spline.points[point_index].co=(*point,1)
-            spline.points[point_index].radius=radius
-        spline.order_u=4
-        spline.use_endpoint_u=True
-        limb=bpy.data.objects.new(f"generated-tentacle-{{index}}",curve)
-        bpy.context.collection.objects.link(limb)
-        curve.materials.append(accent)
-        limb.parent=origin
+for index in range(1):
+    # The one appendage is bootstrap blueprint data only.  The emitted runtime
+    # capability remains encounter.animation and does not encode this name.
+    angle=index*math.tau+0.18
+    direction=mathutils.Vector((math.cos(angle),math.sin(angle),0))
+    tangent=mathutils.Vector((-math.sin(angle),math.cos(angle),0))
+    root=direction*0.52+mathutils.Vector((0,0,0.22))
+    curve=bpy.data.curves.new(f"generated-tentacle-{{index}}","CURVE")
+    curve.dimensions="3D"
+    curve.resolution_u=16
+    curve.bevel_depth=0.14
+    curve.bevel_resolution=4
+    spline=curve.splines.new("NURBS")
+    spline.points.add(3)
+    # A later immutable revision keeps the same first-stage silhouette (one
+    # appendage) but lengthens its recovery arc.  That makes the body and clip
+    # revision observable without jumping ahead to medium/large encounter work.
+    recovery_extension=0.0 if {revision} == 1 else 0.16
+    points=[root, root+direction*(0.34+recovery_extension*0.25)+tangent*0.20+mathutils.Vector((0,0,-0.18)), root+direction*(0.72+recovery_extension*0.75)-tangent*0.24+mathutils.Vector((0,0,-0.48)), root+direction*(0.96+recovery_extension)+tangent*0.10+mathutils.Vector((0,0,-0.30))]
+    for point_index, (point, radius) in enumerate(zip(points,[1.35,1.0,0.52,0.12])):
+        spline.points[point_index].co=(*point,1)
+        spline.points[point_index].radius=radius
+    spline.order_u=4
+    spline.use_endpoint_u=True
+    limb=bpy.data.objects.new(f"generated-tentacle-{{index}}",curve)
+    bpy.context.collection.objects.link(limb)
+    curve.materials.append(accent)
+    limb.parent=origin
+    # A real GLB clip: an object-level sway is exported with the appendage and
+    # checked from the exported GLB below.  It is not a counter or a recipe-only
+    # stand-in for animation evidence.
+    limb.rotation_mode="XYZ"
+    limb.rotation_euler=(0.0,0.0,0.0)
+    limb.keyframe_insert(data_path="rotation_euler",frame=1)
+    limb.rotation_euler=(0.0,0.22 if {revision} == 1 else 0.32,0.32 if {revision} == 1 else 0.46)
+    limb.keyframe_insert(data_path="rotation_euler",frame=16)
+    limb.rotation_euler=(0.0,-0.18 if {revision} == 1 else -0.27,-0.28 if {revision} == 1 else -0.40)
+    limb.keyframe_insert(data_path="rotation_euler",frame=32 if {revision} == 1 else 40)
+    action=limb.animation_data.action
+    action.name="encounter-appendage-sway-r{revision}"
 for side in (-1,1):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=0.10, location=(0.35,side*0.26,0.70))
     eye=bpy.context.object
@@ -146,9 +154,34 @@ for obj in appendages:
     spline=obj.data.splines[0]
     radii=[point.radius for point in spline.points]
     details.append({{"name":obj.name,"type":obj.type,"point_count":len(spline.points),"radii":radii,"tapered":radii[0] > radii[-1]}})
-result={{"body_shape":"curved-tapered-appendages-v2" if appendages else "baseline-straight-cones-v1","appendage_count":len(appendages),"straight_cone_count":len(cones),"appendages":details}}
+clips=[]
+for obj in appendages:
+    action=obj.animation_data.action if obj.animation_data else None
+    if action:
+        clips.append({{"target_node":obj.name,"clip_name":action.name,"fcurve_count":1,"frame_start":action.frame_range[0],"frame_end":action.frame_range[1]}})
+result={{"body_shape":"single-curved-tapered-appendage-v1","appendage_count":len(appendages),"straight_cone_count":len(cones),"appendages":details,"clips":clips}}
 open({str(receipt_path)!r},"w",encoding="utf-8").write(json.dumps(result,sort_keys=True))
 '''
+
+
+def embedded_animation_receipt(glb_bytes: bytes, target_node: str) -> dict[str, Any]:
+    """Inspect the exported GLB rather than trusting the Blender source claim."""
+    document = validate_glb(glb_bytes, material_allowlist=["standard", "standard-accent"], extension_allowlist=[])
+    nodes = document.get("nodes", [])
+    targets = [index for index, node in enumerate(nodes) if node.get("name") == target_node]
+    if len(targets) != 1:
+        raise RuntimeError("GLB animation target node is absent or ambiguous")
+    channels = [channel for animation in document.get("animations", [])
+                for channel in animation.get("channels", [])
+                if channel.get("target", {}).get("node") == targets[0]]
+    if not channels:
+        raise RuntimeError("GLB has no embedded animation channel for generated appendage")
+    if not all(channel.get("target", {}).get("path") == "rotation" for channel in channels):
+        raise RuntimeError("GLB animation channel is not an appendage rotation clip")
+    names = [animation.get("name") for animation in document.get("animations", []) if animation.get("name")]
+    return {"status":"passed","target_node":target_node,"animation_count":len(document.get("animations", [])),
+            "target_channel_count":len(channels),"paths":sorted({channel["target"]["path"] for channel in channels}),
+            "clip_names":names}
 
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
@@ -179,9 +212,10 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     inspect_path.write_text(inspection_script(inspection_path), encoding="utf-8")
     inspection_receipt = run_blender(executable, ["--background", "--factory-startup", "--disable-autoexec", str(source_path), "--python", str(inspect_path)], staging)
     inspection = json.loads(inspection_path.read_text(encoding="utf-8"))
-    if args.revision >= 2 and (inspection.get("appendage_count") != 1 or inspection.get("straight_cone_count") != 0
-                               or not all(item.get("type") == "CURVE" and item.get("point_count", 0) >= 4 and item.get("tapered") for item in inspection.get("appendages", []))):
-        raise RuntimeError("Blender source inspection did not find six curved, tapered appendages")
+    if (inspection.get("appendage_count") != 1 or inspection.get("straight_cone_count") != 0
+            or not all(item.get("type") == "CURVE" and item.get("point_count", 0) >= 4 and item.get("tapered") for item in inspection.get("appendages", []))
+            or len(inspection.get("clips", [])) != 1 or inspection["clips"][0].get("fcurve_count", 0) < 1):
+        raise RuntimeError("Blender source inspection did not find one animated curved, tapered appendage")
     created_at = timestamp()
     source_receipt = SourceArtifactReceipt(args.work_id, args.worker_id, created_at, f"{args.work_id}.blend",
         HashAddressedArtifact(f"sha256:{source_hash}", source_hash, "application/x-blender", source_path.stat().st_size), ())
@@ -197,7 +231,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
     output_hash = hashlib.sha256(result.glb_bytes).hexdigest()
     output_path = runtime_dir / f"{output_hash}.glb"
     output_path.write_bytes(result.glb_bytes)
-    manifest = {"schema_version":"1","kind":"local_blender_generated_asset","evidence_scope":"local_blender_cli_only","seed":args.seed,"revision":args.revision,"encounter_id":args.encounter_id,"work_id":args.work_id,"worker_id":args.worker_id,"created_at":created_at,"asset_id":asset_id,"module":result.runtime_asset,"loader_profile":result.loader_profile,"source":{**source_receipt.to_record(),"path":str(source_path)},"runtime":{**result.runtime_asset["artifact"],"path":str(output_path)},"visual":{"path":str(thumbnail_path),"sha256":thumbnail_hash,"media_type":"image/png","byte_length":thumbnail_path.stat().st_size},"source_inspection":inspection,"worker_receipt":{"status":"completed","commands":[generation_receipt, inspection_receipt, converter.last_receipt],"converter":"BlenderCliGlbConverter","note":"Observed local Blender CLI evidence; not Modal, Unity-load, or player proof."}}
+    glb_animation = embedded_animation_receipt(result.glb_bytes, "generated-tentacle-0")
+    animation_id = stable_id("animation", args.encounter_id)
+    animation_module_id = stable_id("animation-module", args.encounter_id)
+    animation_module = {"schema_version":"1","module_id":animation_module_id,"revision":args.revision,
+        "execution_kind":"runtime_asset","provides":["encounter.animation"],"requires":["encounter-module.v1"],"conflicts":[],
+        "compatibility":{"host_contract_version":"1","platforms":["local"],"bindings":{"gltf":"2.0","urp":"17","animation.binding.encounter-body.v1":module_id}},
+        "quality":{"tier":1,"score":float(args.revision)},"artifact":result.runtime_asset["artifact"],
+        "fallback_module_ids":[f"baseline-animation-{args.encounter_id[-14:]}"],
+        "provenance":{"producer":"local-blender-animation-export","created_at":created_at,"parent_module_ids":[module_id],"label":"embedded-glb-animation"}}
+    animation = {"animation_id":animation_id,"module":animation_module,"kind":"clip","duration_ms":round((inspection["clips"][0]["frame_end"]-inspection["clips"][0]["frame_start"])/24*1000),
+        "rig_binding":{"rig_binding_id":"animation.binding.encounter-body.v1","model_binding_id":module_id},"embedded_glb":glb_animation}
+    concept_first_lineage = {"kind":"reuse_maintenance_waiver","waiver":{"kind":"maintenance",
+        "bounded_reason":"D0 local Blender bootstrap while concept-first runtime enforcement is not yet implemented.",
+        "approver":"local-build-room","approved_at":created_at,"expires_at":"2026-12-31T00:00:00Z",
+        "asset_ids":[asset_id,animation_id]}}
+    manifest = {"schema_version":"1","kind":"local_blender_generated_asset","evidence_scope":"local_blender_cli_only","seed":args.seed,"revision":args.revision,"encounter_id":args.encounter_id,"work_id":args.work_id,"worker_id":args.worker_id,"created_at":created_at,"asset_id":asset_id,"module":result.runtime_asset,"animation":animation,"concept_first_lineage":concept_first_lineage,"loader_profile":result.loader_profile,"source":{**source_receipt.to_record(),"path":str(source_path)},"runtime":{**result.runtime_asset["artifact"],"path":str(output_path)},"visual":{"path":str(thumbnail_path),"sha256":thumbnail_hash,"media_type":"image/png","byte_length":thumbnail_path.stat().st_size},"source_inspection":inspection,"worker_receipt":{"status":"completed","commands":[generation_receipt, inspection_receipt, converter.last_receipt],"converter":"BlenderCliGlbConverter","note":"Observed local Blender CLI evidence; embedded GLB animation was structure-checked, but this is not Modal, Unity-load, or player proof."}}
     manifest_path = work_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="utf-8")
     manifest["manifest_path"] = str(manifest_path)
