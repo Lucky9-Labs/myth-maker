@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { createSqliteCatalog } from "../src/catalog-sqlite.js";
+import { compositionContentSha256 } from "../src/composition-swarm-coordinator.js";
 
 const host = {
   platform: "windows",
@@ -185,5 +186,30 @@ test("requires the exact immediately prior parent when appending a revision", ()
     ...prior, functionalTags: [...prior.functionalTags, "body.armored"],
     provenance: { ...prior.provenance, parentRefs: [parentRef(prior, "asset")] },
   }), /current revision/);
+  catalog.close();
+});
+
+test("catalog owns immutable generic composition module revisions", () => {
+  const catalog = createSqliteCatalog();
+  const first = {
+    schema_version: "2", module_id: "generic-shell", revision: 1,
+    content_sha256: "0".repeat(64),
+    provenance: { created_at: "2026-09-08T00:00:00Z", parent_module_refs: [] },
+  };
+  first.content_sha256 = compositionContentSha256(first);
+  assert.deepEqual(catalog.admitCompositionModuleRevision(first), first);
+  assert.deepEqual(catalog.admitCompositionModuleRevision(first), first, "exact replay is idempotent");
+  const conflicting = { ...first, extra: "different", content_sha256: "0".repeat(64) }; conflicting.content_sha256 = compositionContentSha256(conflicting);
+  assert.throws(() => catalog.admitCompositionModuleRevision(conflicting), /conflicts with the immutable catalog revision/);
+  const missingParent = { ...first, revision: 2, content_sha256: "0".repeat(64) }; missingParent.content_sha256 = compositionContentSha256(missingParent);
+  assert.throws(() => catalog.admitCompositionModuleRevision(missingParent), /immediate parent/);
+  const second = {
+    ...first, revision: 2, content_sha256: "0".repeat(64),
+    provenance: { created_at: "2026-09-08T00:00:01Z", parent_module_refs: [{ module_id: first.module_id, revision: 1, content_sha256: first.content_sha256 }] },
+  };
+  second.content_sha256 = compositionContentSha256(second);
+  assert.deepEqual(catalog.admitCompositionModuleRevision(second), second);
+  assert.deepEqual(catalog.getCompositionModule("generic-shell", 1), first);
+  assert.deepEqual(catalog.getCompositionModule("generic-shell"), second);
   catalog.close();
 });

@@ -1,4 +1,5 @@
--- V0 is one persistence boundary with three logical catalog domains.
+-- V0 is one persistence boundary for semantic entities, source/runtime parts,
+-- generic composition modules, and operational evidence projections.
 -- TEXT JSON keeps this migration portable to SQLite today and Railway Postgres
 -- later; callers only use the Catalog interface, never this SQL directly.
 CREATE TABLE IF NOT EXISTS semantic_entity_revisions (
@@ -41,6 +42,18 @@ CREATE TABLE IF NOT EXISTS animation_revisions (
   UNIQUE (animation_id, content_sha256)
 );
 
+-- Generic immutable modules used by the composition coordinator. The catalog,
+-- rather than an in-memory coordinator map, owns revision identity.
+CREATE TABLE IF NOT EXISTS composition_module_revisions (
+  module_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  content_sha256 TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  PRIMARY KEY (module_id, revision),
+  UNIQUE (module_id, content_sha256)
+);
+
 -- This is an operational encounter projection, not a fourth catalog.
 CREATE TABLE IF NOT EXISTS encounter_evidence_projection (
   evidence_id TEXT PRIMARY KEY,
@@ -56,5 +69,6 @@ CREATE TABLE IF NOT EXISTS encounter_evidence_projection (
 
 CREATE INDEX IF NOT EXISTS asset_revisions_latest ON asset_revisions (asset_id, revision DESC);
 CREATE INDEX IF NOT EXISTS animation_revisions_latest ON animation_revisions (animation_id, revision DESC);
+CREATE INDEX IF NOT EXISTS composition_module_revisions_latest ON composition_module_revisions (module_id, revision DESC);
 CREATE INDEX IF NOT EXISTS encounter_evidence_by_encounter
   ON encounter_evidence_projection (encounter_id, occurred_at, evidence_id);

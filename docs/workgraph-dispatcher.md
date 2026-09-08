@@ -39,7 +39,9 @@ admission: it checks worker capabilities/ownership, revision dependencies, and
 ordered resource claims before projecting work into this v1 dispatcher. A
 terminal dispatcher receipt is deliberately not an accepted composition result;
 v2 requires separately recorded validation evidence before it releases a
-dependent work item.
+dependent work item. Independent ready v2 items are launched concurrently; the
+dispatcher remains the sole execution/receipt authority for each projected
+order.
 
 Run the offline concurrency proof:
 

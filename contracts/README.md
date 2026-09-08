@@ -39,10 +39,11 @@ what the target player and generation services can actually support.
 ## Composition v2
 
 `v2/` adds the closed, generic composition coordination contract while keeping
-the stable v1 dispatcher and package interfaces intact. It names immutable
-module content hashes and exact revision references; capability/ownership-aware
-work items with ordered resource claims; and a receipt/projection for the
-current coherent whole. See
+the stable v1 dispatcher and package interfaces intact. It names catalog-owned
+immutable module content hashes and exact revision references;
+capability/ownership-aware work items with one exact output and ordered resource
+claims; and an assembler-revision-backed receipt for the current coherent
+whole. Whole validation is bound to an exact claimed snapshot. See
 [`docs/composition-swarm-coordinator.md`](../docs/composition-swarm-coordinator.md)
 for the explicit implementation boundary, including the machine-visible
 unimplemented geometric-stitching limitation.

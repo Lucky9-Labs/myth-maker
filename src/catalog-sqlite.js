@@ -40,6 +40,9 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     appendAnimationRevision(record) {
       return transaction(() => appendRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation));
     },
+    admitCompositionModuleRevision(module) {
+      return transaction(() => admitCompositionModule(module));
+    },
     getSemanticEntity(entityId, revision = undefined) {
       return getRecord("semantic_entity_revisions", "entity_id", "entityId", entityId, revision);
     },
@@ -48,6 +51,9 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     },
     getAnimation(animationId, revision = undefined) {
       return getRecord("animation_revisions", "animation_id", "animationId", animationId, revision);
+    },
+    getCompositionModule(moduleId, revision = undefined) {
+      return getRecord("composition_module_revisions", "module_id", "module_id", moduleId, revision);
     },
     getEntityGraph(entityId, revision = undefined) {
       const entity = catalog.getSemanticEntity(entityId, revision);
@@ -95,6 +101,8 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
         semantic_entity_revisions: count("semantic_entity_revisions"),
         asset_revisions: count("asset_revisions"),
         animation_revisions: count("animation_revisions"),
+        composition_modules: count("composition_module_revisions", "module_id"),
+        composition_module_revisions: count("composition_module_revisions"),
       };
     },
     close() { db.close(); },
@@ -121,6 +129,33 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
   }
   function insertAsset(record) { return insertRecord("asset_revisions", "asset_id", "assetId", record); }
   function insertAnimation(record) { return insertRecord("animation_revisions", "animation_id", "animationId", record); }
+  function admitCompositionModule(input) {
+    const module = clone(input);
+    assertId(module?.module_id, "module_id");
+    assertRevision(module?.revision);
+    assertHash(module?.content_sha256, "content_sha256");
+    assertTimestamp(module?.provenance?.created_at, "provenance.created_at");
+    const unhashed = clone(module); delete unhashed.content_sha256;
+    if (module.content_sha256 !== sha256(unhashed)) throw new TypeError("composition module content_sha256 does not match canonical content");
+    const existing = getRecord("composition_module_revisions", "module_id", "module_id", module.module_id, module.revision);
+    if (existing) {
+      if (stringify(existing) !== stringify(module)) throw new TypeError(`composition module ${module.module_id}@${module.revision} conflicts with the immutable catalog revision`);
+      return existing;
+    }
+    const latest = getRecord("composition_module_revisions", "module_id", "module_id", module.module_id);
+    if ((!latest && module.revision !== 1) || (latest && module.revision !== latest.revision + 1)) {
+      throw new TypeError(`composition module ${module.module_id}@${module.revision} must follow the current catalog revision`);
+    }
+    if (latest) {
+      const parent = module.provenance?.parent_module_refs?.find((ref) => ref.module_id === latest.module_id);
+      if (!parent || parent.revision !== latest.revision || parent.content_sha256 !== latest.content_sha256) {
+        throw new TypeError("composition module append requires its exact immediate parent revision");
+      }
+    }
+    db.prepare("INSERT INTO composition_module_revisions (module_id, revision, content_sha256, created_at, data_json) VALUES (?, ?, ?, ?, ?)")
+      .run(module.module_id, module.revision, module.content_sha256, module.provenance.created_at, stringify(module));
+    return clone(module);
+  }
   function insertRecord(table, column, property, record) {
     db.prepare(`INSERT INTO ${table} (${column}, revision, content_sha256, created_at, data_json) VALUES (?, ?, ?, ?, ?)`)
       .run(record[property], record.revision, record.contentSha256, record.createdAt, stringify(record));

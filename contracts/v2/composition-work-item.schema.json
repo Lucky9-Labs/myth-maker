@@ -3,11 +3,11 @@
   "$id": "https://myth-maker.dev/contracts/v2/composition-work-item.schema.json",
   "title": "CompositionWorkItem",
   "type": "object", "additionalProperties": false,
-  "required": ["schema_version", "work_id", "lane", "deadline_at", "required_worker_capabilities", "provided_capabilities", "input_module_revisions", "depends_on_work_ids", "dependency_release", "resource_claims", "fidelity_kind", "assembly_role"],
+  "required": ["schema_version", "work_id", "lane", "deadline_at", "required_worker_capabilities", "provided_capabilities", "input_module_revisions", "output_module_ref", "output_owner", "depends_on_work_ids", "dependency_release", "resource_claims", "fidelity_kind", "assembly_role"],
   "properties": {
     "schema_version": { "const": "2" }, "work_id": { "$ref": "common.schema.json#/$defs/id" }, "lane": { "$ref": "common.schema.json#/$defs/tag" }, "deadline_at": { "type": "string", "format": "date-time" },
     "required_worker_capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/tag" } }, "provided_capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/tag" } },
-    "input_module_revisions": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/moduleRef" } }, "depends_on_work_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/id" } },
+    "input_module_revisions": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/moduleRef" } }, "output_module_ref": { "$ref": "common.schema.json#/$defs/moduleRef" }, "output_owner": { "$ref": "common.schema.json#/$defs/tag" }, "depends_on_work_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/id" } },
     "dependency_release": { "type": "object", "additionalProperties": false, "required": ["required_status", "required_provides"], "properties": { "required_status": { "const": "accepted_validated" }, "required_provides": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/tag" } } } },
     "resource_claims": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["resource_id", "mode"], "properties": { "resource_id": { "$ref": "common.schema.json#/$defs/tag" }, "mode": { "enum": ["shared_read", "exclusive_write"] }, "media_type": { "type": "string" } } } }, "fidelity_kind": { "enum": ["whole", "component"] }, "assembly_role": { "enum": ["component_refinement", "whole_validation", "geometric_stitch_validation"] }
   }
