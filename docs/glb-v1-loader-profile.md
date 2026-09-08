@@ -83,3 +83,10 @@ This sidecar does **not** create collision, navigation, hit volumes, attacks,
 animation, AI, or an objective from visual data. `provides`, quality, conflicts,
 and fallback IDs are explicit caller declarations; gameplay contracts require a
 separate host-owned authoring and acceptance path.
+
+When Build Room has selected an observed local Blender CLI candidate, its
+consumer bridge writes a separate `unity-host-handoff.json` beside the immutable
+asset manifest. That handoff resolves and re-hashes the GLB at a local `file:`
+URI under an 8-second budget, but still records Unity host load and player
+evidence as `not_observed`. See
+[`unity-host-consumer.md`](unity-host-consumer.md).

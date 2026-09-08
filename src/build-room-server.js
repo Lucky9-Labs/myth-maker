@@ -1,15 +1,17 @@
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { BuildRoom, CoordinatorEventAdapter } from "./build-room.js";
 import { planEncounterWork } from "./workgraph-planner.js";
 import { EncounterDispatcher } from "./encounter-dispatcher.js";
 import { LocalWorkerBackend } from "./local-worker-backend.js";
 import { LocalBlenderSliceBackend } from "./local-blender-slice-backend.js";
-import { assembleEncounterPackage } from "./encounter-package-assembler.js";
+import { assembleEncounterPackage, freezeEncounterPackage } from "./encounter-package-assembler.js";
 import { createSqliteCatalog } from "./catalog-sqlite.js";
 import { ingestGlbRuntimeCandidate } from "./glb-runtime-candidate-ingress.js";
+import { createAssemblyReceipt, createUnityHostHandoff, writeUnityHostHandoff } from "./unity-host-consumer.js";
 
 export function createBuildRoomServer({ room = new BuildRoom(), persist = () => {}, catalog = createSqliteCatalog(), artifactRoot = ".local-blender-artifacts", blenderBackend = new LocalBlenderSliceBackend({ outputDir: artifactRoot }) } = {}) {
   if (!catalog || typeof catalog.projectionSummary !== "function") throw new TypeError("catalog must expose projectionSummary()");
@@ -169,6 +171,8 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
     previousPackage: priorPackage,
     assembledAt: new Date().toISOString(),
   });
+  const buildRoomAssemblyReceipt = assemblyReceipt(packageResult.package, manifest, priorPackage);
+  const unityHostHandoff = manifest ? await createBuildRoomUnityHandoff(packageResult.package, manifest, buildRoomAssemblyReceipt) : undefined;
   room.record(run.ids.encounterId, {
     workerId: "local-assembler", sequence: 0, kind: "completed", occurredAt: new Date().toISOString(),
     message: candidate ? `Local assembler re-evaluated encounter package revision ${packageResult.package.revision} and selected the checked local Blender runtime candidate; host-game acceptance remains absent.` : "Local assembler preserved the compatible baseline fallback after terminal worker receipts.",
@@ -181,7 +185,8 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
       rejections: packageResult.rejections,
       manifest_sha256: packageResult.package.manifest_sha256,
       package_record: packageResult.package,
-      assembly_receipt: assemblyReceipt(packageResult.package, manifest, priorPackage),
+      assembly_receipt: buildRoomAssemblyReceipt,
+      ...(unityHostHandoff ? { unity_host_handoff: unityHostHandoff } : {}),
     },
     evidence: { kind: "local_process", receipt: { process: "encounter-package-assembler", observed_at: new Date().toISOString() } },
   });
@@ -220,6 +225,41 @@ function assemblyReceipt(packageRecord, manifest, previousPackage = undefined) {
     ...(previousPackage ? { preserved_fallback_history: { package_revision: previousPackage.revision, package_manifest_sha256: previousPackage.manifest_sha256 } } : {}),
   };
   return { ...withoutHash, receipt_sha256: createHash("sha256").update(JSON.stringify(withoutHash)).digest("hex") };
+}
+
+async function createBuildRoomUnityHandoff(packageRecord, manifest, buildRoomAssemblyReceipt) {
+  const frozenPackage = freezeEncounterPackage(packageRecord, packageRecord.assembled_at);
+  const selectedAsset = {
+    asset_id: manifest.asset_id,
+    revision: manifest.revision,
+    uri: pathToFileURL(manifest.runtime.path).href,
+    path: manifest.runtime.path,
+    sha256: manifest.runtime.sha256,
+    media_type: manifest.runtime.media_type,
+    byte_length: manifest.runtime.byte_length,
+  };
+  const assembly = await createAssemblyReceipt({
+    assemblyId: `unity-${packageRecord.package_id.slice(-56)}`,
+    frozenPackage,
+    selectedAssets: [selectedAsset],
+    selectedAnimations: [],
+    assembledAt: packageRecord.assembled_at,
+    sourceEvidence: {
+      kind: "local_blender_cli",
+      scope: "local_blender_cli_only",
+      observed_at: manifest.created_at,
+      build_room_assembly_receipt: buildRoomAssemblyReceipt,
+    },
+  });
+  const handoff = await createUnityHostHandoff({
+    handoffId: `handoff-${packageRecord.package_id.slice(-55)}`,
+    assemblyReceipt: assembly,
+    loadDeadlineMs: 8000,
+    conceptLineage: { kind: "not_recorded", reason: "pre_gate_bootstrap" },
+  });
+  const manifestPath = join(dirname(manifest.manifest_path), "unity-host-handoff.json");
+  await writeUnityHostHandoff(manifestPath, handoff);
+  return { manifest_path: manifestPath, ...handoff };
 }
 
 function catalogAsset(manifest, prior = undefined) {

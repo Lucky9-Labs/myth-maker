@@ -139,7 +139,7 @@ product-flow sketch, but not yet an executable architecture.
 | Collector planning and semantic inventory | Internal V0 SQLite catalog stores append-only semantic entities, relationships, and affordances; `findCompatibleParts()` is the planner-facing query seam. | Implemented as a local catalog proof; no collector scheduler yet. |
 | Asset/animation swarm and artifact stores | Internal V0 SQLite catalog stores source receipts separately from runtime artifacts, compatibility/binding metadata, acceptance states, immutable revisions, and provenance parents. | Implemented as a synthetic local persistence proof; no worker protocol or verified host import yet. |
 | Worker inspection and steering | No `GET/POST /worker/[id]`, callback, event stream, or state transition beyond `queued`/`blocked`. | Not implemented. |
-| Unity import, review, and acceptance | Deliberately outside this repository; the README correctly treats generated output as untrusted. | Correctly deferred to the host game. |
+| Unity import, review, and acceptance | Build Room emits a closed, byte-verified Unity host handoff for a selected local GLB. | The handoff is an unaccepted adapter input; no Unity load, render, or player proof exists here. |
 
 ### Strengths
 

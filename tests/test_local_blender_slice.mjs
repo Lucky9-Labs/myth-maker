@@ -47,6 +47,14 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     assert.equal(finished.packages[0].assembly_receipt.validation[0].kind, "glb.v1-checked");
     assert.equal(finished.packages[0].assembly_receipt.host_acceptance, "not_observed");
     assert.match(finished.packages[0].assembly_receipt.receipt_sha256, /^[a-f0-9]{64}$/);
+    const unityHandoff = finished.packages[0].unity_host_handoff;
+    assert.equal(unityHandoff.load_deadline_ms, 8000);
+    assert.equal(unityHandoff.assembly_receipt.source_evidence.build_room_assembly_receipt.receipt_sha256, finished.packages[0].assembly_receipt.receipt_sha256);
+    assert.equal(unityHandoff.assembly_receipt.selected_assets[0].sha256, artifact.runtime_sha256);
+    assert.equal(sha256(await readFile(unityHandoff.assembly_receipt.selected_assets[0].path)), artifact.runtime_sha256);
+    assert.deepEqual(unityHandoff.assembly_receipt.selected_animations, []);
+    assert.deepEqual(unityHandoff.evidence, { source: "local_blender_cli_observed", host_load: "not_observed", player_facing: "not_observed" });
+    assert.equal(JSON.parse(await readFile(unityHandoff.manifest_path, "utf8")).handoff_sha256, unityHandoff.handoff_sha256);
     assert.equal(finished.topology.catalog.assets.count, 1);
     assert.equal(finished.topology.catalog.asset_revisions.count, 1);
     const receipt = blenderEvent.evidence.receipt;

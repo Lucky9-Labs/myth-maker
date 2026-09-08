@@ -170,6 +170,17 @@ export function freezeEncounterPackage(readyPackage, frozenAt) {
   });
 }
 
+/** Verify the content-addressed frozen snapshot before a runtime consumer accepts it. */
+export function verifyFrozenEncounterPackage(packageRecord) {
+  if (!packageRecord || packageRecord.state !== "frozen" || packageShapeReasons(packageRecord).length) {
+    throw new TypeError("package must be a valid frozen playable encounter package");
+  }
+  if (packageRecord.manifest_sha256 !== manifestSha256(withoutManifestHash(packageRecord))) {
+    throw new TypeError("frozen package manifest_sha256 does not match its contents");
+  }
+  return true;
+}
+
 function selectDeclaredFallback(module, selectedIds, usedFallbackIds) {
   for (const fallbackId of [...(module.fallback_module_ids || [])]) {
     if (selectedIds.has(fallbackId)) {

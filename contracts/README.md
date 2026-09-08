@@ -14,6 +14,8 @@ The firm contracts are:
 | `WorkerEvent` | Worker/coordinator boundary | Appends observable lifecycle events and candidate receipts. |
 | `EncounterModule` | Worker/assembler boundary | Describes one composable behavior, asset, or remote-logic contribution. |
 | `PlayableEncounterPackage` | Assembler/host boundary | Names one immutable, compatible module selection that can be preloaded and frozen. |
+| `AssemblyReceipt` | Assembly/Unity adapter boundary | Binds a frozen package, a verified selected GLB, and the original Build Room receipt. |
+| `UnityHostHandoffManifest` | Build Room/Unity adapter boundary | Gives a Unity adapter one byte-verified selected GLB under a bounded load budget. |
 | `ConceptFirstAssetProductionGate` | Concept/worker/assembler boundary | Pins the immutable intent, art direction, concept reference, worker brief, asset revision, and assembly decision for one type-neutral production candidate. |
 
 ## Stability rules
@@ -45,3 +47,7 @@ These schemas intentionally do not standardize the internal Unity command API,
 artifact file formats, scoring algorithm, or coordinator persistence layout.
 Those interfaces remain ambiguous until their implementation spikes establish
 what the target player and generation services can actually support.
+
+The Unity handoff is an adapter input only. It preserves `host_load` and
+`player_facing` as `not_observed`; it does not assert a Unity import, render, or
+playable result.
