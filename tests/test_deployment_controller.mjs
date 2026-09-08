@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -100,4 +101,21 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(terraformFoundation, /init -reconfigure/);
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
+});
+
+test("provider workflow preserves each step's common inputs and scoped secrets after YAML parsing", () => {
+  const workflow = JSON.parse(execFileSync(
+    "ruby",
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-executor.yml"],
+    { encoding: "utf8" },
+  ));
+  const steps = workflow.jobs.deploy.steps;
+  const cloudflare = steps.find((step) => step.id === "deploy").env;
+  const railway = steps.find((step) => step.id === "railway").env;
+  const modal = steps.find((step) => step.id === "modal").env;
+  const receipt = steps.find((step) => step.name === "Write machine-readable receipt").env;
+  assert.deepEqual(Object.keys(cloudflare).sort(), ["CLOUDFLARE_API_TOKEN", "DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
+  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "TF_VAR_railway_token", "WORK_DISPATCH_TOKEN"]);
+  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
+  assert.deepEqual(Object.keys(receipt).sort(), ["DEPLOYMENT_ENVIRONMENT", "DEPLOY_OUTCOME", "PREFLIGHT_OUTCOME", "PROVIDER", "SOURCE_SHA"]);
 });

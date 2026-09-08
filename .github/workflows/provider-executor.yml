@@ -45,7 +45,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
           TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
-        env:
           EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT"
@@ -57,7 +56,6 @@ jobs:
           WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        env:
           EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider railway --environment "$DEPLOYMENT_ENVIRONMENT"
@@ -68,7 +66,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        env:
           EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
         run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider modal --environment "$DEPLOYMENT_ENVIRONMENT"
@@ -78,6 +75,9 @@ jobs:
         env:
           DEPLOY_OUTCOME: ${{ steps.deploy.outcome || steps.railway.outcome || steps.modal.outcome }}
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          PROVIDER: ${{ inputs.provider }}
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           status=failure
@@ -98,10 +98,6 @@ jobs:
             --completed-at "$completed_at" \
             --verification "{\"checkout_clean\":$checkout_clean,\"provider_command_outcome\":\"$DEPLOY_OUTCOME\"}" \
             --output "receipts/$PROVIDER-$DEPLOYMENT_ENVIRONMENT.json"
-        env:
-          PROVIDER: ${{ inputs.provider }}
-          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
       - name: Upload deployment receipt
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

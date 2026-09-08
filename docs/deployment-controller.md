@@ -29,7 +29,7 @@ in the environment that needs them:
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
 | Cloudflare | `CLOUDFLARE_API_TOKEN`, `TF_VAR_agent_ingress_token`, `TF_VAR_work_dispatch_token` |
-| Railway | `RAILWAY_TOKEN`, `TF_VAR_railway_token`, `WORK_DISPATCH_TOKEN` |
+| Railway | `TF_VAR_railway_token`, `WORK_DISPATCH_TOKEN`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` |
 | Modal | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `OPENAI_API_KEY` |
 
 The environment boundary lives in the shared executor, before any credential is
