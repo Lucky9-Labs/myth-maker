@@ -57,8 +57,7 @@ the automatic successor `response.created` whose `previous_response_id` matches
 the receipt. An incomplete response whose reason is `steered` remains `pending`.
 `response.steer.pending` may carry its root `reason` and `required_input`
 stubs. Those stubs become `required_input`; the worker accepts only saved
-`function_call_output` values with the exact `call_id`, or `approval_response`
-values with the exact `approval_request_id`. It sends exactly one explicit
+`function_call_output` values with the exact `call_id`. It sends exactly one explicit
 `response.create` continuation per parent, without rerunning a tool or
 resending the steer. A completed response uses the same explicit continuation
 path.
@@ -79,7 +78,9 @@ artifact.
 - [OpenAI API quickstart](https://platform.openai.com/docs/quickstart/make-your-first-api-request)
   provides current user input examples for image and file analysis.
 
-The beta `response.steer` frame is isolated in `ResponsesSteeringGateway` and
-is covered by a fake WebSocket lane plus a restartable worker-process store.
-This repository makes no live API call or claim of account-level beta
-availability.
+The beta `response.steer` frame is isolated in `ResponsesSteeringGateway` as
+an injected beta protocol contract. The public references below do not document
+this beta wire shape; they support only the general Responses lifecycle and
+input forms. The gateway is covered by a fake WebSocket lane plus a restartable
+worker-process store. This repository makes no live API call or claim of
+account-level beta availability.

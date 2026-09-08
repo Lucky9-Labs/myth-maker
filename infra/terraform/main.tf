@@ -145,6 +145,14 @@ resource "cloudflare_worker_version" "coordinator" {
       )
       error_message = "An enabled Worker deployment requires the explicit dispatcher URL, both secret values, and an immutable release_revision."
     }
+    precondition {
+      condition = var.steering_worker_url == null || (
+        var.steering_command_token != null &&
+        var.steering_report_token != null &&
+        var.steering_worker_owner_id != null
+      )
+      error_message = "An enabled steering endpoint requires separate command/report credentials and a stable worker owner ID."
+    }
   }
 }
 

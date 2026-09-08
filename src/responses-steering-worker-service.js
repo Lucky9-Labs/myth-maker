@@ -12,9 +12,10 @@ export async function createResponsesSteeringWorkerService({ coordinatorUrl, com
   const reporter = createCoordinatorSteeringReporter({ coordinatorUrl, reportToken, ownerId, fetcher });
   const worker = new ResponsesSteeringWorker({ ownerId, reporter, gateway: new ResponsesSteeringGateway({ store }) });
   const command = createSteeringWorkerCommandHandler({ worker, commandToken });
-  return {
+  const service = {
     worker,
     async registerAttempt(attempt) { return worker.registerAttempt(attempt, await openResponsesSocket(attempt)); },
+    async reconnectPersistedAttempts() { return worker.gateway.reconnectPersistedLanes(openResponsesSocket); },
     async handle(request, body) {
       if (request.method === "POST" && request.url === "/v1/steering/attempts") {
         if (request.headers.authorization !== `Bearer ${commandToken}`) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 });
@@ -23,6 +24,8 @@ export async function createResponsesSteeringWorkerService({ coordinatorUrl, com
       return command(asRequest(request, body));
     },
   };
+  await service.reconnectPersistedAttempts();
+  return service;
 }
 
 export async function startResponsesSteeringWorkerService(options) {

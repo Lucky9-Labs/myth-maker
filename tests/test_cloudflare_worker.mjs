@@ -300,6 +300,19 @@ test("Durable Object steering receipt and event indexes survive coordinator rein
   }
 });
 
+test("a steering command delivery failure remains pending for reconciliation", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator(undefined, { async send() { throw new Error("network down"); } });
+    await submit(instance, workOrder()); await appendEvent(instance, event("arena-shell", 0, "accepted"));
+    const steeringAttempt = { attempt_id: "attempt-command-fail", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", owner_id: "owner-one", lane_id: "lane-command-fail", response_id: "resp-command-fail", mode: "single_agent", model_supports_steering: true };
+    await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steering-attempts", { method: "POST", headers: { "x-steering-owner-id": "owner-one" }, body: JSON.stringify(steeringAttempt) }));
+    const result = await body(await instance.fetch(new Request("https://coordinator/work-items/arena-shell/steers", { method: "POST", body: JSON.stringify({ attempt_id: "attempt-command-fail", client_steering_id: "steer-command-fail", input: [{ role: "user", content: [{ type: "input_text", text: "Keep it safe." }] }] }) })));
+    assert.equal(result.receipt.status, "pending"); assert.equal(result.receipt.error_code, "steering_worker_command_uncertain");
+  } finally { globalThis.fetch = oldFetch; }
+});
+
 test("idempotency replays an identical request and rejects a fingerprint mismatch", async () => {
   const oldFetch = globalThis.fetch;
   let dispatches = 0;

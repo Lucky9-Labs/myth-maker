@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { InMemorySteeringStore, ResponsesSteeringGateway, ResponsesSteeringWorker, createCoordinatorSteeringReporter, createSteeringWorkerCommandHandler } from "../src/responses-steering.js";
 import { JsonSteeringStore } from "../src/responses-steering-worker-store.js";
+import { createResponsesSteeringWorkerService } from "../src/responses-steering-worker-service.js";
 
 class Lane { constructor() { this.frames = []; this.listeners = new Map(); } send(frame) { this.frames.push(JSON.parse(frame)); } addEventListener(type, callback) { this.listeners.set(type, [...(this.listeners.get(type) || []), callback]); } emit(type, value) { for (const callback of this.listeners.get(type) || []) callback(type === "message" ? { data: JSON.stringify(value) } : {}); } }
 const attempt = (overrides = {}) => ({ attempt_id: "attempt-alpha", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", owner_id: "owner-one", lane_id: "lane-alpha", response_id: "resp-original", mode: "single_agent", model_supports_steering: true, ...overrides });
@@ -26,13 +27,12 @@ test("strict nested steer correlation commits only at a successor", async () => 
 test("pending carries official required-input fields and durable exact result matching", async () => {
   const lane = new Lane(); const store = new InMemorySteeringStore(); const gateway = new ResponsesSteeringGateway({ store }); await gateway.recordAttempt(attempt(), lane); await gateway.requestSteer("attempt-alpha", request());
   await gateway.handleServerEvent("lane-alpha", { type: "response.steer.accepted", steer: { id: "server-1", previous_response_id: "resp-original" } });
-  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ call_id: "call-1" }, { approval_request_id: "approval-1" }] });
+  await gateway.handleServerEvent("lane-alpha", { type: "response.steer.pending", steer: { id: "server-1", previous_response_id: "resp-original" }, reason: "required_input", required_input: [{ call_id: "call-1" }] });
   assert.equal((await gateway.getReceipt("steer-alpha")).status, "required_input");
   await assert.rejects(gateway.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "wrong", output: "no" }), /scope/);
   await gateway.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "call-1", output: "saved" });
-  await gateway.saveRequiredInputResult("attempt-alpha", { type: "approval_response", approval_request_id: "approval-1", approved: true });
   const restarted = new ResponsesSteeringGateway({ store }); restarted.attachLane("lane-alpha", lane); await restarted.resolveRequiredInput("attempt-alpha");
-  assert.deepEqual(lane.frames.at(-1).input.map((item) => item.type), ["function_call_output", "approval_response"]);
+  assert.deepEqual(lane.frames.at(-1).input.map((item) => item.type), ["function_call_output"]);
   const count = lane.frames.length; await restarted.resolveRequiredInput("attempt-alpha"); assert.equal(lane.frames.length, count);
 });
 
@@ -66,5 +66,15 @@ test("the worker-process JSON store survives restart with required-input results
     await first.saveRequiredInputResult("attempt-alpha", { type: "function_call_output", call_id: "call-1", output: "persisted" });
     const restarted = new ResponsesSteeringGateway({ store: await JsonSteeringStore.open(stateFile) }); restarted.attachLane("lane-alpha", lane); await restarted.resolveRequiredInput("attempt-alpha");
     assert.equal(lane.frames.at(-1).input[0].output, "persisted");
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("the concrete worker service reconnects persisted lanes before accepting commands", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "myth-steering-service-")); const stateFile = join(directory, "state.json"); const opened = [];
+  const options = { coordinatorUrl: "https://coordinator", commandToken: "command-secret", reportToken: "report-secret", ownerId: "owner-one", stateFile, fetcher: async () => new Response("", { status: 202 }), openResponsesSocket: async () => { const lane = new Lane(); opened.push(lane); return lane; } };
+  try {
+    const first = await createResponsesSteeringWorkerService(options); await first.registerAttempt(attempt());
+    const second = await createResponsesSteeringWorkerService(options);
+    assert.equal(opened.length, 2); assert.ok(second.worker.gateway.lanes.has("lane-alpha"));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

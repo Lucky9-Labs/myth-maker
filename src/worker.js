@@ -561,7 +561,7 @@ export class EncounterCoordinator {
       let receipt = await this.steering.enqueueSteer(attempt.attempt_id, request);
       if (receipt.status === "queued") {
         try { await this.steeringTransport.send({ owner_id: attempt.owner_id, attempt_id: attempt.attempt_id, request }); }
-        catch { receipt = await this.steering.transition(receipt, "pending", { reconciliation: "worker_command_delivery_uncertain", error_code: "steering_worker_command_uncertain" }); }
+        catch { receipt = await this.steering.transition(receipt.client_steering_id, "pending", { reconciliation: "worker_command_delivery_uncertain", error_code: "steering_worker_command_uncertain" }); }
       }
       return response({ receipt }, 202);
     }
