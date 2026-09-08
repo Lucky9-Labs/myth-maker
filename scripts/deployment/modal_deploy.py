@@ -2,8 +2,8 @@
 """CI-owned Modal bootstrap, deploy, verification, and bounded remote probe.
 
 This program is intentionally invoked only by the trusted GitHub deployment
-controller. It writes no credentials to stdout: its sole stdout line is a
-machine-readable receipt containing provider-issued public identifiers.
+controller. It writes no credentials to stdout. The controller supplies a
+CI-private output path for the machine-readable public receipt.
 """
 from __future__ import annotations
 
@@ -125,13 +125,16 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", required=True)
+    parser.add_argument("--output", required=True)
     args = parser.parse_args()
     if any(not os.environ.get(key) for key in REQUIRED_CREDENTIALS):
         raise RuntimeError("Modal CI bootstrap requires Modal credentials and OPENAI_API_KEY after the environment gate")
     ensure_environment(args.environment)
     ensure_named_resources(args.environment)
     resources = observed_resource_ids(args.environment)
-    print(json.dumps(deploy_and_observe(args.environment, resources), separators=(",", ":")))
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(deploy_and_observe(args.environment, resources), separators=(",", ":")) + "\n", encoding="utf-8")
     return 0
 
 

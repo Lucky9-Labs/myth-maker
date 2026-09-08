@@ -79,6 +79,7 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODAL_EVIDENCE_PATH: ${{ runner.temp }}/modal-deployment-evidence.json
         run: |
           set -euo pipefail
           node scripts/deployment/controller.mjs deploy --provider modal --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
