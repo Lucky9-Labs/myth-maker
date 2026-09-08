@@ -109,6 +109,8 @@ test("a Build Room preserves local Blender revision 1 and appends a generic curv
     assert.ok(upgradedWorker.evidence.receipt.source_inspection.appendages.every((appendage) => appendage.type === "CURVE" && appendage.tapered));
     assert.equal(upgradedWorker.evidence.receipt.commands.length, 3);
     assert.ok(upgraded.events.some((event) => event.workerId === "local-coordinator" && event.kind === "completed" && event.message.includes("re-evaluated")));
+    assert.ok(upgraded.topology.workers.some((worker) => worker.worker_id.startsWith("blender-cli-") && worker.status === "completed" && worker.evidence_kind === "local_blender_cli"));
+    assert.ok(upgraded.topology.workers.some((worker) => worker.worker_id === "local-assembler" && worker.status === "completed" && worker.evidence_kind === "local_process"));
     const replay = await fetch(`${base}/api/encounters`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt: "Make one curved tapered tentacle as an inspectable demo body candidate.", generate_asset: true, idempotency_key: "real-blender-slice-001" }),
