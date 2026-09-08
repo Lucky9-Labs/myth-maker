@@ -13,6 +13,10 @@ on:
 jobs:
   deploy:
     uses: ./.github/workflows/provider-executor.yml
+    # Railway is also a nested reusable workflow. Its CI token must be
+    # forwarded explicitly to the executor when the top-level caller enables
+    # this provider.
+    secrets: inherit
     with:
       provider: railway
       environment: ${{ inputs.environment }}
