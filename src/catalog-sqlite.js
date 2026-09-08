@@ -37,6 +37,17 @@ export function createSqliteCatalog({ filename = ":memory:" } = {}) {
     appendAssetRevision(record) {
       return transaction(() => appendRevision("asset_revisions", "asset_id", "assetId", "asset", normalizeAsset(record), insertAsset));
     },
+    /** Persist the first immutable revision for a newly-produced asset. */
+    createAsset(record) {
+      return transaction(() => {
+        const normalized = normalizeAsset(record);
+        if (normalized.revision !== 1) throw new TypeError("new asset must start at revision 1");
+        if (getRecord("asset_revisions", "asset_id", "assetId", normalized.assetId)) {
+          throw new TypeError(`assetId ${normalized.assetId} already exists`);
+        }
+        return insertAsset(normalized);
+      });
+    },
     appendAnimationRevision(record) {
       return transaction(() => appendRevision("animation_revisions", "animation_id", "animationId", "animation", normalizeAnimation(record), insertAnimation));
     },
