@@ -5,6 +5,7 @@
   "scripts": {
     "build-room": "node --watch --watch-preserve-output src/build-room-server.js",
     "example:assembler": "node examples/assemble-encounter-package.mjs",
+    "example:glb-assembly": "node examples/assemble-glb-runtime-asset.mjs",
     "example:catalog": "node examples/catalog-v0.mjs",
     "demo:local-blender": "node examples/run-local-blender-slice.mjs",
     "example:workgraph": "node examples/run-workgraph.mjs",

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/glb-assembly-manifest.schema.json",
+  "title": "GlbAssemblyManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "profile", "assembly_id", "revision", "assembled_at", "coordinate_convention", "runtime_target", "root_slot_id", "fragments", "attachments", "missing_slots", "fallback_provenance", "rejection_reasons", "manifest_sha256"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "profile": { "const": "glb.assembly.v1" },
+    "assembly_id": { "$ref": "common.schema.json#/$defs/id" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "assembled_at": { "type": "string", "format": "date-time" },
+    "coordinate_convention": { "$ref": "#/$defs/coordinateConvention" },
+    "runtime_target": { "$ref": "#/$defs/runtimeTarget" },
+    "root_slot_id": { "$ref": "common.schema.json#/$defs/id" },
+    "fragments": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/fragment" } },
+    "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } },
+    "missing_slots": { "type": "array", "items": { "$ref": "#/$defs/missingSlot" } },
+    "fallback_provenance": { "$ref": "#/$defs/fallbackProvenance" },
+    "rejection_reasons": { "type": "array", "items": { "$ref": "#/$defs/rejection" } },
+    "manifest_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+  },
+  "$defs": {
+    "coordinateConvention": {
+      "type": "object", "additionalProperties": false,
+      "required": ["handedness", "up_axis", "unit", "transforms"],
+      "properties": { "handedness": { "const": "right" }, "up_axis": { "const": "y" }, "unit": { "const": "meter" }, "transforms": { "const": "parent-relative" } }
+    },
+    "implementation": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": { "id": { "$ref": "common.schema.json#/$defs/semanticTag" }, "version": { "type": "string", "minLength": 1 } }
+    },
+    "runtimeTarget": {
+      "type": "object", "additionalProperties": false, "required": ["loader", "target"],
+      "properties": {
+        "loader": { "$ref": "#/$defs/implementation" },
+        "target": {
+          "type": "object", "additionalProperties": false, "required": ["platform", "render_pipeline"],
+          "properties": { "platform": { "type": "string", "minLength": 1 }, "render_pipeline": { "$ref": "#/$defs/implementation" } }
+        }
+      }
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["uri", "sha256", "media_type", "byte_length"],
+      "properties": { "uri": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "media_type": { "const": "model/gltf-binary" }, "byte_length": { "type": "integer", "minimum": 0 } }
+    },
+    "fragment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["slot_id", "fragment_id", "revision", "selected_as", "runtime_artifact", "runtime_linkage_sha256", "material_slots", "markers", "motion_binding", "provenance"],
+      "properties": {
+        "slot_id": { "$ref": "common.schema.json#/$defs/id" }, "fragment_id": { "$ref": "common.schema.json#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "selected_as": { "enum": ["primary", "fallback"] }, "runtime_artifact": { "$ref": "#/$defs/artifact" }, "runtime_linkage_sha256": { "$ref": "common.schema.json#/$defs/sha256" }, "material_slots": { "type": "array" }, "markers": { "type": "array" }, "motion_binding": { "type": "object" }, "provenance": { "type": "object" }
+      }
+    },
+    "attachment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attachment_id", "parent_slot_id", "parent_fragment_id", "parent_socket_id", "child_slot_id", "child_fragment_id", "child_socket_id", "socket_kind"],
+      "properties": {
+        "attachment_id": { "$ref": "common.schema.json#/$defs/id" }, "parent_slot_id": { "$ref": "common.schema.json#/$defs/id" }, "parent_fragment_id": { "$ref": "common.schema.json#/$defs/id" }, "parent_socket_id": { "$ref": "common.schema.json#/$defs/id" }, "child_slot_id": { "$ref": "common.schema.json#/$defs/id" }, "child_fragment_id": { "$ref": "common.schema.json#/$defs/id" }, "child_socket_id": { "$ref": "common.schema.json#/$defs/id" }, "socket_kind": { "$ref": "common.schema.json#/$defs/semanticTag" }
+      }
+    },
+    "missingSlot": {
+      "type": "object", "additionalProperties": false, "required": ["slot_id", "reason"],
+      "properties": { "slot_id": { "$ref": "common.schema.json#/$defs/id" }, "reason": { "type": "string", "minLength": 1, "maxLength": 512 } }
+    },
+    "fallbackProvenance": {
+      "type": "object", "additionalProperties": false, "required": ["used_fallback", "slot_ids"],
+      "properties": { "used_fallback": { "type": "boolean" }, "slot_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/id" } } }
+    },
+    "rejection": {
+      "type": "object", "additionalProperties": false, "required": ["fragment_id", "reasons"],
+      "properties": { "fragment_id": { "$ref": "common.schema.json#/$defs/id" }, "reasons": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 512 } } }
+    }
+  }
+}

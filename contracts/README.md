@@ -17,6 +17,7 @@ The firm contracts are:
 | `WorkerEvent` | Worker/coordinator boundary | Appends observable lifecycle events and candidate receipts. |
 | `EncounterModule` | Worker/assembler boundary | Describes one composable behavior, asset, or remote-logic contribution. |
 | `PlayableEncounterPackage` | Assembler/host boundary | Names one immutable, compatible module selection that can be preloaded and frozen. |
+| `GlbAssemblyManifest` | GLB assembler/host boundary | Defines one hash-addressed, deterministic composite runtime asset assembled from independently accepted GLB fragments. |
 | `ConceptFirstAssetProductionGate` | Concept/worker/assembler boundary | Pins the immutable intent, art direction, concept reference, worker brief, asset revision, and assembly decision for one type-neutral production candidate. |
 
 ## Stability rules
