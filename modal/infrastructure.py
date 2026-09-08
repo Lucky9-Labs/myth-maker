@@ -74,6 +74,7 @@ def application_contract(environment: str = "dev") -> dict:
                 "MODAL_ADAPTER_CLASS": "BlenderDraftWorkerAdapter",
                 "MODAL_ADAPTER_RUNNER": "ModalDraftRunner",
                 "MODAL_FUNCTION_NAME": config.function_name,
+                "COORDINATOR_WORK_ID_HEADER": "x-work-id",
             },
         },
         "modal": asdict(config),
@@ -81,7 +82,7 @@ def application_contract(environment: str = "dev") -> dict:
             {
                 "from": "cloudflare.COMPUTER_USE_DISPATCH_URL",
                 "to": "railway.dispatcher_service_name",
-                "rule": "Set only to an explicit, independently provisioned Railway endpoint.",
+                "rule": "Set only to an explicit, independently provisioned Railway endpoint; deduplicate each delivery by its x-work-id header.",
             },
             {
                 "from": "railway work order (schema_version 1)",

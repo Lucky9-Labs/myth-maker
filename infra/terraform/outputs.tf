@@ -28,6 +28,8 @@ output "application_configuration_contract" {
         adapter_class     = local.railway_plain_configuration.MODAL_ADAPTER_CLASS
         adapter_runner    = local.railway_plain_configuration.MODAL_ADAPTER_RUNNER
         modal_function    = local.railway_plain_configuration.MODAL_FUNCTION_NAME
+        work_id_header    = local.railway_plain_configuration.COORDINATOR_WORK_ID_HEADER
+        deduplication     = "The dispatcher must deduplicate each stable work_id before side effects."
       }
     }
     modal = {

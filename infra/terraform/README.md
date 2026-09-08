@@ -29,6 +29,10 @@ Modal's legacy `run_draft` function in the named environment. It never contains
 secret values. A source artifact returned by Modal remains a source receipt; it
 is not an `EncounterModule` or playable candidate.
 
+The coordinator sends the stable work ID in the `x-work-id` header. The
+dispatcher must use that value to deduplicate side effects before running the
+adapter; retrying a delivery is not authorization to invoke a second draft.
+
 ## Offline checks
 
 ```sh

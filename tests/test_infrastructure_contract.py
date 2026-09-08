@@ -25,10 +25,12 @@ class InfrastructureContractTests(unittest.TestCase):
         self.assertEqual(contract["cloudflare"]["durable_object"]["migration_tag"], "v1")
         self.assertEqual(contract["railway"]["required_plain_configuration"]["MODAL_FUNCTION_NAME"], "run_draft")
         self.assertEqual(contract["railway"]["required_plain_configuration"]["MODAL_ADAPTER_CLASS"], "BlenderDraftWorkerAdapter")
+        self.assertEqual(contract["railway"]["required_plain_configuration"]["COORDINATOR_WORK_ID_HEADER"], "x-work-id")
         self.assertEqual(contract["modal"]["openai_secret_name"], "myth-maker-encounter-openai")
         self.assertEqual(contract["modal"]["openai_secret_keys"], ["OPENAI_API_KEY"])
         self.assertNotIn("openai_secret_value", json.dumps(contract))
         self.assertEqual(len(contract["connections"]), 2)
+        self.assertIn("x-work-id", contract["connections"][0]["rule"])
         self.assertIn("BlenderDraftWorkerAdapter", contract["connections"][1]["to"])
 
     def test_environment_changes_only_environment_scoped_names(self):

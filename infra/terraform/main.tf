@@ -26,6 +26,7 @@ locals {
     MODAL_ADAPTER_CLASS                   = "BlenderDraftWorkerAdapter"
     MODAL_ADAPTER_RUNNER                  = "ModalDraftRunner"
     MODAL_FUNCTION_NAME                   = "run_draft"
+    COORDINATOR_WORK_ID_HEADER            = "x-work-id"
   }
 
   cloudflare_durable_object_binding = var.cloudflare_do_migration_tag == null ? [{
