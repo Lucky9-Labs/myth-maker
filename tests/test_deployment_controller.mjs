@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   assertDeploymentRequest,
+  createReceipt,
   deploymentConcurrencyGroup,
   providerDefinitions,
   validateProviderRequest,
@@ -59,6 +60,19 @@ test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
   assert.deepEqual(providerDefinitions.railway.secretNames, ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
+});
+
+test("an unsupported Railway deployment fails instead of producing a success", () => {
+  assert.throws(
+    () => validateProviderRequest({ eventName: "pull_request", mode: "deploy", provider: "railway", environment: "dev" }),
+  );
+  const receipt = createReceipt({
+    provider: "railway", environment: "dev", sourceSha: "a".repeat(40), status: "failure",
+    startedAt: "2026-09-08T00:00:00Z", completedAt: "2026-09-08T00:00:01Z",
+    verification: { provider_command_outcome: "failure" },
+  });
+  assert.equal(receipt.status, "failure");
+  assert.equal(receipt.verification.provider_command_outcome, "failure");
 });
 
 test("workflows use non-mutating PR previews and provider locks", async () => {

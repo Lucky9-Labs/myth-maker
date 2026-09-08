@@ -21,7 +21,9 @@ export const providerDefinitions = Object.freeze({
     secretNames: ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"],
     requiredFiles: ["wrangler.jsonc", "src/worker.js", "src/encounter-package-assembler.js"],
     preview: ["npx", ["--yes", "wrangler@4.37.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"]],
-    deploy: ["npx", ["--yes", "wrangler@4.37.0", "deploy", "--config", "wrangler.jsonc"]],
+    // Terraform owns the Worker version/deployment because it also owns the
+    // environment bindings. A second Wrangler deploy would race that state.
+    deploy: null,
   }),
   railway: Object.freeze({
     secretNames: ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"],
@@ -115,7 +117,7 @@ export function providerReceiptMetadata(provider, environment, sourceSha) {
   const buildVersion = `git:${sourceSha}`;
   if (provider === "cloudflare") {
     return {
-      artifactIds: [buildVersion, `worker:myth-maker-${environment}-encounter-runtime`],
+      artifactIds: [buildVersion, `worker:${environment === "dev" ? "myth-maker-encounter-runtime" : `myth-maker-${environment}-encounter-runtime`}`],
       details: {
         target: "Cloudflare Worker",
         module_sha256: Object.fromEntries(
@@ -193,6 +195,9 @@ function run(command, options) {
   }
   const invocation = providerCommand(provider, command, environment);
   if (!invocation) {
+    if (command === "deploy" && provider === "railway") {
+      throw new Error("Railway dispatcher deployment and x-work-id acknowledgement are unsupported until a dispatcher adapter is supplied");
+    }
     process.stdout.write(`${JSON.stringify({ ...request, status: "validated", command: null })}\n`);
     return;
   }

@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: myth-maker-release-${{ inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
 jobs:
   assert-deployment-input:
     runs-on: ubuntu-24.04
@@ -32,16 +36,19 @@ jobs:
           fetch-depth: 1
       - name: Refuse non-main, mutable, or dirty inputs
         shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
         run: |
           set -euo pipefail
-          source_sha='${{ inputs.source_sha || github.sha }}'
-          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$source_sha"
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           git fetch origin main --depth=1
-          git merge-base --is-ancestor "$source_sha" origin/main
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
           git diff --exit-code
           git diff --cached --exit-code
-          node scripts/deployment/controller.mjs validate --event '${{ github.event_name }}' --provider cloudflare --environment '${{ inputs.environment || 'dev' }}'
+          node scripts/deployment/controller.mjs validate --event "$EVENT_NAME" --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT"
 
   modal:
     needs: assert-deployment-input

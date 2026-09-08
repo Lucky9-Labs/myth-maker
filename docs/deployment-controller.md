@@ -40,6 +40,13 @@ the non-secret GitHub Environment variables described by
 `infra/terraform/variables.tf` (account/workspace IDs, dispatcher URL, and
 explicit `MANAGE_*` flags).
 
+Bootstrap is intentionally fail-closed: before automatic main deployment is
+enabled, configure branch protection to require the PR preview and configure
+the environment secrets, approved backend config, and every `MANAGE_*` value.
+Missing configuration stops in the Terraform preflight and uploads a failure
+receipt; an arbitrary direct main push is not treated as validated by this
+repository alone.
+
 The `Reviewed deployment` workflow runs automatically for covered changes on
 `main`; its name is retained for compatibility. A manual dispatch is only for
 recovery/retry and may optionally name a full 40-character SHA. Both paths

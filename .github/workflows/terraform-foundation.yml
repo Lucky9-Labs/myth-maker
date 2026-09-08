@@ -48,17 +48,25 @@ jobs:
           TF_VAR_manage_railway_dispatcher_configuration: ${{ vars.MANAGE_RAILWAY_DISPATCHER_CONFIGURATION }}
           TF_VAR_environment: ${{ inputs.environment }}
           TF_VAR_release_revision: ${{ inputs.source_sha }}
+          EXPECTED_PLAN_SHA256: ${{ inputs.reviewed_plan_sha256 }}
         run: |
           set -euo pipefail
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           test -n "$TF_BACKEND_CONFIG"
+          for required in TF_VAR_manage_cloudflare TF_VAR_manage_cloudflare_worker_versions TF_VAR_manage_railway TF_VAR_manage_railway_dispatcher_configuration; do
+            test -n "${!required}" || { echo "missing required GitHub Environment variable: $required" >&2; exit 1; }
+          done
+          if [[ "$TF_VAR_manage_cloudflare" == true ]]; then
+            test -n "$TF_VAR_cloudflare_account_id"
+            test -n "$TF_VAR_work_dispatch_url"
+          fi
           printf '%s' "$TF_BACKEND_CONFIG" > "$RUNNER_TEMP/backend.hcl"
           terraform -chdir=infra/terraform init -reconfigure -input=false -backend-config="$RUNNER_TEMP/backend.hcl"
           terraform -chdir=infra/terraform validate
           terraform -chdir=infra/terraform plan -input=false -out="$RUNNER_TEMP/reviewed.tfplan"
           actual_digest="$(sha256sum "$RUNNER_TEMP/reviewed.tfplan" | awk '{print $1}')"
-          if [[ -n '${{ inputs.reviewed_plan_sha256 }}' ]]; then
-            test "$actual_digest" = '${{ inputs.reviewed_plan_sha256 }}'
+          if [[ -n "$EXPECTED_PLAN_SHA256" ]]; then
+            test "$actual_digest" = "$EXPECTED_PLAN_SHA256"
           fi
           terraform -chdir=infra/terraform apply -input=false "$RUNNER_TEMP/reviewed.tfplan"
           terraform -chdir=infra/terraform output -json deployment_receipt_facts > "$RUNNER_TEMP/terraform-receipt-facts.json"
@@ -84,7 +92,9 @@ jobs:
               status: process.env.OUTCOME === "success" ? "success" : "failure",
               started_at: process.env.STARTED_AT,
               completed_at: process.env.COMPLETED_AT,
-              verification: {remote_backend_reconfigured: true, reviewed_plan_applied: true},
+              verification: process.env.OUTCOME === "success"
+                ? {remote_backend_reconfigured: true, reviewed_plan_applied: true}
+                : {remote_backend_reconfigured: false, reviewed_plan_applied: false},
               provider_facts: facts,
             }, null, 2) + "\\n");
           '
