@@ -340,15 +340,13 @@ const PAGE = String.raw`<!doctype html>
   .composer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 16px; padding: 16px; margin-bottom: 26px; border: 1px solid #22516b; background: rgba(7, 22, 39, .88); box-shadow: 0 18px 50px rgba(0, 0, 0, .22); }
   .composer label { display: block; font-size: .84rem; color: #b7d7df; } textarea { width: 100%; min-height: 56px; margin-top: 8px; resize: vertical; background: #07111d; color: inherit; border: 1px solid #35657a; padding: 11px; font: inherit; } textarea:focus-visible, button:focus-visible, summary:focus-visible, a:focus-visible { outline: 3px solid #8effec; outline-offset: 3px; }
   .form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .form-actions label { color: #91a9b8; white-space: nowrap; } button { padding: 11px 16px; border: 1px solid #83e7dc; background: #a0fff2; color: #06202a; font: 700 .9rem/1 inherit; cursor: pointer; } button:hover { background: #cbfff8; }
-  .assembly { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: clamp(10px, 2vw, 24px); align-items: stretch; padding: clamp(14px, 3vw, 34px); overflow: hidden; border: 1px solid #214e68; background: linear-gradient(120deg, rgba(12, 42, 62, .9), rgba(4, 15, 29, .95)); }
-  .assembly::before { content: ""; position: absolute; inset: 50% 6% auto; border-top: 1px solid #3d7787; opacity: .6; } .slot { position: relative; min-height: 330px; display: flex; flex-direction: column; border: 1px solid #315e73; background: rgba(4, 17, 31, .78); } .slot + .slot::before { content: "→"; position: absolute; z-index: 1; left: -23px; top: 48%; color: #8cf7ed; font-size: 1.5rem; text-shadow: 0 0 14px #59e4dc; }
-  .slot-head { display: flex; justify-content: space-between; gap: 10px; padding: 11px 12px; border-bottom: 1px solid #234d63; } .slot-head h2 { margin: 0; } .glyph { color: #9affef; } .state { font-size: .75rem; color: #a5ced2; } .frame { flex: 1; display: grid; place-items: center; overflow: hidden; min-height: 230px; background: radial-gradient(circle at 50% 43%, #0c5d78, #071321 68%); }
-  .observed { border-color: #78e8e1; } .observed .slot-head { border-color: #53bfbf; } .active-frame { box-shadow: 0 0 0 1px #4cc8c6, 0 0 28px rgba(74, 221, 214, .42), inset 0 0 36px rgba(56, 202, 205, .12); } .active-frame .frame::after { content: ""; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 60px rgba(99, 255, 239, .17); } .observed img { width: 100%; height: 100%; min-height: 230px; object-fit: cover; display: block; }
-  .ghost { border-style: dashed; border-color: #355265; background: rgba(7, 18, 31, .4); } .ghost .frame { color: #58717f; background: linear-gradient(135deg, rgba(19, 47, 64, .35), rgba(4, 13, 25, .5)); } .ghost-mark { font-size: 2rem; opacity: .5; } .slot-foot { min-height: 51px; padding: 10px 12px; color: #9fc7ce; font-size: .82rem; border-top: 1px solid #234d63; } .ghost .slot-foot { color: #647b88; }
-  .assembly-caption { display: flex; justify-content: space-between; gap: 18px; padding: 13px 2px 0; color: #9bb8c4; font-size: .88rem; } .assembly-caption strong { color: #bdfcf3; }
+  .loop-panel { position: relative; padding: clamp(16px, 3vw, 32px); overflow-x: auto; border: 1px solid #214e68; background: linear-gradient(120deg, rgba(12, 42, 62, .9), rgba(4, 15, 29, .95)); }
+  .loop-flow { display: flex; align-items: stretch; min-width: 1100px; padding: 4px 0 18px; } .loop-edge { position: relative; width: clamp(24px, 3vw, 48px); flex: 0 0 clamp(24px, 3vw, 48px); align-self: center; height: 2px; background: #3d7787; opacity: .78; } .loop-edge::after { content: ""; position: absolute; right: -1px; top: -4px; border: 5px solid transparent; border-left-color: #86f4e9; }
+  .loop-node { position: relative; z-index: 1; display: flex; flex: 1 0 125px; min-height: 180px; flex-direction: column; border: 1px solid #315e73; background: rgba(4, 17, 31, .78); } .loop-node.current { border-color: #78e8e1; box-shadow: 0 0 0 1px #4cc8c6, 0 0 28px rgba(74, 221, 214, .30); } .loop-node.absent, .loop-node.pending { border-style: dashed; border-color: #355265; background: rgba(7, 18, 31, .42); } .node-head { display: flex; justify-content: space-between; gap: 8px; padding: 10px; border-bottom: 1px solid #234d63; } .node-head h2 { margin: 0; font-size: .9rem; } .glyph { color: #9affef; } .absent .glyph, .pending .glyph { color: #69818d; } .node-body { display: grid; flex: 1; place-items: center; min-height: 86px; overflow: hidden; color: #a7d3d6; font-size: .82rem; text-align: center; } .node-body img { display: block; width: 100%; height: 104px; object-fit: cover; } .node-foot { min-height: 42px; padding: 8px 10px; border-top: 1px solid #234d63; color: #9fc7ce; font-size: .75rem; } .absent .node-foot, .pending .node-foot { color: #647b88; }
+  .loop-meta { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-top: 14px; color: #9bb8c4; font-size: .82rem; } .loop-meta strong { color: #bdfcf3; } .quiet-lanes { display: flex; gap: 10px; flex-wrap: wrap; } .quiet-lane { color: #647b88; font-size: .76rem; } .loop-gates { display: flex; gap: 10px; margin-top: 13px; } .loop-gates .loop-node { flex: 0 1 230px; min-height: 72px; } .loop-gates .node-body { display: none; } .loop-gates .node-foot { min-height: auto; border-top: 0; }
   details.drawer { margin-top: 22px; border-top: 1px solid #31586c; border-bottom: 1px solid #31586c; background: rgba(3, 14, 27, .66); } summary { padding: 14px 4px; cursor: pointer; color: #c8f5f0; font-weight: 650; } .drawer-body { padding: 4px 4px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 22px; } .drawer-body h3 { margin-bottom: 8px; color: #a1e9e3; } .drawer-body ul { margin: 0; padding-left: 18px; } .drawer-body li { margin: 6px 0; color: #acc2cc; } code { color: #a8fcf0; overflow-wrap: anywhere; font-size: .8rem; }
   .build-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; } .build-link { display: block; padding: 14px; border: 1px solid #315e73; color: inherit; text-decoration: none; background: rgba(4, 18, 32, .65); } .build-link:hover { border-color: #82eade; } .empty-note { padding: 30px 4px; color: #819aa7; }
-  @media (max-width: 800px) { .composer { grid-template-columns: 1fr; } .assembly { grid-template-columns: 1fr; } .assembly::before, .slot + .slot::before { display: none; } .slot { min-height: 180px; } .frame, .observed img { min-height: 135px; } .assembly-caption, .masthead { align-items: flex-start; flex-direction: column; gap: 8px; } }
+  @media (max-width: 800px) { .composer { grid-template-columns: 1fr; } .loop-panel { margin-inline: -4px; } .loop-meta, .masthead { align-items: flex-start; flex-direction: column; gap: 8px; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
 <body>
@@ -363,6 +361,8 @@ const CLIENT_SCRIPT = String.raw`
   const main = document.querySelector("main");
   let active;
   let activeRequest;
+  let activeSource;
+  let dashboardSource;
   const labels = {
     fixture: "Simulated fixture (not live)",
     local_process: "Local process receipt (observed)",
@@ -391,21 +391,52 @@ const CLIENT_SCRIPT = String.raw`
 
   function esc(value) { const node = document.createElement("div"); node.textContent = String(value ?? ""); return node.innerHTML; }
   function json(value) { return esc(JSON.stringify(value, null, 2)); }
-  function statusGlyph(observed) { return observed ? "●" : "○"; }
-  function observedBody(run) { return run.artifacts.find((artifact) => artifact.thumbnail_url); }
-  function slot(title, observed, content, foot, active) {
-    return "<article class=\"slot " + (observed ? "observed" : "ghost") + (active ? " active-frame" : "") + "\"><header class=\"slot-head\"><h2>" + esc(title) + "</h2><span class=\"glyph\" aria-label=\"" + (observed ? "observed" : "absent") + "\">" + statusGlyph(observed) + "</span></header><div class=\"frame\">" + content + "</div><footer class=\"slot-foot\">" + foot + "</footer></article>";
+  function statusGlyph(status) { return { completed: "✓", active: "●", blocked: "×", pending: "○", absent: "○" }[status] || "○"; }
+  function stateLabel(status) { return { completed: "complete", active: "active", blocked: "blocked", pending: "pending", absent: "absent" }[status] || "absent"; }
+  function latestRevision(rows) { return rows && rows.length ? [...rows].sort((a, b) => a.revision - b.revision).at(-1) : undefined; }
+  function bodyRevisions(run) { return run ? run.artifacts.filter((artifact) => artifact.thumbnail_url) : []; }
+  function workerState(run, lane) {
+    const work = run && run.topology.work_graph.find((entry) => entry.lane === lane);
+    if (!work) return "pending";
+    return work.status === "completed" ? "completed" : work.status === "failed" ? "blocked" : "active";
   }
-  function ghostSlot(title, role) { return slot(title, false, "<span class=\"ghost-mark\" aria-hidden=\"true\">○</span>", "absent", false); }
+  function loopNode(title, status, body, foot, current) {
+    return "<article class=\"loop-node " + esc(status) + (current ? " current" : "") + "\"><header class=\"node-head\"><h2>" + esc(title) + "</h2><span class=\"glyph\" aria-label=\"" + esc(stateLabel(status)) + "\">" + statusGlyph(status) + "</span></header><div class=\"node-body\">" + body + "</div><footer class=\"node-foot\">" + foot + "</footer></article>";
+  }
+  function edge() { return "<span class=\"loop-edge\" aria-hidden=\"true\"></span>"; }
+  function quietLane(run, label, lane) {
+    const reported = run && run.topology.work_graph.some((entry) => entry.lane === lane);
+    return "<span class=\"quiet-lane\">" + esc(label) + " · " + (reported ? "reported" : "no lane receipt") + "</span>";
+  }
   function assembly(run) {
-    const body = run && observedBody(run);
-    const packageRevision = run && run.packages.at(-1);
-    const bodySlot = body ? slot("Body", true, "<img data-role=\"observed-thumbnail\" src=\"" + esc(body.thumbnail_url) + "\" alt=\"Observed local render for " + esc(body.artifact_id) + "\">", "local render · candidate", true) : ghostSlot("Body");
-    const materialSlot = ghostSlot("Material");
-    const arenaSlot = ghostSlot("Arena");
-    const packageSlot = packageRevision ? slot("Encounter package", true, "<span class=\"glyph\" aria-hidden=\"true\">✦</span>", "assembled · revision " + esc(packageRevision.revision), !body) : ghostSlot("Encounter package");
-    const caption = run ? "Observed pieces glow. Absent lanes stay quiet until evidence arrives." : "Start with a body, then add material, arena, and a package when each is observed.";
-    return "<section aria-label=\"Encounter assembly table\"><div class=\"assembly\">" + bodySlot + materialSlot + arenaSlot + packageSlot + "</div><div class=\"assembly-caption\"><span><strong>Body → Material → Arena → Encounter package</strong></span><span>" + caption + "</span></div></section>";
+    const artifacts = bodyRevisions(run);
+    const body = latestRevision(artifacts);
+    const revisionOne = artifacts.find((artifact) => artifact.revision === 1) || body;
+    const revisionTwo = artifacts.find((artifact) => artifact.revision === 2);
+    const packageRevision = run && latestRevision(run.packages);
+    const latestRevisionNumber = body && body.revision;
+    const hasRevisionTwo = Boolean(revisionTwo || latestRevisionNumber >= 2);
+    const allWorkComplete = run && run.topology.work_graph.length > 0 && run.topology.work_graph.every((work) => work.status === "completed");
+    const plannerStatus = !run ? "pending" : allWorkComplete ? "completed" : "active";
+    const blenderStatus = body ? "completed" : workerState(run, "body-source");
+    const catalogStatus = body ? "completed" : "pending";
+    const revisionStatus = hasRevisionTwo ? "completed" : run && run.upgrade?.active ? "active" : "pending";
+    const packageStatus = packageRevision ? "completed" : "pending";
+    const unityReceipt = packageRevision && packageRevision.assembly_receipt;
+    const unityStatus = unityReceipt && unityReceipt.host_acceptance === "not_observed" ? "absent" : "pending";
+    const nodes = [
+      loopNode("Coordinator / planner", plannerStatus, "<span>local orchestration</span>", run ? "request projected" : "awaiting request", Boolean(run)),
+      loopNode("Blender body" + (revisionOne ? " · r" + revisionOne.revision : ""), blenderStatus, revisionOne ? "<img data-role=\"observed-thumbnail\" src=\"" + esc(revisionOne.thumbnail_url) + "\" alt=\"Observed local render for body revision " + esc(revisionOne.revision) + "\">" : "<span>no candidate yet</span>", revisionOne ? "local CLI candidate" : "body-source lane", Boolean(revisionOne)),
+      loopNode("Immutable catalog" + (revisionOne ? " · r" + revisionOne.revision : ""), catalogStatus, revisionOne ? "<span class=\"glyph\" aria-hidden=\"true\">◆</span>" : "<span>no asset receipt</span>", revisionOne ? "asset revision recorded" : "awaiting artifact", Boolean(revisionOne)),
+      loopNode(hasRevisionTwo ? "Next revision / Blender · r2" : "Request next revision", revisionStatus, hasRevisionTwo ? "<img src=\"" + esc(revisionTwo.thumbnail_url) + "\" alt=\"Observed local render for body revision 2\">" : "<span>bounded local upgrade</span>", hasRevisionTwo ? "Blender revision observed" : run && run.upgrade?.active ? "worker running" : "ready after package r1", hasRevisionTwo || Boolean(run && run.upgrade?.active)),
+      loopNode("Catalog asset" + (revisionTwo ? " · r" + revisionTwo.revision : " · r2"), revisionTwo ? "completed" : "pending", revisionTwo ? "<span class=\"glyph\" aria-hidden=\"true\">◆</span>" : "<span>awaiting revision 2</span>", revisionTwo ? "immutable revision" : "no asset receipt", hasRevisionTwo),
+      loopNode("Package assembler" + (packageRevision ? " · r" + packageRevision.revision : ""), packageStatus, packageRevision ? "<span class=\"glyph\" aria-hidden=\"true\">✦</span>" : "<span>no package receipt</span>", packageRevision ? "local package selected" : "awaiting compatible candidate", Boolean(packageRevision)),
+      loopNode("Unity judge", unityStatus, "<span>no host receipt</span>", unityReceipt ? "host acceptance not observed" : "no package receipt", false),
+    ];
+    const flow = nodes.map((node, index) => (index ? edge() : "") + node).join("");
+    const conceptGate = loopNode("Concept-first gate", "pending", "", "runtime enforcement pending", false);
+    const caption = run ? "Current path is highlighted; node state comes from this build's local events and receipts." : "Submit a build to project its real local worker and revision receipts.";
+    return "<section aria-label=\"Encounter asset build loop\"><div class=\"loop-panel\"><div class=\"loop-flow\">" + flow + "</div><div class=\"loop-meta\"><span><strong>Asset revision loop</strong> · local evidence only</span><span>" + caption + "</span></div><div class=\"quiet-lanes\">" + quietLane(run, "Material", "material") + quietLane(run, "Arena", "arena") + "</div><div class=\"loop-gates\">" + conceptGate + "</div></div></section>";
   }
   function eventRows(events) { return events.map((entry) => "<li><strong>" + esc(entry.kind) + "</strong> · " + esc(labels[entry.evidence.kind] || "Unknown evidence source") + "<br>" + esc(entry.message) + "</li>").join(""); }
   function workRows(work) { return work.length ? "<ul>" + work.map((item) => "<li><code>" + esc(item.work_id) + "</code> · " + esc(item.lane) + " · " + esc(item.status) + "<br>worker <code>" + esc(item.worker_id) + "</code>; depends on " + (item.depends_on_work_ids.length ? item.depends_on_work_ids.map(esc).join(", ") : "request") + "</li>").join("") + "</ul>" : "<p class=\"muted\">No worker receipts yet.</p>"; }
@@ -432,8 +463,18 @@ const CLIENT_SCRIPT = String.raw`
     document.querySelector("#upgrade").addEventListener("click", requestUpgrade);
   }
 
-  function watch(encounterId) { const source = new EventSource("/api/encounters/" + encodeURIComponent(encounterId) + "/stream"); source.addEventListener("projection", (event) => render(JSON.parse(event.data))); }
-  function watchDashboard() { const source = new EventSource("/api/builds/stream"); source.addEventListener("projection", (event) => renderDashboard(JSON.parse(event.data))); }
+  function watch(encounterId) {
+    dashboardSource?.close(); dashboardSource = undefined;
+    activeSource?.close();
+    activeSource = new EventSource("/api/encounters/" + encodeURIComponent(encounterId) + "/stream");
+    activeSource.addEventListener("projection", (event) => render(JSON.parse(event.data)));
+  }
+  function watchDashboard() {
+    activeSource?.close(); activeSource = undefined;
+    dashboardSource?.close();
+    dashboardSource = new EventSource("/api/builds/stream");
+    dashboardSource.addEventListener("projection", (event) => renderDashboard(JSON.parse(event.data)));
+  }
   async function start() {
     const requestId = new URLSearchParams(location.search).get("build");
     if (requestId) { const response = await fetch("/api/builds/" + encodeURIComponent(requestId)); if (response.ok) { const run = await response.json(); active = run.ids.encounterId; activeRequest = run.ids.requestId; render(run); watch(active); return; } }
