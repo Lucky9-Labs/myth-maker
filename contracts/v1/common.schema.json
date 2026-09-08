@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v1/common.schema.json",
+  "title": "Myth Maker common contract types",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "semanticTag": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{0,95}$"
+    },
+    "contractName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.-]{0,95}\\.v[1-9][0-9]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uri", "sha256", "media_type"],
+      "properties": {
+        "uri": { "type": "string", "format": "uri", "maxLength": 2048 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "media_type": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "byte_length": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host_contract_version"],
+      "properties": {
+        "host_contract_version": { "const": "1" },
+        "platforms": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "scripting_backends": {
+          "type": "array",
+          "items": { "enum": ["mono", "il2cpp"] },
+          "uniqueItems": true
+        },
+        "bindings": {
+          "type": "object",
+          "propertyNames": { "$ref": "#/$defs/semanticTag" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      }
+    }
+  }
+}
