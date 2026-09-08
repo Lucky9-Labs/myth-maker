@@ -227,6 +227,12 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deployment-preview.yml"],
     { encoding: "utf8" },
   ));
+  const deploy = JSON.parse(execFileSync(
+    "ruby",
+    ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
+    { encoding: "utf8" },
+  ));
+  assert.match(deploy.jobs["release-readiness"].steps[0].uses, /^actions\/checkout@/);
   for (const job of [
     "terraform-foundation-preview",
     "cloudflare-preview",
