@@ -71,7 +71,10 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
     secret = next((item for item in modal.Secret.objects.list(environment_name=environment) if item.name == SECRET_NAME), None)
     if not volume or not lease_dict or not secret:
         raise RuntimeError("Modal named-resource verification did not resolve every required object")
-    return {"volume": volume.object_id, "dict": lease_dict.object_id, "secret": secret.object_id}
+    # Secret existence is verified here but its object ID is deliberately not
+    # emitted. Security scanners correctly treat secret identifiers as
+    # potentially sensitive; the public receipt carries the dedicated name.
+    return {"volume": volume.object_id, "dict": lease_dict.object_id}
 
 
 def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
@@ -113,8 +116,8 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     return {
         "deployment_id": app["App ID"],
         "version_id": history[0]["Version"],
-        "resource_ids": [resources["volume"], resources["dict"], resources["secret"], draft.object_id, probe.object_id],
-        "health": {"status": "healthy", "environment": environment, "app_id": app["App ID"], "run_draft_function_id": draft.object_id},
+        "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id],
+        "health": {"status": "healthy", "environment": environment, "app_id": app["App ID"], "run_draft_function_id": draft.object_id, "verified_secret_name": SECRET_NAME},
         "dispatch": dispatch,
     }
 
