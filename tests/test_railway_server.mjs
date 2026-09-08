@@ -26,5 +26,8 @@ test("Railway verification echoes a stable x-work-id without dispatching or writ
     const invalid = await fetch(`http://127.0.0.1:${port}/v1/dispatch/verify`, { headers: { "x-work-id": "not valid" } });
     assert.equal(invalid.status, 400);
     assert.deepEqual(await invalid.json(), { error: "invalid_x_work_id" });
+    const oversized = await fetch(`http://127.0.0.1:${port}/v1/dispatch`, { method: "POST", body: "x".repeat(1_048_577) });
+    assert.equal(oversized.status, 413);
+    assert.deepEqual(await oversized.json(), { error: "body_too_large" });
   } finally { await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
 });
