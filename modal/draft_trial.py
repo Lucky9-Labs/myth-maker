@@ -27,25 +27,6 @@ RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
 
 
-@app.function(timeout=60, cpu=0.125, retries=0, max_containers=1)
-def run_dispatch_probe(work_order: dict) -> dict:
-    """Return a bounded, provider-observable terminal receipt without using OpenAI or Blender."""
-    required = {"schema_version", "work_id", "attempt", "kind"}
-    if set(work_order) != required or work_order.get("schema_version") != "1" or work_order.get("kind") != "bounded-health-probe":
-        raise ValueError("invalid bounded Modal probe work order")
-    if not isinstance(work_order["work_id"], str) or not work_order["work_id"] or work_order.get("attempt") != 1:
-        raise ValueError("bounded Modal probe requires one stable first attempt")
-    function_call_id = modal.current_function_call_id()
-    input_id = modal.current_input_id()
-    if not function_call_id or not input_id:
-        raise RuntimeError("Modal did not provide a call and input identity to the remote probe")
-    return {
-        "status": "completed",
-        "work_id": work_order["work_id"],
-        "function_call_id": function_call_id,
-        "input_id": input_id,
-        "worker_id": input_id,
-    }
 BLENDER_VERSION = "5.2.1"
 BLENDER_ARCHIVE_URL = "https://download.blender.org/release/Blender5.2/blender-5.2.1-linux-x64.tar.xz"
 BLENDER_ARCHIVE_SHA256 = "a31f524fa99a527d3d52b7f5aaa68c34e1a19d5a1c9473f79c5cc610fd5b10e9"
@@ -65,6 +46,27 @@ image = (modal.Image.debian_slim(python_version="3.12")
          .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py")
          .add_local_file(HERE / "desktop_readiness.py", "/opt/desktop_readiness.py")
          .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py"))
+
+
+@app.function(image=image, timeout=60, cpu=0.125, retries=0, max_containers=1)
+def run_dispatch_probe(work_order: dict) -> dict:
+    """Return a bounded, provider-observable terminal receipt without using OpenAI or Blender."""
+    required = {"schema_version", "work_id", "attempt", "kind"}
+    if set(work_order) != required or work_order.get("schema_version") != "1" or work_order.get("kind") != "bounded-health-probe":
+        raise ValueError("invalid bounded Modal probe work order")
+    if not isinstance(work_order["work_id"], str) or not work_order["work_id"] or work_order.get("attempt") != 1:
+        raise ValueError("bounded Modal probe requires one stable first attempt")
+    function_call_id = modal.current_function_call_id()
+    input_id = modal.current_input_id()
+    if not function_call_id or not input_id:
+        raise RuntimeError("Modal did not provide a call and input identity to the remote probe")
+    return {
+        "status": "completed",
+        "work_id": work_order["work_id"],
+        "function_call_id": function_call_id,
+        "input_id": input_id,
+        "worker_id": input_id,
+    }
 volume = modal.Volume.from_name(RUNTIME.volume_name)
 secret = modal.Secret.from_name(
     RUNTIME.openai_secret_name,

@@ -25,6 +25,9 @@ SECRET_NAME = "myth-maker-encounter-openai"
 PROBE_FUNCTION = "run_dispatch_probe"
 REQUIRED_CREDENTIALS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY")
 IMAGE_ID = re.compile(r"\bim-[A-Za-z0-9]+\b")
+# The initial image pull/import can outlive the short CLI request cadence. Keep
+# the CI probe bounded, but allow one cold start to reach a terminal receipt.
+PROBE_TIMEOUT_SECONDS = 300
 
 
 def run(*args: str, capture: bool = False) -> str:
@@ -128,7 +131,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
 
     work_id = "ci-modal-probe"
     call = probe.spawn({"schema_version": "1", "work_id": work_id, "attempt": 1, "kind": "bounded-health-probe"})
-    result = call.get(timeout=120)
+    result = call.get(timeout=PROBE_TIMEOUT_SECONDS)
     if not isinstance(result, dict) or result.get("status") != "completed" or result.get("work_id") != work_id:
         raise RuntimeError("Modal remote probe did not return a terminal work-order receipt")
     observed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
