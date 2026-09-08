@@ -85,6 +85,13 @@ test("completed attempts use an explicit continuation while unsupported and pend
   assert.equal((await gateway.getReceipt("steer-beta")).status, "required_input");
   assert.equal(lane.frames.length, 1);
 
+  const pendingLane = new FakeWebSocketLane();
+  await gateway.recordAttempt({ attempt_id: "attempt-pending", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", lane_id: "lane-pending", response_id: "resp-pending", mode: "single_agent", model_supports_steering: true }, pendingLane);
+  await gateway.requestSteer("attempt-pending", { ...request, client_steering_id: "steer-pending" });
+  await gateway.handleServerEvent("lane-pending", { type: "response.incomplete", response: { previous_response_id: "resp-pending", incomplete_details: { reason: "steered" } } });
+  assert.equal((await gateway.getReceipt("steer-pending")).status, "pending");
+  assert.equal(pendingLane.frames.length, 1);
+
   await gateway.recordAttempt({
     attempt_id: "attempt-multi", encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one",
     lane_id: "lane-multi", response_id: "resp-multi", mode: "multi_agent", model_supports_steering: true,
@@ -92,4 +99,15 @@ test("completed attempts use an explicit continuation while unsupported and pend
   const unsupported = await gateway.requestSteer("attempt-multi", { ...request, client_steering_id: "steer-multi" });
   assert.equal(unsupported.status, "unsupported");
   assert.equal(unsupported.error_code, "multi_agent_mode_unsupported");
+
+  for (const [attemptId, flags, reason] of [
+    ["attempt-model", { model_supports_steering: false }, "model_unsupported"],
+    ["attempt-conversation", { conversation_mode: true }, "conversation_mode_unsupported"],
+    ["attempt-compaction", { automatic_compaction: true }, "automatic_compaction_unsupported"],
+  ]) {
+    await gateway.recordAttempt({ attempt_id: attemptId, encounter_id: "encounter-alpha", work_id: "arena-shell", worker_id: "worker-one", lane_id: `lane-${attemptId}`, response_id: `resp-${attemptId}`, mode: "single_agent", model_supports_steering: true, ...flags }, new FakeWebSocketLane());
+    const rejected = await gateway.requestSteer(attemptId, { ...request, client_steering_id: `steer-${attemptId}` });
+    assert.equal(rejected.status, "unsupported");
+    assert.equal(rejected.error_code, reason);
+  }
 });

@@ -226,6 +226,29 @@ test("encounter steering appends a planner revision and creates fresh work inste
   }
 });
 
+test("an invalid planner batch leaves no directive or partial work attempts behind", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder());
+    const duplicate = workOrder({ work_id: "duplicate-plan", lane: "combat", requested_provides: ["combat.cover"], attempt: 2 });
+    const result = await instance.fetch(new Request("https://coordinator/steers", {
+      method: "POST",
+      body: JSON.stringify({ client_steering_id: "planner-steer-02", directive: "Avoid partial plans.", work_submissions: [
+        { idempotency_key: "encounter-work-0004", work_order: duplicate },
+        { idempotency_key: "encounter-work-0005", work_order: duplicate },
+      ] }),
+    }));
+    assert.equal(result.status, 409);
+    assert.equal((await body(result)).error, "planner_work_attempt_not_unique");
+    assert.deepEqual((await body(await instance.fetch(new Request("https://coordinator/steers")))).planner_directives, []);
+    assert.deepEqual((await body(await instance.fetch(new Request("https://coordinator/status")))).work_items.map((item) => item.work_id), ["arena-shell"]);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
 test("idempotency replays an identical request and rejects a fingerprint mismatch", async () => {
   const oldFetch = globalThis.fetch;
   let dispatches = 0;
