@@ -14,6 +14,7 @@ The firm contracts are:
 | `WorkerEvent` | Worker/coordinator boundary | Appends observable lifecycle events and candidate receipts. |
 | `EncounterModule` | Worker/assembler boundary | Describes one composable behavior, asset, or remote-logic contribution. |
 | `PlayableEncounterPackage` | Assembler/host boundary | Names one immutable, compatible module selection that can be preloaded and frozen. |
+| `ConceptFirstAssetProductionGate` | Concept/worker/assembler boundary | Pins the immutable intent, art direction, concept reference, worker brief, asset revision, and assembly decision for one type-neutral production candidate. |
 
 ## Stability rules
 
@@ -30,6 +31,15 @@ The firm contracts are:
   it only after the target player has passed a dynamic assembly-loading spike.
 - Unknown or unsupported execution kinds fail compatibility checks; they never
   prevent selection of a declared fallback module.
+- A future production worker dispatch must carry a `concept_lineage` with exact
+  immutable `EncounterIntent`, `ArtDirectionRevision`, and
+  `ConceptReferenceRevision` references. The only exception is an explicit,
+  time-bounded `reuse` or `maintenance` waiver with a bounded reason, approver,
+  and named asset scope.
+- `ConceptFirstAssetProductionGate` is an adoption contract, not a claim that
+  the active V1 dispatcher already enforces the gate. It records source and
+  runtime acceptance separately, and it makes selection, rejection, deviation,
+  and fallback decisions inspectable before a package is chosen.
 
 These schemas intentionally do not standardize the internal Unity command API,
 artifact file formats, scoring algorithm, or coordinator persistence layout.
