@@ -34,19 +34,29 @@ export class BuildRoom {
 
   submit(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)
-      || Object.keys(input).some((key) => !["prompt", "generate_asset", "idempotency_key"].includes(key))) {
+      || Object.keys(input).some((key) => !["prompt", "generate_asset", "compile_profile", "deadline_seconds", "freeze_current_package", "idempotency_key"].includes(key))) {
       throw new TypeError("build-room request has unknown fields");
     }
-    const { prompt, generate_asset: generateAsset = false, idempotency_key: idempotencyKey = undefined } = input;
+    const {
+      prompt,
+      generate_asset: generateAsset = false,
+      compile_profile: compileProfile = "standard",
+      deadline_seconds: deadlineSeconds = 1800,
+      freeze_current_package: freezeCurrentPackage = false,
+      idempotency_key: idempotencyKey = undefined,
+    } = input;
     if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 2000) {
       throw new TypeError("prompt must be a non-empty string of at most 2000 characters");
     }
     if (typeof generateAsset !== "boolean") throw new TypeError("generate_asset must be a boolean when supplied");
+    if (!["standard", "high_fanout"].includes(compileProfile)) throw new TypeError("compile_profile must be standard or high_fanout");
+    if (!Number.isInteger(deadlineSeconds) || deadlineSeconds < 1 || deadlineSeconds > 86_400) throw new TypeError("deadline_seconds must be an integer from 1 to 86400");
+    if (typeof freezeCurrentPackage !== "boolean") throw new TypeError("freeze_current_package must be a boolean when supplied");
     if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !/^[A-Za-z0-9._-]{8,128}$/.test(idempotencyKey))) {
       throw new TypeError("idempotency_key must be 8 to 128 URL-safe characters");
     }
     const normalizedPrompt = prompt.trim();
-    const fingerprint = createHash("sha256").update(JSON.stringify({ prompt: normalizedPrompt, generate_asset: generateAsset })).digest("hex");
+    const fingerprint = createHash("sha256").update(JSON.stringify({ prompt: normalizedPrompt, generate_asset: generateAsset, compile_profile: compileProfile, deadline_seconds: deadlineSeconds, freeze_current_package: freezeCurrentPackage })).digest("hex");
     if (idempotencyKey) {
       const prior = this.idempotency.get(idempotencyKey);
       if (prior) {
@@ -60,10 +70,14 @@ export class BuildRoom {
       workerId: this.id("worker"),
     };
     const submittedAt = this.now();
+    const deadlineAt = new Date(Date.parse(submittedAt) + deadlineSeconds * 1000).toISOString();
     this.runs.set(ids.encounterId, {
       ids,
       prompt: normalizedPrompt,
       generateAsset,
+      compileProfile,
+      deadlineAt,
+      freezeCurrentPackage,
       seed: seedFor(normalizedPrompt),
       submittedAt,
       events: [],
@@ -113,6 +127,8 @@ export class BuildRoom {
       ...prior,
       work_id: input.work_id,
       lane: input.lane || input.work_order?.lane || prior.lane || "unreported",
+      component: input.requested_provides?.[0] || input.work_order?.requested_provides?.[0] || prior.component || "unreported",
+      deadline_at: input.deadline_at || input.work_order?.deadline_at || prior.deadline_at || run.deadlineAt,
       depends_on_work_ids: input.depends_on_work_ids || input.work_order?.depends_on_work_ids || prior.depends_on_work_ids || [],
       worker_id: event.workerId,
       status: workerStatus(event.kind),
@@ -129,6 +145,10 @@ export class BuildRoom {
       ids: { ...run.ids },
       prompt: run.prompt,
       generate_asset: run.generateAsset,
+      compile_profile: run.compileProfile || "standard",
+      deadline_at: run.deadlineAt,
+      remaining_seconds: remainingSeconds(run.deadlineAt, this.now()),
+      freeze_current_package: Boolean(run.freezeCurrentPackage),
       seed: run.seed,
       submittedAt: run.submittedAt,
       events: orderedEvents(run.events),
@@ -418,7 +438,7 @@ function moduleRevision(module) {
 function upsertRevision(entries, entry) {
   const id = entry.artifact_id || entry.package_id;
   const key = `${id}@${entry.revision}`;
-  if (!entries.has(key)) entries.set(key, entry);
+  entries.set(key, entry);
 }
 
 function revisions(entries) {
@@ -469,6 +489,12 @@ function elapsedSeconds(work, observedAt) {
   const start = Date.parse(work.started_at);
   const end = Date.parse(["completed", "failed"].includes(work.status) ? work.updated_at : observedAt);
   return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, Math.floor((end - start) / 1000)) : 0;
+}
+
+function remainingSeconds(deadlineAt, observedAt) {
+  const deadline = Date.parse(deadlineAt);
+  const observed = Date.parse(observedAt);
+  return Number.isFinite(deadline) && Number.isFinite(observed) ? Math.max(0, Math.ceil((deadline - observed) / 1000)) : 0;
 }
 
 function catalogTopology(catalogProjection, run) {
