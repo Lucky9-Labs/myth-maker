@@ -44,13 +44,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
           TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
           WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: node scripts/deployment/controller.mjs deploy --event workflow_dispatch --provider '${{ inputs.provider }}' --environment '${{ inputs.environment }}'
+        run: node scripts/deployment/controller.mjs deploy --event '${{ github.event_name }}' --provider '${{ inputs.provider }}' --environment '${{ inputs.environment }}'
       - name: Write machine-readable receipt
         if: always()
         shell: bash

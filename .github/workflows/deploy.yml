@@ -1,16 +1,29 @@
 name: Reviewed deployment
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - "scripts/deployment/**"
+      - "src/**"
+      - "modal/**"
+      - "infra/terraform/**"
+      - "wrangler.jsonc"
   workflow_dispatch:
     inputs:
       environment:
-        description: Reviewed GitHub Environment to deploy to
-        required: true
+        description: Environment for recovery/retry only; main pushes use dev
+        required: false
         type: choice
         options: [dev, staging, production]
       source_sha:
-        description: Full immutable commit SHA already merged into main
-        required: true
+        description: Full immutable commit SHA for recovery/retry; default is the triggering main commit
+        required: false
+        type: string
+      reviewed_plan_sha256:
+        description: Optional expected SHA-256 for a recovery plan; main pushes calculate and record it automatically
+        required: false
         type: string
 
 permissions:
@@ -22,38 +35,46 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 1
       - name: Refuse non-main, mutable, or dirty inputs
         shell: bash
         run: |
           set -euo pipefail
-          source_sha='${{ inputs.source_sha }}'
+          source_sha='${{ inputs.source_sha || github.sha }}'
           [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$source_sha"
           git fetch origin main --depth=1
           git merge-base --is-ancestor "$source_sha" origin/main
           git diff --exit-code
           git diff --cached --exit-code
-          node scripts/deployment/controller.mjs validate --event workflow_dispatch --provider cloudflare --environment '${{ inputs.environment }}'
+          node scripts/deployment/controller.mjs validate --event '${{ github.event_name }}' --provider cloudflare --environment '${{ inputs.environment || 'dev' }}'
 
   modal:
     needs: assert-deployment-input
     uses: ./.github/workflows/provider-modal.yml
     with:
-      environment: ${{ inputs.environment }}
-      source_sha: ${{ inputs.source_sha }}
+      environment: ${{ inputs.environment || 'dev' }}
+      source_sha: ${{ inputs.source_sha || github.sha }}
+
+  terraform-foundation:
+    needs: assert-deployment-input
+    uses: ./.github/workflows/terraform-foundation.yml
+    with:
+      environment: ${{ inputs.environment || 'dev' }}
+      source_sha: ${{ inputs.source_sha || github.sha }}
+      reviewed_plan_sha256: ${{ inputs.reviewed_plan_sha256 || '' }}
 
   railway:
-    needs: assert-deployment-input
+    needs: terraform-foundation
     uses: ./.github/workflows/provider-railway.yml
     with:
-      environment: ${{ inputs.environment }}
-      source_sha: ${{ inputs.source_sha }}
+      environment: ${{ inputs.environment || 'dev' }}
+      source_sha: ${{ inputs.source_sha || github.sha }}
 
   cloudflare:
-    needs: [railway, modal]
+    needs: [terraform-foundation, railway, modal]
     uses: ./.github/workflows/provider-cloudflare.yml
     with:
-      environment: ${{ inputs.environment }}
-      source_sha: ${{ inputs.source_sha }}
+      environment: ${{ inputs.environment || 'dev' }}
+      source_sha: ${{ inputs.source_sha || github.sha }}

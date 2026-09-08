@@ -28,9 +28,9 @@ test("pull-request requests are validation-only and cannot deploy", () => {
   );
 });
 
-test("deployment requires an immutable main SHA and a clean checkout", () => {
+test("a trusted main push deploys only an immutable clean SHA", () => {
   assert.equal(assertDeploymentRequest({
-    eventName: "workflow_dispatch",
+    eventName: "push",
     sourceSha: "a".repeat(40),
     checkoutSha: "a".repeat(40),
     isReachableFromMain: true,
@@ -38,7 +38,7 @@ test("deployment requires an immutable main SHA and a clean checkout", () => {
   }).sourceSha, "a".repeat(40));
 
   for (const invalid of [
-    { eventName: "push", sourceSha: "a".repeat(40), checkoutSha: "a".repeat(40), isReachableFromMain: true, isClean: true },
+    { eventName: "pull_request", sourceSha: "a".repeat(40), checkoutSha: "a".repeat(40), isReachableFromMain: true, isClean: true },
     { eventName: "workflow_dispatch", sourceSha: "not-a-sha", checkoutSha: "not-a-sha", isReachableFromMain: true, isClean: true },
     { eventName: "workflow_dispatch", sourceSha: "a".repeat(40), checkoutSha: "a".repeat(40), isReachableFromMain: false, isClean: true },
     { eventName: "workflow_dispatch", sourceSha: "a".repeat(40), checkoutSha: "a".repeat(40), isReachableFromMain: true, isClean: false },
@@ -57,23 +57,29 @@ test("provider-environment locks isolate providers and serialize duplicates", ()
 test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
   assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
-  assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN", "TF_VAR_railway_token", "WORK_DISPATCH_TOKEN"]);
+  assert.deepEqual(providerDefinitions.railway.secretNames, ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
 
 test("workflows use non-mutating PR previews and provider locks", async () => {
-  const [prWorkflow, deployWorkflow, executor] = await Promise.all([
+  const [prWorkflow, deployWorkflow, executor, terraformFoundation] = await Promise.all([
     readFile(new URL("../.github/workflows/deployment-preview.yml", import.meta.url), "utf8"),
     readFile(new URL("../.github/workflows/deploy.yml", import.meta.url), "utf8"),
     readFile(new URL("../.github/workflows/provider-executor.yml", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/terraform-foundation.yml", import.meta.url), "utf8"),
   ]);
 
   assert.match(prWorkflow, /pull_request:/);
   assert.match(prWorkflow, /controller\.mjs preview/);
   assert.doesNotMatch(prWorkflow, /secrets: inherit/);
   assert.match(deployWorkflow, /workflow_dispatch:/);
-  assert.match(deployWorkflow, /source_sha:/);
+  assert.match(deployWorkflow, /push:/);
+  assert.match(deployWorkflow, /branches: \[main\]/);
+  assert.match(deployWorkflow, /github\.sha/);
   assert.match(deployWorkflow, /assert-deployment-input/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
+  assert.match(terraformFoundation, /init -reconfigure/);
+  assert.match(terraformFoundation, /reviewed\.tfplan/);
+  assert.match(terraformFoundation, /deployment_receipt_facts/);
 });

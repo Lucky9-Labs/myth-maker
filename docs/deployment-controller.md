@@ -6,7 +6,7 @@ deployment path. This controller makes the deployment trust boundary explicit:
 
 ```text
 pull request -> non-mutating checks/previews only
-manual dispatch + immutable main SHA -> reviewed GitHub Environment
+validated push to main -> environment-scoped CI deployment
   -> Modal and Railway (parallel)
   -> Cloudflare (after both dispatch dependencies are ready)
   -> one JSON receipt artifact per provider
@@ -21,9 +21,10 @@ than shell strings and never prints environment values.
 
 ## Required repository configuration
 
-Create GitHub Environments named `dev`, `staging`, and `production`, and require
-the appropriate reviewers before deployment. Store only the indicated provider
-credentials in the environment that needs them:
+Create GitHub Environments named `dev`, `staging`, and `production` to isolate
+secrets, but do not configure required reviewers: successful validated commits
+to `main` deploy automatically. Store only the indicated provider credentials
+in the environment that needs them:
 
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
@@ -31,24 +32,29 @@ credentials in the environment that needs them:
 | Railway | `RAILWAY_TOKEN`, `TF_VAR_railway_token`, `WORK_DISPATCH_TOKEN` |
 | Modal | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `OPENAI_API_KEY` |
 
-The environment gate lives in the shared executor, before any credential is
+The environment boundary lives in the shared executor, before any credential is
 passed to a command. A provider job receives only its own listed names. Do not
-use `secrets: inherit` in the dispatcher workflow.
+use `secrets: inherit` in the dispatcher workflow. The Terraform foundation
+job additionally needs `TF_BACKEND_CONFIG` for the approved remote backend and
+the non-secret GitHub Environment variables described by
+`infra/terraform/variables.tf` (account/workspace IDs, dispatcher URL, and
+explicit `MANAGE_*` flags).
 
-Run **Reviewed deployment** only with an exact 40-character commit SHA that is
-already reachable from `origin/main`. The workflow checks out that SHA, rejects
-a dirty checkout, and locks the exact `(provider, environment)` pair with
-`cancel-in-progress: false`. A duplicate request therefore queues rather than
-overlapping the active deployment. Modal and Railway are independent and run in
-parallel; Cloudflare is deliberately serialized after them because its worker
-binding points at the Railway dispatcher, which in turn acknowledges `x-work-id`
-for Modal work.
+The `Reviewed deployment` workflow runs automatically for covered changes on
+`main`; its name is retained for compatibility. A manual dispatch is only for
+recovery/retry and may optionally name a full 40-character SHA. Both paths
+require a SHA already reachable from `origin/main`, check out exactly that SHA,
+reject a dirty checkout, and lock the exact `(provider, environment)` pair with
+`cancel-in-progress: false`. A duplicate request queues rather than overlapping
+the active deployment. Modal and Terraform foundation may run in parallel;
+Railway follows the foundation, and Cloudflare is deliberately serialized after
+all three because its worker binding points at the Railway dispatcher, which in
+turn acknowledges `x-work-id` for Modal work.
 
 ## Terraform adapter and PR #7
 
-On current main, `infra/terraform` does not exist. The PR preview workflow
-detects that state and records an adapter skip rather than guessing a backend or
-creating resources. Once PR #7 lands, its preview performs only:
+PR #7's merged `infra/terraform` foundation is now exercised by the preview
+workflow using only:
 
 ```sh
 terraform -chdir=infra/terraform init -backend=false -input=false
@@ -58,20 +64,18 @@ terraform -chdir=infra/terraform plan -refresh=false -lock=false -input=false
 ```
 
 That deliberately does not authenticate, lock remote state, refresh, or apply.
-The reviewed deployment still uses the provider CLIs for the runtime artifacts.
-Terraform state initialization/application remains a separate CI-only,
-environment-reviewed foundation phase until PR #7 publishes its team-approved
-encrypted backend and a reviewed-plan digest contract. It must use the PR's
-existing remote backend configuration; this controller will not fall back to
-local state or synthesize backend credentials.
+For an automatic `main` deployment, the CI-only Terraform phase initializes the
+approved remote backend, builds an exact plan, records its SHA-256, and applies
+that same saved plan. A manual recovery can supply an expected plan SHA-256 and
+will fail if the generated plan differs. It never falls back to local state or
+synthesizes backend credentials.
 
-PR #7's expected adapter inputs are preserved here: Cloudflare emits module
-digests and declares `WORK_DISPATCH_URL`/`WORK_DISPATCH_TOKEN`; Railway records
-its dispatcher service and `WORK_DISPATCH_TOKEN`; Modal records the draft app,
-Volume, and lease dictionary. The exact provider version/deployment IDs are
-collected by the future foundation phase after its provider interface is merged;
-the current receipt marks source-build and target identifiers without claiming
-that an unavailable provider API returned a deployment ID.
+The additive `deployment_receipt_facts` Terraform output supplies Cloudflare
+worker/version/deployment IDs, Railway project/environment/service IDs, module
+SHA-256s, and configured non-secret variable names when those resources are
+managed; disabled resources are null or empty. Modal CLI output is not assumed
+to be JSON, so its receipt must mark a deployment ID unavailable until a
+parseable CLI/API seam is added—never invent an ID.
 
 ## Receipts and build-room consumption
 
@@ -83,8 +87,19 @@ Every provider execution writes and uploads
 - checkout/provider-command verification result; and
 - provider-specific target metadata (including Cloudflare module SHA-256s).
 
+The Terraform foundation also uploads a non-secret companion receipt keyed by
+the same environment and source SHA. It supplies the provider IDs and configured
+variable names from `deployment_receipt_facts`; build-room consumers should join
+it with the three provider receipts before presenting a fully verified release.
+
 The build-room viewer or coordinator should download the artifacts by this
 stable name, parse only `myth-maker.deployment-receipt/v1`, and display a
 provider as deployed only when `status` is `success` and the verification result
 is successful. Receipts are evidence of CI execution, not evidence that a
 generated encounter is accepted by the Unity host.
+
+On a failed command, the receipt is uploaded with `status: failure` for the
+build-room/coordinator to consume. Automatic rollback is intentionally not
+attempted until the receipt contains a verified prior provider version ID and a
+provider-specific rollback command; guessing a rollback target would be less
+safe than reporting the failure.

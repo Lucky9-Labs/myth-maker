@@ -24,10 +24,10 @@ export const providerDefinitions = Object.freeze({
     deploy: ["npx", ["--yes", "wrangler@4.37.0", "deploy", "--config", "wrangler.jsonc"]],
   }),
   railway: Object.freeze({
-    secretNames: ["RAILWAY_TOKEN", "TF_VAR_railway_token", "WORK_DISPATCH_TOKEN"],
+    secretNames: ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"],
     requiredFiles: [],
     preview: null,
-    deploy: ["npx", ["--yes", "@railway/cli@4.8.1", "up", "--ci"]],
+    deploy: null,
   }),
   modal: Object.freeze({
     secretNames: ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"],
@@ -49,8 +49,8 @@ export function validateProviderRequest({ eventName, mode, provider, environment
   if (!new Set(["validate", "preview", "deploy"]).has(mode)) {
     throw new Error("mode must be validate, preview, or deploy");
   }
-  if (mode === "deploy" && eventName !== "workflow_dispatch") {
-    throw new Error("deployments require a manual workflow dispatch");
+  if (mode === "deploy" && !new Set(["push", "workflow_dispatch"]).has(eventName)) {
+    throw new Error("deployments require a trusted main push or manual workflow dispatch");
   }
   if (eventName === "pull_request" && mode === "deploy") {
     throw new Error("pull-request events are validation-only");
@@ -59,8 +59,8 @@ export function validateProviderRequest({ eventName, mode, provider, environment
 }
 
 export function assertDeploymentRequest({ eventName, sourceSha, checkoutSha, isReachableFromMain, isClean }) {
-  if (eventName !== "workflow_dispatch") {
-    throw new Error("deployment must be initiated by workflow_dispatch");
+  if (!new Set(["push", "workflow_dispatch"]).has(eventName)) {
+    throw new Error("deployment must be initiated by a trusted main push or workflow_dispatch");
   }
   if (!SHA.test(sourceSha ?? "")) {
     throw new Error("source SHA must be a full immutable 40-character SHA-1");
@@ -102,10 +102,6 @@ export function providerCommand(provider, mode, environment) {
   assertEnvironment(environment);
   if (mode === "preview") return definition.preview;
   if (mode !== "deploy") return null;
-  if (provider === "railway") {
-    const service = `myth-maker-${environment}-dispatcher`;
-    return [definition.deploy[0], [...definition.deploy[1], "--service", service]];
-  }
   if (provider === "modal") {
     return [definition.deploy[0], [...definition.deploy[1], "--env", environment, "modal/draft_trial.py"]];
   }
@@ -124,6 +120,7 @@ export function providerReceiptMetadata(provider, environment, sourceSha) {
         target: "Cloudflare Worker",
         module_sha256: Object.fromEntries(
           ["src/worker.js", "src/encounter-package-assembler.js"].map((file) => [file, sha256File(file)]),
+        ),
         bindings_snapshot_required: ["WORK_DISPATCH_URL", "WORK_DISPATCH_TOKEN"],
       },
     };
