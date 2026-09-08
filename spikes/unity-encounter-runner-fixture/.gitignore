@@ -3,3 +3,6 @@
 [Tt]emp/
 [Oo]bj/
 [Uu]ser[Ss]ettings/
+Packages/
+ProjectSettings/*.asset
+/artifacts/encounter-runner/*.log
