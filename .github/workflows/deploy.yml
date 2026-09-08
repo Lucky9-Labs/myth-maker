@@ -47,6 +47,11 @@ jobs:
       ready: ${{ steps.readiness.outputs.ready }}
       reason: ${{ steps.readiness.outputs.reason }}
     steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          ref: ${{ needs.assert-deployment-input.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
       - id: readiness
         name: Check explicit environment bootstrap readiness without reading credentials
         run: |
