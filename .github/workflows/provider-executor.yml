@@ -29,82 +29,94 @@ jobs:
         with:
           ref: ${{ inputs.source_sha }}
           fetch-depth: 1
-      - name: Assert an immutable clean checked-out revision
+      - name: Derive and validate the trusted immutable main revision in this provider executor
         id: preflight
         shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
-          git diff --exit-code
-          git diff --cached --exit-code
+          test "$SOURCE_SHA" = "$GITHUB_SHA"
+          node scripts/deployment/controller.mjs assert-github-deployment --checkout-sha "$(git rev-parse HEAD)"
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - name: Deploy Cloudflare through the provider adapter
+      - name: Run Cloudflare provider adapter without runtime credentials
         id: deploy
         if: inputs.provider == 'cloudflare'
+        run: |
+          set -euo pipefail
+          node scripts/deployment/controller.mjs deploy --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT" > "$RUNNER_TEMP/provider-result.json"
+          node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
-          TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
-          EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
-        run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT"
-      - name: Verify Railway foundation through the provider adapter
+          RESULT: ${{ runner.temp }}/provider-result.json
+      - name: Record unavailable Railway deployment without injecting credentials
         id: railway
         if: inputs.provider == 'railway'
         env:
-          TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
-          WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
-        run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider railway --environment "$DEPLOYMENT_ENVIRONMENT"
-      - name: Deploy Modal through the provider adapter
+          RESULT: ${{ runner.temp }}/provider-result.json
+        run: |
+          set -euo pipefail
+          node scripts/deployment/controller.mjs deploy --provider railway --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
+          node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
+      - name: Deploy Modal through the provider adapter with CLI-only credentials
         id: modal
         if: inputs.provider == 'modal'
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          EVENT_NAME: ${{ github.event_name }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
-        run: node scripts/deployment/controller.mjs deploy --event "$EVENT_NAME" --provider modal --environment "$DEPLOYMENT_ENVIRONMENT"
-      - name: Write machine-readable receipt
+          RESULT: ${{ runner.temp }}/provider-result.json
+        run: |
+          set -euo pipefail
+          node scripts/deployment/controller.mjs deploy --provider modal --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
+          node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
+      - name: Write machine-readable receipt from provider output, never command exit alone
         if: always()
         shell: bash
         env:
           CLOUDFLARE_OUTCOME: ${{ steps.deploy.outcome }}
+          CLOUDFLARE_STATUS: ${{ steps.deploy.outputs.provider_status }}
           RAILWAY_OUTCOME: ${{ steps.railway.outcome }}
+          RAILWAY_STATUS: ${{ steps.railway.outputs.provider_status }}
           MODAL_OUTCOME: ${{ steps.modal.outcome }}
+          MODAL_STATUS: ${{ steps.modal.outputs.provider_status }}
           PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
           PROVIDER: ${{ inputs.provider }}
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           SOURCE_SHA: ${{ inputs.source_sha }}
+          STARTED_AT: ${{ steps.preflight.outputs.started_at }}
+          RESULT: ${{ runner.temp }}/provider-result.json
         run: |
           set -euo pipefail
           case "$PROVIDER" in
-            cloudflare) DEPLOY_OUTCOME="$CLOUDFLARE_OUTCOME" ;;
-            railway) DEPLOY_OUTCOME="$RAILWAY_OUTCOME" ;;
-            modal) DEPLOY_OUTCOME="$MODAL_OUTCOME" ;;
-            *) DEPLOY_OUTCOME=failure ;;
+            cloudflare) DEPLOY_OUTCOME="$CLOUDFLARE_OUTCOME"; PROVIDER_STATUS="$CLOUDFLARE_STATUS" ;;
+            railway) DEPLOY_OUTCOME="$RAILWAY_OUTCOME"; PROVIDER_STATUS="$RAILWAY_STATUS" ;;
+            modal) DEPLOY_OUTCOME="$MODAL_OUTCOME"; PROVIDER_STATUS="$MODAL_STATUS" ;;
+            *) DEPLOY_OUTCOME=failure; PROVIDER_STATUS=failure ;;
           esac
           status=failure
-          if [[ "$DEPLOY_OUTCOME" == success ]]; then status=success; fi
-          # Terraform is the sole Cloudflare deployment authority. This wrapper
-          # publishes a non-success placeholder until its managed IDs/facts are
-          # joined into a provider receipt, rather than inventing a Wrangler ID.
-          if [[ "$PROVIDER" == cloudflare ]]; then status=skipped; fi
-          completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          checkout_clean=false
-          if [[ "$PREFLIGHT_OUTCOME" == success ]]; then checkout_clean=true; fi
+          if [[ "$PREFLIGHT_OUTCOME" == success && "$DEPLOY_OUTCOME" == success ]]; then
+            case "$PROVIDER_STATUS" in
+              deployed) status=success ;;
+              skipped) status=skipped ;;
+            esac
+          fi
+          started_at="${STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+          details="$(node -e '
+            const fs = require("node:fs");
+            const result = fs.existsSync(process.env.RESULT) ? JSON.parse(fs.readFileSync(process.env.RESULT, "utf8")) : {};
+            process.stdout.write(JSON.stringify(result.evidence ? { provider_evidence: result.evidence } : { reason: result.reason || "provider command did not produce verified evidence" }));
+          ')"
           node scripts/deployment/controller.mjs receipt \
             --provider "$PROVIDER" \
             --environment "$DEPLOYMENT_ENVIRONMENT" \
             --source-sha "$SOURCE_SHA" \
             --status "$status" \
-            --started-at '${{ steps.preflight.outputs.started_at }}' \
-            --completed-at "$completed_at" \
-            --verification "{\"checkout_clean\":$checkout_clean,\"provider_command_outcome\":\"$DEPLOY_OUTCOME\"}" \
+            --started-at "$started_at" \
+            --completed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --verification "{\"trusted_github_context\":$([[ "$PREFLIGHT_OUTCOME" == success ]] && echo true || echo false),\"provider_command_outcome\":\"$DEPLOY_OUTCOME\",\"provider_result\":\"$PROVIDER_STATUS\"}" \
+            --details "$details" \
             --output "receipts/$PROVIDER-$DEPLOYMENT_ENVIRONMENT.json"
       - name: Upload deployment receipt
         if: always()

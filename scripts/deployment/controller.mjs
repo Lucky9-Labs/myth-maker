@@ -9,16 +9,18 @@
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 
 const SHA = /^[0-9a-f]{40}$/;
 const ENVIRONMENT = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROVIDER = /^[a-z][a-z0-9-]{0,31}$/;
+const RECEIPT_PROVIDERS = new Set(["cloudflare", "railway", "modal", "terraform-foundation"]);
 
 export const providerDefinitions = Object.freeze({
   cloudflare: Object.freeze({
-    secretNames: ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"],
+    // The Terraform foundation owns Cloudflare bindings and their runtime
+    // secrets. This provider adapter has no direct deployment command yet.
+    secretNames: [],
     requiredFiles: ["wrangler.jsonc", "src/worker.js", "src/encounter-package-assembler.js"],
     preview: ["npx", ["--yes", "wrangler@4.37.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"]],
     // Terraform owns the Worker version/deployment because it also owns the
@@ -26,13 +28,14 @@ export const providerDefinitions = Object.freeze({
     deploy: null,
   }),
   railway: Object.freeze({
-    secretNames: ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"],
+    secretNames: ["RAILWAY_TOKEN"],
     requiredFiles: [],
     preview: null,
     deploy: null,
   }),
   modal: Object.freeze({
-    secretNames: ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"],
+    // OPENAI_API_KEY is a Modal runtime secret, not a Modal CLI credential.
+    secretNames: ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"],
     requiredFiles: ["modal/draft_trial.py"],
     preview: null,
     deploy: ["uvx", ["--from", "modal==1.0.3", "modal", "deploy"]],
@@ -85,8 +88,44 @@ export function assertDeploymentRequest({ eventName, sourceSha, checkoutSha, isR
   return { sourceSha };
 }
 
+export function trustedDeploymentContext(environment = process.env) {
+  const eventName = environment.GITHUB_EVENT_NAME;
+  const sourceSha = environment.GITHUB_SHA;
+  if (
+    environment.GITHUB_ACTIONS !== "true"
+    || !new Set(["push", "workflow_dispatch"]).has(eventName)
+    || environment.GITHUB_REF !== "refs/heads/main"
+    || !SHA.test(sourceSha ?? "")
+  ) {
+    throw new Error("deployments require trusted GitHub Actions context on main");
+  }
+  return { eventName, sourceSha };
+}
+
+export function parseModalDeploymentEvidence(output) {
+  let parsed;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    throw new Error("Modal deployment did not return parseable JSON evidence");
+  }
+  const deploymentId = parsed.deployment_id;
+  const versionId = parsed.version_id;
+  const resourceIds = parsed.resource_ids;
+  const health = parsed.health;
+  if (
+    typeof deploymentId !== "string" || !deploymentId
+    || typeof versionId !== "string" || !versionId
+    || !Array.isArray(resourceIds) || resourceIds.length === 0 || resourceIds.some((value) => typeof value !== "string" || !value)
+    || health?.status !== "healthy"
+  ) {
+    throw new Error("Modal deployment evidence requires deployment_id, version_id, resource_ids, and healthy status");
+  }
+  return { deployment_id: deploymentId, version_id: versionId, resource_ids: resourceIds, health };
+}
+
 export function createReceipt({ provider, environment, sourceSha, status, startedAt, completedAt, artifactIds = [], verification = {}, details = {} }) {
-  assertProvider(provider);
+  assertReceiptProvider(provider);
   assertEnvironment(environment);
   if (!SHA.test(sourceSha ?? "")) throw new Error("receipt source SHA must be immutable");
   if (!new Set(["success", "failure", "skipped"]).has(status)) throw new Error("receipt status is invalid");
@@ -108,7 +147,12 @@ export function providerCommand(provider, mode, environment) {
   const definition = providerDefinitions[provider];
   assertProvider(provider);
   assertEnvironment(environment);
-  if (mode === "preview") return definition.preview;
+  if (mode === "preview") {
+    if (provider === "modal") {
+      return ["python3", ["modal/infrastructure.py", "--environment", environment, "--check-files"]];
+    }
+    return definition.preview;
+  }
   if (mode !== "deploy") return null;
   if (provider === "modal") {
     return [definition.deploy[0], [...definition.deploy[1], "--env", environment, "modal/draft_trial.py"]];
@@ -120,44 +164,20 @@ export function providerReceiptMetadata(provider, environment, sourceSha) {
   assertProvider(provider);
   assertEnvironment(environment);
   if (!SHA.test(sourceSha ?? "")) throw new Error("receipt source SHA must be immutable");
-  const buildVersion = `git:${sourceSha}`;
-  if (provider === "cloudflare") {
-    return {
-      artifactIds: [buildVersion, `worker:${environment === "dev" ? "myth-maker-encounter-runtime" : `myth-maker-${environment}-encounter-runtime`}`],
-      details: {
-        target: "Cloudflare Worker",
-        module_sha256: Object.fromEntries(
-          ["src/worker.js", "src/encounter-package-assembler.js"].map((file) => [file, sha256File(file)]),
-        ),
-        bindings_snapshot_required: ["WORK_DISPATCH_URL", "WORK_DISPATCH_TOKEN"],
-      },
-    };
-  }
-  if (provider === "railway") {
-    return {
-      artifactIds: [buildVersion],
-      details: {
-        evidence_status: "unavailable",
-        reason: "dispatcher acknowledgement adapter is not implemented",
-      },
-    };
-  }
-  return {
-    artifactIds: [buildVersion, "app:myth-maker-encounter-draft"],
-    details: {
-      target: "Modal draft application",
-      required_resources: ["myth-maker-encounter-submissions", "myth-maker-encounter-component-leases"],
-    },
-  };
-}
-
-function sha256File(file) {
-  return createHash("sha256").update(readFileSync(resolve(file))).digest("hex");
+  // A source revision is evidence of the CI input, not evidence that a remote
+  // provider deployed it. Provider IDs are admitted only from parsed output.
+  return { artifactIds: [`git:${sourceSha}`], details: { evidence_status: "unverified" } };
 }
 
 function assertProvider(value) {
   if (!PROVIDER.test(value ?? "") || !(value in providerDefinitions)) {
     throw new Error("unknown deployment provider");
+  }
+}
+
+function assertReceiptProvider(value) {
+  if (!PROVIDER.test(value ?? "") || !RECEIPT_PROVIDERS.has(value)) {
+    throw new Error("unknown deployment receipt provider");
   }
 }
 
@@ -184,11 +204,36 @@ function validateLocalFiles(provider) {
   if (missing.length) throw new Error(`missing required ${provider} deployment files: ${missing.join(", ")}`);
 }
 
+function assertTrustedGitHubDeployment(checkoutSha) {
+  const trusted = trustedDeploymentContext();
+  const actualCheckoutSha = checkoutSha ?? execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  execFileSync("git", ["fetch", "origin", "main", "--depth=1"], { stdio: "ignore" });
+  const isReachableFromMain = (() => {
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", trusted.sourceSha, "origin/main"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  const isClean = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() === "";
+  assertDeploymentRequest({ ...trusted, checkoutSha: actualCheckoutSha, isReachableFromMain, isClean });
+  return trusted;
+}
+
+function executeProviderCommand(invocation) {
+  return execFileSync(invocation[0], invocation[1], { encoding: "utf8", env: process.env });
+}
+
 function run(command, options) {
   const provider = options.provider;
   const environment = options.environment;
+  const trusted = command === "deploy" ? assertTrustedGitHubDeployment(options.checkout_sha) : null;
+  if (command === "deploy" && options.event !== undefined) {
+    throw new Error("deploy event is derived from trusted GitHub Actions context, not --event");
+  }
   const request = validateProviderRequest({
-    eventName: options.event,
+    eventName: trusted?.eventName ?? options.event,
     mode: command,
     provider,
     environment,
@@ -200,13 +245,11 @@ function run(command, options) {
   }
   const invocation = providerCommand(provider, command, environment);
   if (!invocation) {
-    if (command === "deploy" && provider === "railway") {
-      throw new Error("Railway dispatcher deployment and x-work-id acknowledgement are unsupported until a dispatcher adapter is supplied");
-    }
-    process.stdout.write(`${JSON.stringify({ ...request, status: "validated", command: null })}\n`);
+    process.stdout.write(`${JSON.stringify({ ...request, status: "skipped", reason: `${provider} provider command is unavailable`, command: null })}\n`);
     return;
   }
   if (command === "preview") {
+    executeProviderCommand(invocation);
     process.stdout.write(`${JSON.stringify({ ...request, status: "previewed", command: invocation })}\n`);
     return;
   }
@@ -214,11 +257,15 @@ function run(command, options) {
   if (missingSecrets.length) {
     throw new Error(`${missingSecrets.join(", ")} are required only after the reviewed environment gate`);
   }
-  execFileSync(invocation[0], invocation[1], { stdio: "inherit", env: process.env });
+  const output = executeProviderCommand(invocation);
+  const evidence = provider === "modal" ? parseModalDeploymentEvidence(output) : undefined;
+  process.stdout.write(`${JSON.stringify({ ...request, status: "deployed", ...(evidence ? { evidence } : {}) })}\n`);
 }
 
 function writeReceipt(options) {
-  const generated = providerReceiptMetadata(options.provider, options.environment, options.source_sha);
+  const generated = options.provider === "terraform-foundation"
+    ? { artifactIds: [`git:${options.source_sha}`], details: { evidence_status: "unverified" } }
+    : providerReceiptMetadata(options.provider, options.environment, options.source_sha);
   const receipt = createReceipt({
     provider: options.provider,
     environment: options.environment,
@@ -239,8 +286,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const { command, options } = parseArgs(process.argv.slice(2));
     if (command === "receipt") writeReceipt(options);
+    else if (command === "assert-github-deployment") process.stdout.write(`${JSON.stringify(assertTrustedGitHubDeployment(options.checkout_sha))}\n`);
     else if (new Set(["validate", "preview", "deploy"]).has(command)) run(command, options);
-    else throw new Error("command must be validate, preview, deploy, or receipt");
+    else throw new Error("command must be validate, preview, deploy, receipt, or assert-github-deployment");
   } catch (error) {
     process.stderr.write(`deployment-controller: ${error.message}\n`);
     process.exitCode = 1;

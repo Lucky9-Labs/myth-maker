@@ -103,11 +103,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -f modal/infrastructure.py ]]; then
-            python3 modal/infrastructure.py --environment dev --check-files >/dev/null
-          else
-            python3 -m py_compile modal/draft_trial.py modal/draft_support.py
-          fi
+          python3 -m py_compile modal/draft_trial.py modal/draft_support.py modal/infrastructure.py
       - if: needs.deployment-change-scope.outputs.modal == 'true'
         run: node scripts/deployment/controller.mjs preview --event pull_request --provider modal --environment dev
       - name: Explicit non-mutating skip

@@ -7,7 +7,10 @@ import {
   assertDeploymentRequest,
   createReceipt,
   deploymentConcurrencyGroup,
+  parseModalDeploymentEvidence,
   providerDefinitions,
+  providerCommand,
+  trustedDeploymentContext,
   selectProviderOutcome,
   validateProviderRequest,
 } from "../scripts/deployment/controller.mjs";
@@ -51,6 +54,26 @@ test("a trusted main push deploys only an immutable clean SHA", () => {
   }
 });
 
+test("a deploy request derives its immutable source from trusted GitHub Actions context", () => {
+  const sourceSha = "a".repeat(40);
+  assert.deepEqual(trustedDeploymentContext({
+    GITHUB_ACTIONS: "true",
+    GITHUB_EVENT_NAME: "push",
+    GITHUB_REF: "refs/heads/main",
+    GITHUB_SHA: sourceSha,
+  }), { eventName: "push", sourceSha });
+
+  for (const environment of [
+    {},
+    { GITHUB_ACTIONS: "false", GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/main", GITHUB_SHA: sourceSha },
+    { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "pull_request", GITHUB_REF: "refs/pull/15/merge", GITHUB_SHA: sourceSha },
+    { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/feature", GITHUB_SHA: sourceSha },
+    { GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/heads/main", GITHUB_SHA: "not-a-sha" },
+  ]) {
+    assert.throws(() => trustedDeploymentContext(environment), /trusted GitHub Actions/);
+  }
+});
+
 test("provider-environment locks isolate providers and serialize duplicates", () => {
   const first = deploymentConcurrencyGroup("cloudflare", "production");
   assert.equal(first, deploymentConcurrencyGroup("cloudflare", "production"));
@@ -60,12 +83,12 @@ test("provider-environment locks isolate providers and serialize duplicates", ()
 
 test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
-  assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
-  assert.deepEqual(providerDefinitions.railway.secretNames, ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
-  assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
+  assert.deepEqual(providerDefinitions.cloudflare.secretNames, []);
+  assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
+  assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
 });
 
-test("an unsupported Railway deployment fails instead of producing a success", () => {
+test("an unsupported Railway deployment is skipped rather than presented as a preview or success", () => {
   assert.throws(
     () => validateProviderRequest({ eventName: "pull_request", mode: "deploy", provider: "railway", environment: "dev" }),
   );
@@ -77,10 +100,45 @@ test("an unsupported Railway deployment fails instead of producing a success", (
   assert.equal(receipt.status, "failure");
   assert.equal(receipt.verification.provider_command_outcome, "failure");
   const result = spawnSync(process.execPath, [
-    "scripts/deployment/controller.mjs", "deploy", "--event", "push", "--provider", "railway", "--environment", "dev",
+    "scripts/deployment/controller.mjs", "preview", "--event", "pull_request", "--provider", "railway", "--environment", "dev",
   ], { encoding: "utf8" });
-  assert.notEqual(result.status, 0, result.stdout);
-  assert.match(result.stderr, /unsupported/);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /"status":"skipped"/);
+});
+
+test("only non-mutating provider checks run on a pull request, and local deploy commands fail closed", () => {
+  assert.deepEqual(providerCommand("cloudflare", "preview", "dev"), [
+    "npx", ["--yes", "wrangler@4.37.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"],
+  ]);
+  assert.deepEqual(providerCommand("modal", "preview", "dev"), [
+    "python3", ["modal/infrastructure.py", "--environment", "dev", "--check-files"],
+  ]);
+  assert.equal(providerCommand("railway", "preview", "dev"), null);
+
+  const localDeploy = spawnSync(process.execPath, [
+    "scripts/deployment/controller.mjs", "deploy", "--event", "push", "--provider", "cloudflare", "--environment", "dev",
+  ], { encoding: "utf8" });
+  assert.notEqual(localDeploy.status, 0, localDeploy.stdout);
+  assert.match(localDeploy.stderr, /trusted GitHub Actions context/);
+});
+
+test("Modal receipts accept only parsed deployment and healthy resource evidence", () => {
+  assert.deepEqual(parseModalDeploymentEvidence(JSON.stringify({
+    deployment_id: "depl-123",
+    version_id: "ver-123",
+    resource_ids: ["volume-123", "dict-123"],
+    health: { status: "healthy" },
+  })), {
+    deployment_id: "depl-123",
+    version_id: "ver-123",
+    resource_ids: ["volume-123", "dict-123"],
+    health: { status: "healthy" },
+  });
+  for (const output of ["not-json", JSON.stringify({ deployment_id: "depl-123" }), JSON.stringify({
+    deployment_id: "depl-123", version_id: "ver-123", resource_ids: [], health: { status: "unhealthy" },
+  })]) {
+    assert.throws(() => parseModalDeploymentEvidence(output), /Modal deployment/);
+  }
 });
 
 test("receipt outcome selects the invoked provider, never an earlier skipped step", () => {
@@ -110,11 +168,16 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /branches: \[main\]/);
   assert.match(deployWorkflow, /github\.sha/);
   assert.match(deployWorkflow, /assert-deployment-input/);
+  assert.match(deployWorkflow, /release-readiness/);
+  assert.match(deployWorkflow, /write-skipped-release-receipts/);
+  assert.match(deployWorkflow, /DEPLOYMENT_READY/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
   assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
   assert.match(executor, /if: inputs\.provider == 'modal'/);
+  assert.match(executor, /assert-github-deployment/);
+  assert.doesNotMatch(executor, /controller\.mjs deploy --event/);
   assert.doesNotMatch(executor, /CLOUDFLARE_API_TOKEN:[\s\S]{0,400}MODAL_TOKEN_SECRET:/);
   assert.match(terraformFoundation, /init -reconfigure/);
   assert.match(terraformFoundation, /reviewed\.tfplan/);
@@ -177,7 +240,7 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("provider workflow preserves each step's common inputs and scoped secrets after YAML parsing", () => {
+test("provider workflow gives credentials only to a provider command that consumes them", () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-executor.yml"],
@@ -187,9 +250,10 @@ test("provider workflow preserves each step's common inputs and scoped secrets a
   const cloudflare = steps.find((step) => step.id === "deploy").env;
   const railway = steps.find((step) => step.id === "railway").env;
   const modal = steps.find((step) => step.id === "modal").env;
-  const receipt = steps.find((step) => step.name === "Write machine-readable receipt").env;
-  assert.deepEqual(Object.keys(cloudflare).sort(), ["CLOUDFLARE_API_TOKEN", "DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]);
-  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "TF_VAR_railway_token", "WORK_DISPATCH_TOKEN"]);
-  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "EVENT_NAME", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
-  assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "SOURCE_SHA"]);
+  const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable receipt")).env;
+  assert.deepEqual(Object.keys(cloudflare).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
+  assert.deepEqual(Object.keys(railway).sort(), ["DEPLOYMENT_ENVIRONMENT", "RESULT"]);
+  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "RESULT"]);
+  assert.doesNotMatch(JSON.stringify({ cloudflare, railway }), /TOKEN|OPENAI|TF_VAR/);
+  assert.deepEqual(Object.keys(receipt).sort(), ["CLOUDFLARE_OUTCOME", "CLOUDFLARE_STATUS", "DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "PROVIDER", "RAILWAY_OUTCOME", "RAILWAY_STATUS", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
 });

@@ -6,10 +6,9 @@ deployment path. This controller makes the deployment trust boundary explicit:
 
 ```text
 pull request -> non-mutating checks/previews only
-validated push to main -> environment-scoped CI foundation preflight
-  -> Modal command path (not yet live-verified)
-  -> Railway receipt: unsupported/failure
-  -> Cloudflare receipt: skipped pending Railway verification
+trusted GitHub Actions main event -> explicit environment bootstrap gate
+  -> not ready: credential-free skipped receipts; no provider command
+  -> ready: Terraform -> Railway -> Modal -> Cloudflare release plan
   -> one JSON receipt artifact per provider, never a fabricated success
 ```
 
@@ -24,40 +23,40 @@ than shell strings and never prints environment values.
 
 Create GitHub Environments named `dev`, `staging`, and `production` to isolate
 secrets, but do not configure required reviewers: successful validated commits
-to `main` deploy automatically. Store only the indicated provider credentials
-in the environment that needs them:
+to `main` deploy automatically. Set the non-secret environment variable
+`DEPLOYMENT_READY=true` only after independent bootstrap is complete. Until
+then, the release writes skipped receipts without reading provider credentials.
+Store only the indicated CLI credentials in the environment that needs them:
 
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
-| Cloudflare | `CLOUDFLARE_API_TOKEN`, `TF_VAR_agent_ingress_token`, `TF_VAR_work_dispatch_token` |
-| Railway | `TF_VAR_railway_token`, `WORK_DISPATCH_TOKEN`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` |
-| Modal | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, `OPENAI_API_KEY` |
+| Cloudflare adapter | None while Terraform remains the sole Worker/binding authority |
+| Railway adapter | None while no verified Railway deploy/acknowledgement command exists |
+| Modal | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` |
 
 The environment boundary lives in the shared executor, before any credential is
-passed to a command. A provider job receives only its own listed names. Do not
-use `secrets: inherit` in the dispatcher workflow. The Terraform foundation
-job additionally needs `TF_BACKEND_CONFIG` for the approved remote backend and
+passed to a command. Runtime secrets stay in their owning Terraform or provider
+seam and are never copied into an unrelated/no-op adapter. Do not use
+`secrets: inherit` in the dispatcher workflow. The Terraform foundation job
+additionally needs `TF_BACKEND_CONFIG` for the approved remote backend and
 the non-secret GitHub Environment variables described by
 `infra/terraform/variables.tf` (account/workspace IDs, dispatcher URL, and
 explicit `MANAGE_*` flags).
 
 Bootstrap is intentionally fail-closed: before automatic main deployment is
-enabled, configure branch protection to require the PR preview and configure
-the environment secrets, approved backend config, and every `MANAGE_*` value.
-Missing configuration stops in the Terraform preflight and uploads a failure
-receipt; an arbitrary direct main push is not treated as validated by this
-repository alone.
+enabled, configure branch protection to require the PR preview, the environment
+configuration, and `DEPLOYMENT_READY=true`. Missing readiness produces an honest
+skipped receipt rather than a partial release. An arbitrary local command cannot
+deploy: every mutating executor derives event/SHA from GitHub Actions, requires
+`refs/heads/main`, validates main ancestry, and rejects a dirty checkout.
 
-The `Reviewed deployment` workflow runs automatically for covered changes on
-`main`; its name is retained for compatibility. A manual dispatch is only for
-recovery/retry and may optionally name a full 40-character SHA. Both paths
-require a SHA already reachable from `origin/main`, check out exactly that SHA,
-reject a dirty checkout, and lock the exact `(provider, environment)` pair with
+The `CI-owned deployment` workflow runs automatically for covered changes on
+`main`. A manual dispatch is only an immutable retry of its GitHub Actions main
+SHA. Both paths derive that SHA from `GITHUB_SHA`, check it out exactly, reject a
+dirty checkout, and lock the exact `(provider, environment)` pair with
 `cancel-in-progress: false`. A duplicate request queues rather than overlapping
-the active deployment. Modal and Terraform foundation may run in parallel;
-Railway follows the foundation, and Cloudflare is deliberately serialized after
-all three because its worker binding points at the Railway dispatcher, which in
-turn acknowledges `x-work-id` for Modal work.
+the active deployment. Ready releases sequence Terraform, Railway, Modal, then
+Cloudflare as one plan.
 
 ## Terraform adapter and PR #7
 
@@ -74,22 +73,22 @@ terraform -chdir=infra/terraform plan -refresh=false -lock=false -input=false
 That deliberately does not authenticate, lock remote state, refresh, or apply.
 For an automatic `main` deployment, the CI-only Terraform phase initializes the
 approved remote backend, builds an exact plan, records its SHA-256, and applies
-that same saved plan. A manual recovery can supply an expected plan SHA-256 and
-will fail if the generated plan differs. It never falls back to local state or
-synthesizes backend credentials.
+that same saved plan. Successful Terraform receipts include that non-empty plan
+digest; failed receipts contain no invented plan identifier. It never falls back
+to local state or synthesizes backend credentials.
 
 The additive `deployment_receipt_facts` Terraform output supplies Cloudflare
 worker/version/deployment IDs, Railway project/environment/service IDs, module
 SHA-256s, and configured non-secret variable names when those resources are
-managed; disabled resources are null or empty. Modal CLI output is not assumed
-to be JSON, so its receipt must mark a deployment ID unavailable until a
-parseable CLI/API seam is added—never invent an ID.
+managed; disabled resources are null or empty. Modal CLI success is admitted
+only when parsed output contains a deployment ID, version ID, named resources,
+and healthy status—never from a command exit code alone.
 
 Current release status is intentionally conservative. The merged
 `src/railway-dispatcher.js` supplies an in-repository work-graph dispatcher, but
 it is not yet a deployable Railway entrypoint/configuration and has no
 production durable receipt store or live verification endpoint. Worker version
-promotion is therefore blocked, Railway produces an unsupported/failure receipt,
+promotion is therefore blocked, Railway produces an unavailable skipped receipt,
 and Cloudflare produces a skipped receipt. None of those stages is presented as
 a completed provider deployment until Railway can prove a durable
 `x-work-id` acknowledgement and the provider receipts contain live evidence.
@@ -99,7 +98,7 @@ a completed provider deployment until Railway can prove a durable
 Every provider execution writes and uploads
 `deployment-receipt-<provider>-<environment>-<sha>` containing:
 
-- provider, environment, immutable source SHA, source-build/target version IDs;
+- provider, environment, immutable source SHA, and only observed target version IDs;
 - success/failure status and UTC start/completion timestamps;
 - checkout/provider-command verification result; and
 - provider-specific target metadata (including Cloudflare module SHA-256s).
