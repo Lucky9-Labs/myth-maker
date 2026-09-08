@@ -50,3 +50,33 @@ before treating it as a production service.
 reviewer must still reopen the native output in Blender, validate dependencies,
 and run the host game's import, gameplay-interface, animation, collision, and
 encounter checks before accepting any result.
+
+## v1 worker-event adapter
+
+`encounter_worker_adapter.py` is an offline-testable adapter around one
+existing draft invocation. Its small interface is
+`BlenderDraftWorkerAdapter(...).run(work_order) -> BlenderDraftRunResult`: the
+caller binds the existing `run_draft.remote` invocation and its
+already-snapshotted inputs through `ModalDraftRunner`, while the adapter accepts
+one `EncounterWorkOrder` and translates the returned terminal receipt. That
+binding maps `work_id` to the legacy `part` and its expected
+`<work_id>.blend` filename, and derives an attempt-specific legacy job ID.
+
+The adapter never imports Blender or Modal, never changes the GUI-only action
+policy, and never retries work. A successful native receipt must be named
+`<work_id>.blend` in the draft state and include a SHA-256 and byte count. It
+then emits ordered `accepted`, `started`, `progress`, and `completed` events,
+alongside an immutable adapter-local `SourceArtifactReceipt` addressed as
+`sha256:<digest>`. The `.blend` is an unaccepted source artifact, not a
+Unity-loadable runtime asset or target bundle.
+
+`blocked` maps to a non-retryable `failed` event with `draft-blocked` as its
+error code. Runtime exceptions,
+failed draft states, and missing/invalid native receipts become explicit
+`failed` events; retryable events tell the coordinator to issue a new work
+order with the next `attempt`, rather than making an automatic worker retry.
+The current v1 module envelope has no source-artifact-only kind, so the adapter
+does not emit `candidate_produced` or invent an `EncounterModule`. A reviewed
+importer must transform the source into a host-loadable module before emitting
+that candidate event. This is an additive contract gap for a later sidecar or
+v2, not a reason to modify the published v1 schemas here.
