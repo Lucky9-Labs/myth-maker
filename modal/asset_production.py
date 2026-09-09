@@ -289,6 +289,8 @@ def fan_in_assembly_job(wave: list[dict], receipts: list[dict]) -> dict:
         "media_type": "application/x-blender", "staged_name": f"{SLOTS[index]}-asset.blend",
     } for index, item in enumerate(component_receipts)]
     dependency_hashes = [item["sha256"] for item in inputs]
+    inputs.extend(dict(item) for item in template["inputs"]
+                  if item["media_type"] in {"image/png", "image/jpeg"})
     operations = [dict(item) for item in template["operations"]]
     if {item["kind"] for item in operations}.isdisjoint({"assemble"}):
         operations.append({"kind": "assemble"})
