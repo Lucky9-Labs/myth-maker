@@ -62,16 +62,17 @@ def ensure_named_resources(environment: str) -> None:
     # Modal Dict creation is already a documented no-op when it exists.
     run("modal", "dict", "create", DICT_NAME, "--env", environment)
 
-    secrets = json_command("modal", "secret", "list", "--env", environment, "--json")
-    if not has_named_resource(secrets, SECRET_NAME):
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as handle:
-            handle.write(json.dumps({"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}))
-            secret_file = handle.name
-        try:
-            os.chmod(secret_file, 0o600)
-            run("modal", "secret", "create", SECRET_NAME, "--env", environment, "--from-json", secret_file)
-        finally:
-            Path(secret_file).unlink(missing_ok=True)
+    # A named secret can outlive the CI credential that originally created it.
+    # Force replacement so the function deployed below receives the credential
+    # passed to this immutable CI run, without ever printing its value.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as handle:
+        handle.write(json.dumps({"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}))
+        secret_file = handle.name
+    try:
+        os.chmod(secret_file, 0o600)
+        run("modal", "secret", "create", SECRET_NAME, "--env", environment, "--from-json", secret_file, "--force")
+    finally:
+        Path(secret_file).unlink(missing_ok=True)
 
 def observed_resource_ids(environment: str) -> dict[str, str]:
     """Read public Modal object IDs after bootstrap; never handle secret values here."""
