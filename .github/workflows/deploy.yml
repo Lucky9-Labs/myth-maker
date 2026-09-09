@@ -164,6 +164,131 @@ jobs:
           path: receipts/railway-${{ inputs.environment || 'dev' }}.json
           if-no-files-found: error
           retention-days: 30
+  cloudflare:
+    needs: assert-deployment-input
+    # Like Railway and Modal, these Environment secrets must be resolved by the
+    # first-level job rather than a nested reusable provider executor.
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment || 'dev' }}
+    concurrency:
+      group: myth-maker-deploy-cloudflare-${{ inputs.environment || 'dev' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          ref: ${{ needs.assert-deployment-input.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Derive and validate the trusted immutable main revision in the Cloudflare executor
+        id: preflight
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_SHA" = "$GITHUB_SHA"
+          node scripts/deployment/controller.mjs assert-github-deployment
+          printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Bind discovery credentials and deploy the immutable Cloudflare Worker version
+        id: deploy
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          RESULT: ${{ runner.temp }}/provider-result.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AGENT_INGRESS_TOKEN: ${{ secrets.AGENT_INGRESS_TOKEN }}
+          PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: ${{ secrets.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY }}
+          CLOUDFLARE_DISCOVERY_ENCOUNTER_ID: ${{ vars.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID || 'ci-discovery-001' }}
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_DISCOVERY_ENCOUNTER_ID"
+          node scripts/deployment/controller.mjs deploy --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
+          node -e 'const result = require(process.env.RESULT); process.stdout.write(`CLOUDFLARE_WORKER_URL=${result.evidence.worker_url}\n`)' >> "$GITHUB_ENV"
+          node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
+      - name: Verify authenticated encounter-scoped package discovery live
+        id: discovery
+        shell: bash
+        env:
+          RESULT: ${{ runner.temp }}/provider-result.json
+          RESPONSE: ${{ runner.temp }}/cloudflare-package-discovery.json
+          EVIDENCE: ${{ runner.temp }}/cloudflare-package-discovery-evidence.json
+          CLOUDFLARE_DISCOVERY_ENCOUNTER_ID: ${{ vars.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID || 'ci-discovery-001' }}
+          PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY: MCowBQYDK2VwAyEAt1H5uJR0eCDxb2C4uHf+vRovjT9UJtCr5VBVYit1rgM=
+          AGENT_INGRESS_TOKEN: ${{ secrets.AGENT_INGRESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          request_id="ci-discovery-${GITHUB_SHA:0:16}"
+          response_url="${CLOUDFLARE_WORKER_URL%/}/v1/encounters/${CLOUDFLARE_DISCOVERY_ENCOUNTER_ID}/package-discoveries"
+          curl_config="$RUNNER_TEMP/cloudflare-package-discovery.curl"
+          trap 'rm -f "$curl_config"' EXIT
+          umask 077
+          printf 'header = "authorization: Bearer %s"\n' "$AGENT_INGRESS_TOKEN" > "$curl_config"
+          curl --config "$curl_config" --fail-with-body --silent --show-error --max-time 30 \
+            --request POST "$response_url" \
+            --header "content-type: application/json" \
+            --data "{\"schema_version\":\"1\",\"request_id\":\"$request_id\",\"idempotency_key\":\"$request_id\",\"host_capabilities\":{\"schema_version\":\"1\",\"host_id\":\"ci-host\",\"host_build\":\"$GITHUB_SHA\",\"platform\":\"linux\",\"scripting_backend\":\"il2cpp\",\"execution_kinds\":[\"runtime_asset\"],\"loaders\":[\"gltf\",\"urp\"],\"contracts\":[\"encounter.module.v1\"],\"limits\":{\"memory_mb\":1024,\"preload_seconds\":30,\"artifact_bytes\":52428800,\"actors\":8}}}" \
+            --output "$RESPONSE"
+          REQUEST_ID="$request_id" node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import { verifyCloudflareDiscoveryResponse } from "./scripts/deployment/controller.mjs";
+            const response = JSON.parse(readFileSync(process.env.RESPONSE, "utf8"));
+            writeFileSync(process.env.EVIDENCE, JSON.stringify(await verifyCloudflareDiscoveryResponse(response, {
+              encounterId: process.env.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID,
+              requestId: process.env.REQUEST_ID,
+              signingPublicKey: process.env.PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY,
+            })));
+          '
+          node -e '
+            const fs = require("node:fs");
+            const result = JSON.parse(fs.readFileSync(process.env.RESULT, "utf8"));
+            const discovery = JSON.parse(fs.readFileSync(process.env.EVIDENCE, "utf8"));
+            result.evidence = { ...result.evidence, discovery };
+            fs.writeFileSync(process.env.RESULT, JSON.stringify(result));
+          '
+      - name: Write machine-readable Cloudflare receipt from provider output
+        if: always()
+        shell: bash
+        env:
+          CLOUDFLARE_OUTCOME: ${{ steps.deploy.outcome }}
+          CLOUDFLARE_STATUS: ${{ steps.deploy.outputs.provider_status }}
+          CLOUDFLARE_DISCOVERY_OUTCOME: ${{ steps.discovery.outcome }}
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          SOURCE_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}
+          STARTED_AT: ${{ steps.preflight.outputs.started_at }}
+          RESULT: ${{ runner.temp }}/provider-result.json
+        run: |
+          set -euo pipefail
+          status=failure
+          if [[ "$PREFLIGHT_OUTCOME" == success && "$CLOUDFLARE_OUTCOME" == success && "$CLOUDFLARE_STATUS" == deployed && "$CLOUDFLARE_DISCOVERY_OUTCOME" == success ]]; then
+            status=success
+          fi
+          details="$(node -e '
+            const fs = require("node:fs");
+            let result = {};
+            try {
+              if (fs.existsSync(process.env.RESULT) && fs.statSync(process.env.RESULT).size > 0) result = JSON.parse(fs.readFileSync(process.env.RESULT, "utf8"));
+            } catch {}
+            process.stdout.write(JSON.stringify(result.evidence ? { provider_evidence: result.evidence } : { reason: result.reason || "provider command did not produce verified evidence" }));
+          ')"
+          node scripts/deployment/controller.mjs receipt \
+            --provider cloudflare \
+            --environment "$DEPLOYMENT_ENVIRONMENT" \
+            --source-sha "$SOURCE_SHA" \
+            --status "$status" \
+            --started-at "${STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
+            --completed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --verification "{\"trusted_github_context\":$([[ "$PREFLIGHT_OUTCOME" == success ]] && echo true || echo false),\"provider_command_outcome\":\"$CLOUDFLARE_OUTCOME\",\"provider_result\":\"$CLOUDFLARE_STATUS\",\"live_discovery_outcome\":\"$CLOUDFLARE_DISCOVERY_OUTCOME\"}" \
+            --details "$details" \
+            --output "receipts/cloudflare-$DEPLOYMENT_ENVIRONMENT.json"
+      - name: Upload deployment receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deployment-receipt-cloudflare-${{ inputs.environment || 'dev' }}-${{ needs.assert-deployment-input.outputs.source_sha }}
+          path: receipts/cloudflare-${{ inputs.environment || 'dev' }}.json
+          if-no-files-found: error
+          retention-days: 30
   modal:
     needs: assert-deployment-input
     # Keep this job in the top-level workflow. GitHub resolves Environment
