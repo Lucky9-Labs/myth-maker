@@ -116,6 +116,7 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODAL_IMAGE_BUILDER_VERSION: '2024.04'
           MODAL_EVIDENCE_PATH: ${{ runner.temp }}/modal-deployment-evidence.json
         run: |
           set -euo pipefail

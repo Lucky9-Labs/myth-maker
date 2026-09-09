@@ -17,8 +17,8 @@ class StartupUnready(RuntimeError):
     pass
 
 
-def terminal_error_state(error: Exception) -> dict[str, str]:
-    """Classify a worker exception while retaining its original diagnostic."""
+def terminal_failure(error: Exception) -> dict[str, str]:
+    """Return a terminal receipt patch without allowing error handling to mask its cause."""
     if isinstance(error, StartupUnready):
         return {
             "status": "blocked",

@@ -309,7 +309,7 @@ test("Modal activation consumes environment secrets in the top-level deployment 
   const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt")).env;
   assert.equal(direct.environment.name, "${{ inputs.environment || 'dev' }}");
   assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment || 'dev' }}");
-  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
+  assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_IMAGE_BUILDER_VERSION", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
   assert.doesNotMatch(JSON.stringify(receipt), /TOKEN|OPENAI/);
   assert.deepEqual(Object.keys(receipt).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "RESULT", "SOURCE_SHA", "STARTED_AT"]);

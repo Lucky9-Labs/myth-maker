@@ -31,6 +31,15 @@ def budget_phase(state: dict, remaining_seconds: float) -> str:
     return "work"
 
 
+def finalize_terminal_state(state: dict, finalize) -> dict:
+    """Run best-effort receipt cleanup without replacing an already recorded cause."""
+    try:
+        finalize()
+    except Exception as error:
+        state["terminal_cleanup_error"] = str(error)[:600]
+    return state
+
+
 def blender_launch_args(resuming: bool, component_id: str) -> list[str]:
     # /output and /inputs are stable aliases across containers. Opening through
     # /submissions/<new-job>/output silently rebases Blender's relative images.

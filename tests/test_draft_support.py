@@ -8,7 +8,8 @@ sys.path.insert(0, str(MODAL_DIR))
 from draft_support import (KEY_ALIASES, blender_launch_args, budget_phase,
                            classify_model_stop, native_name, normalize_keys,
                            normalize_pointer_keys, render_prompt,
-                           validate_input_names, validate_typed_text)
+                           finalize_terminal_state, validate_input_names,
+                           validate_typed_text)
 
 
 INPUTS = {name: b"reference" for name in (
@@ -17,6 +18,26 @@ INPUTS = {name: b"reference" for name in (
 
 
 class DraftPolicyTests(unittest.TestCase):
+    def test_terminal_state_keeps_the_original_error_when_receipt_cleanup_fails(self):
+        state = {"status": "failed", "stop_reason": "runtime_error", "error": "provider authentication failed"}
+
+        def unavailable_volume():
+            raise RuntimeError("volume commit unavailable")
+
+        self.assertIs(finalize_terminal_state(state, unavailable_volume), state)
+        self.assertEqual(state["error"], "provider authentication failed")
+        self.assertEqual(state["terminal_cleanup_error"], "volume commit unavailable")
+
+    def test_draft_worker_uses_the_shared_terminal_failure_receipt_helper(self):
+        tree = ast.parse((MODAL_DIR / "draft_trial.py").read_text())
+        imported = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "desktop_readiness"
+            for alias in node.names
+        }
+        self.assertIn("terminal_failure", imported)
+
     def test_review_marker_never_self_accepts(self):
         for report in ("Looks done", "DRAFT_STATUS: PARTIAL", "DRAFT_STATUS: READY_FOR_REVIEW\nDRAFT_STATUS: PARTIAL"):
             self.assertEqual(classify_model_stop(report, True), "checkpointed_partial")
@@ -71,6 +92,8 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertIn("part_leases.get(lease_key) == job_id", text)
         self.assertIn("BLENDER_ARCHIVE_SHA256", text)
         self.assertIn("sha256sum --check --status", text)
+        self.assertIn('modal.Image.from_registry("python:3.12-slim-bookworm")', text)
+        self.assertNotIn("modal.Image.debian_slim", text)
         self.assertIn('"infrastructure.py", "/opt/infrastructure.py"', text)
         self.assertNotIn("create_if_missing=True", text)
         self.assertNotIn("bpy.", text)

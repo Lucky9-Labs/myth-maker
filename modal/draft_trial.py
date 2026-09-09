@@ -19,9 +19,9 @@ import modal
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
-from draft_support import blender_launch_args, budget_phase, classify_model_stop, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, render_prompt, validate_cloud_need
+from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, read_stable, sha256, validate_native, write_json_atomic
-from desktop_readiness import terminal_error_state
+from desktop_readiness import terminal_failure
 from infrastructure import runtime
 
 RUNTIME = runtime()
@@ -31,7 +31,7 @@ app = modal.App(RUNTIME.app_name)
 BLENDER_VERSION = "5.2.1"
 BLENDER_ARCHIVE_URL = "https://download.blender.org/release/Blender5.2/blender-5.2.1-linux-x64.tar.xz"
 BLENDER_ARCHIVE_SHA256 = "a31f524fa99a527d3d52b7f5aaa68c34e1a19d5a1c9473f79c5cc610fd5b10e9"
-image = (modal.Image.debian_slim(python_version="3.12")
+image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .apt_install("ca-certificates", "curl", "git", "git-lfs", "libegl1", "libgl1", "libxkbcommon0", "openssh-client", "scrot", "tk", "x11-xserver-utils", "xvfb")
          .run_commands(
              f"curl --fail --location --retry 3 {BLENDER_ARCHIVE_URL} --output /tmp/blender.tar.xz",
@@ -565,7 +565,7 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             state["status"] = "checkpointed_partial" if (output / native).exists() else "blocked"
             state["stop_reason"] = "budget_limit"
     except Exception as error:
-        state.update(terminal_error_state(error))
+        state.update(terminal_failure(error))
     finally:
         try:
             screenshot(root / "final-desktop.png")
@@ -582,15 +582,21 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             log.close()
         if (root / "final-desktop.png").exists():
             shutil.copy2(root / "final-desktop.png", output / (Path(native).stem + "_preview.png"))
-        state["input_snapshot_unchanged"] = (digest((reference_dir / "source_scene.blend").read_bytes()) == digest(inputs["source_scene.blend"])) if "source_scene.blend" in inputs else None
-        state["reference_snapshots_unchanged"] = all(digest((reference_dir / name).read_bytes()) == digest(data) for name, data in {**inputs, **input_aliases}.items())
-        state["files"] = {str(p.relative_to(output)): {"bytes": p.stat().st_size, "sha256": digest(p.read_bytes())} for p in output.iterdir() if p.is_file()}
-        checkpoint(force=True)
-        state["resumable"] = bool(state.get("checkpoint_id"))
-        if state["status"] in {"checkpointed_partial", "ready_for_review"} and not state["resumable"]:
-            state["status"] = "blocked"
-            state["stop_reason"] = "checkpoint_failed"
-        persist()
+        def finalize_state():
+            state["input_snapshot_unchanged"] = (digest((reference_dir / "source_scene.blend").read_bytes()) == digest(inputs["source_scene.blend"])) if "source_scene.blend" in inputs else None
+            state["reference_snapshots_unchanged"] = all(digest((reference_dir / name).read_bytes()) == digest(data) for name, data in {**inputs, **input_aliases}.items())
+            state["files"] = {str(p.relative_to(output)): {"bytes": p.stat().st_size, "sha256": digest(p.read_bytes())} for p in output.iterdir() if p.is_file()}
+            checkpoint(force=True)
+            state["resumable"] = bool(state.get("checkpoint_id"))
+            if state["status"] in {"checkpointed_partial", "ready_for_review"} and not state["resumable"]:
+                state["status"] = "blocked"
+                state["stop_reason"] = "checkpoint_failed"
+            persist()
+
+        if state.get("error"):
+            finalize_terminal_state(state, finalize_state)
+        else:
+            finalize_state()
     return state
 
 
