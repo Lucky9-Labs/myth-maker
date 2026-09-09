@@ -50,9 +50,9 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           TF_VAR_agent_ingress_token: ${{ secrets.TF_VAR_agent_ingress_token }}
           TF_VAR_work_dispatch_token: ${{ secrets.TF_VAR_work_dispatch_token }}
-          TF_VAR_package_discovery_signing_private_key: ${{ secrets.TF_VAR_package_discovery_signing_private_key }}
-          TF_VAR_catalog_acceptance_token: ${{ secrets.TF_VAR_catalog_acceptance_token }}
-          TF_VAR_railway_token: ${{ secrets.TF_VAR_railway_token }}
+          TF_VAR_package_discovery_signing_private_key: ${{ secrets.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY }}
+          TF_VAR_catalog_acceptance_token: ${{ secrets.CATALOG_ACCEPTANCE_TOKEN }}
+          TF_VAR_railway_token: ${{ secrets.RAILWAY_TOKEN }}
           TF_VAR_cloudflare_account_id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           TF_VAR_work_dispatch_url: ${{ vars.WORK_DISPATCH_URL }}
           TF_VAR_railway_workspace_id: ${{ vars.RAILWAY_WORKSPACE_ID }}

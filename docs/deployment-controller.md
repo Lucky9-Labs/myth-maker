@@ -7,8 +7,8 @@ deployment path. This controller makes the deployment trust boundary explicit:
 ```text
 pull request -> non-mutating checks/previews only
 trusted GitHub Actions main event -> explicit environment bootstrap gate
-  -> not ready: credential-free skipped receipts; no provider command
-  -> ready: Terraform -> Railway -> Modal -> Cloudflare release plan
+  -> Cloudflare binds discovery secrets -> immutable Worker version -> live discovery probe
+  -> unavailable providers: credential-free skipped receipts; no provider command
   -> one JSON receipt artifact per provider, never a fabricated success
 ```
 
@@ -23,31 +23,42 @@ than shell strings and never prints environment values.
 
 Create GitHub Environments named `dev`, `staging`, and `production` to isolate
 secrets, but do not configure required reviewers: successful validated commits
-to `main` deploy automatically. Set the non-secret environment variable
-`DEPLOYMENT_READY=true` only after independent bootstrap is complete. Until
-then, the release writes skipped receipts without reading provider credentials.
-Store only the indicated CLI credentials in the environment that needs them:
+to `main` deploy automatically. Optionally configure
+`CLOUDFLARE_DISCOVERY_ENCOUNTER_ID` to probe a known accepted package; otherwise
+CI uses its generic no-selection probe ID. The Worker URL is taken from the
+current Wrangler deployment receipt and the pinned base64 SPKI is the explicit
+dev signing identity, so neither is an unverified Environment variable. A
+missing credential fails the Cloudflare job and emits a failure receipt; it
+never claims a skipped or partial deployment. Store only
+the indicated CLI credentials in the environment that needs them:
 
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
-| Cloudflare adapter | None while Terraform remains the sole Worker/binding authority |
+| Cloudflare adapter | `CLOUDFLARE_API_TOKEN`, `AGENT_INGRESS_TOKEN`, and `PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY` |
 | Railway adapter | `RAILWAY_TOKEN`; the executor installs the pinned Railway CLI, uploads the exact trusted source revision to the configured service/environment, and polls for a `SUCCESS` deployment receipt |
 | Modal adapter | None until a documented machine-readable deploy/health query seam exists |
 
 The environment boundary lives in the shared executor, before any credential is
 passed to a command. Runtime secrets stay in their owning Terraform or provider
-seam and are never copied into an unrelated/no-op adapter. Do not use
-`secrets: inherit` in the dispatcher workflow. The Terraform foundation job
-additionally needs `TF_BACKEND_CONFIG` for the approved remote backend and
-the non-secret GitHub Environment variables described by
+seam and are never copied into an unrelated/no-op adapter. Cloudflare, Railway,
+and Modal activation occur in their first-level environment jobs; do not use
+`secrets: inherit` for the dispatcher workflow. The Terraform foundation job
+additionally needs `TF_BACKEND_CONFIG` for the approved remote backend,
+`CLOUDFLARE_API_TOKEN`, and the provider/runtime secrets using their owning
+names: `RAILWAY_TOKEN`, `PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY`, and
+`CATALOG_ACCEPTANCE_TOKEN`. The workflow maps those names to Terraform inputs;
+do not duplicate them under `TF_VAR_*` GitHub secret names. Separately, the
+Unity/client verification handoff reads the non-secret dev environment variables
+`PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY_SPKI` and
+`PACKAGE_DISCOVERY_SIGNING_KEY_ID=package-discovery-ed25519-v1`; Terraform does
+not consume them. The job also uses the non-secret GitHub Environment variables described by
 `infra/terraform/variables.tf` (account/workspace IDs, dispatcher URL, and
 explicit `MANAGE_*` flags).
 
-Bootstrap is intentionally fail-closed: before automatic main deployment is
-enabled, configure branch protection to require the PR preview, the environment
-configuration, and `DEPLOYMENT_READY=true`. Missing readiness produces an honest
-skipped receipt rather than a partial release. An arbitrary local command cannot
-deploy: every mutating executor derives event/SHA from GitHub Actions, requires
+Bootstrap is intentionally fail-closed: configure branch protection to require
+the PR preview and the environment configuration. A missing provider credential
+produces a failed deployment receipt rather than a partial release. An arbitrary
+local command cannot deploy: every mutating executor derives event/SHA from GitHub Actions, requires
 `refs/heads/main`, obtains a GitHub-issued OIDC token bound to this repository
 and SHA, validates main ancestry from those claims, and rejects a dirty checkout.
 
@@ -56,8 +67,32 @@ The `CI-owned deployment` workflow runs automatically for covered changes on
 SHA. Both paths derive that SHA from `GITHUB_SHA`, check it out exactly, reject a
 dirty checkout, and lock the exact `(provider, environment)` pair with
 `cancel-in-progress: false`. A duplicate request queues rather than overlapping
-the active deployment. Ready releases sequence Terraform, Railway, Modal, then
-Cloudflare as one plan.
+the active deployment. Provider releases are independently locked; Cloudflare
+code activation does not wait on the unrelated Railway or Modal lanes.
+
+## Cloudflare package-discovery activation
+
+On a trusted `main` push, the Cloudflare executor writes the ingress bearer and
+base64 PKCS#8 Ed25519 signing key to the Worker with `wrangler secret put`, then
+deploys the checked-out immutable revision. It refuses a success receipt unless
+the deploy output, current deployment listing, and version listing agree on one
+current Worker version ID. Secret values are never logged; the receipt names
+only the two bound discovery secrets.
+
+The same job extracts the direct HTTPS workers.dev URL from the just-deployed
+version receipt (and rejects a URL whose worker-name prefix does not match
+`wrangler.jsonc`), then calls it with `Authorization: Bearer
+<AGENT_INGRESS_TOKEN>` at
+the encounter-scoped discovery path. `CLOUDFLARE_DISCOVERY_ENCOUNTER_ID` is
+optionally identifies a known accepted package. The matching public key is
+pinned in the reviewed CI workflow and the probe verifies the canonical unsigned
+manifest's Ed25519 signature before it
+can accept a selection. The probe accepts only a
+signed `selected` manifest or the explicit
+`no_accepted_compatible_package` response. The latter is the expected honest
+result until a separately produced and accepted package is present; this lane
+does not create catalog records or artifacts. Its compact outcome is appended
+to the Cloudflare provider receipt alongside the current Worker version ID.
 
 ## Terraform adapter and PR #7
 

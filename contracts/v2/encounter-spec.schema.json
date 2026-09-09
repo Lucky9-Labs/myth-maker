@@ -10,7 +10,12 @@
     "encounter_id": { "$ref": "../v1/common.schema.json#/$defs/id" },
     "seed": { "type": "integer", "minimum": 0 },
     "deadline_at": { "type": "string", "format": "date-time" },
-    "host_capabilities": { "$ref": "../v1/host-capability-manifest.schema.json" },
+    "host_capabilities": {
+      "oneOf": [
+        { "$ref": "../v1/host-capability-manifest.schema.json" },
+        { "$ref": "host-capability-manifest.schema.json" }
+      ]
+    },
     "player_context": { "type": "object", "additionalProperties": true },
     "objective": {
       "type": "object",

@@ -13,6 +13,7 @@ on:
 jobs:
   deploy:
     uses: ./.github/workflows/provider-executor.yml
+    secrets: inherit
     with:
       provider: cloudflare
       environment: ${{ inputs.environment }}

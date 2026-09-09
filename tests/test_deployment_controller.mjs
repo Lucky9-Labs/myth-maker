@@ -7,6 +7,7 @@ import {
   assertDeploymentRequest,
   createReceipt,
   deploymentConcurrencyGroup,
+  parseCloudflareDeploymentEvidence,
   parseModalDeploymentEvidence,
   providerDefinitions,
   providerCommand,
@@ -14,8 +15,11 @@ import {
   trustedDeploymentContext,
   validateGitHubOidcClaims,
   selectProviderOutcome,
+  validateCloudflareWorkerUrl,
   validateProviderRequest,
+  verifyCloudflareDiscoveryResponse,
 } from "../scripts/deployment/controller.mjs";
+import { canonicalJson } from "../src/package-discovery.js";
 import { classifyPreviewPaths } from "../scripts/deployment/preview-scope.mjs";
 
 test("pull-request requests are validation-only and cannot deploy", () => {
@@ -76,14 +80,14 @@ test("a deploy request derives its immutable source from trusted GitHub Actions 
   }
 });
 
-test("legacy all-provider readiness remains fail-closed while Modal has its own independent path", () => {
+test("all provider deployment commands are ready only when every provider has an activation path", () => {
   assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: false }), {
     ready: false,
     reason: "DEPLOYMENT_READY is not true; no provider command was invoked",
   });
   assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: true }), {
-    ready: false,
-    reason: "provider deploy commands are unavailable: cloudflare",
+    ready: true,
+    reason: "environment bootstrap and provider commands are ready",
   });
 });
 
@@ -114,9 +118,66 @@ test("provider-environment locks isolate providers and serialize duplicates", ()
 
 test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
-  assert.deepEqual(providerDefinitions.cloudflare.secretNames, []);
+  assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"]);
   assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
+});
+
+test("Cloudflare receipts require the deployed current Worker version and bound secret names", () => {
+  const versionId = "1b2c3d4e-1234-4567-8abc-1234567890ab";
+  assert.deepEqual(parseCloudflareDeploymentEvidence(JSON.stringify({
+    version_id: versionId,
+    worker_url: "https://myth-maker-encounter-runtime.example.workers.dev",
+    secret_bindings: ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"],
+  })), {
+    version_id: versionId,
+    worker_url: "https://myth-maker-encounter-runtime.example.workers.dev",
+    secret_bindings: ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"],
+  });
+  for (const output of ["not-json", JSON.stringify({ version_id: versionId }), JSON.stringify({
+    version_id: versionId, secret_bindings: ["AGENT_INGRESS_TOKEN"],
+  })]) {
+    assert.throws(() => parseCloudflareDeploymentEvidence(output), /Cloudflare deployment evidence/);
+  }
+});
+
+test("the live Cloudflare URL must route directly to the Worker whose version is receipted", () => {
+  assert.equal(validateCloudflareWorkerUrl("https://myth-maker-encounter-runtime.example.workers.dev/", "myth-maker-encounter-runtime"), "https://myth-maker-encounter-runtime.example.workers.dev");
+  for (const url of [
+    "https://another-worker.example.workers.dev/",
+    "https://myth-maker-encounter-runtime.example.workers.dev/v1",
+    "http://myth-maker-encounter-runtime.example.workers.dev/",
+    "https://myth-maker-encounter-runtime.example.test/",
+  ]) {
+    assert.throws(() => validateCloudflareWorkerUrl(url, "myth-maker-encounter-runtime"), /CLOUDFLARE_WORKER_URL/);
+  }
+});
+
+test("live Cloudflare discovery verification accepts only verified signed selections or explicit no-package results", async () => {
+  const context = { encounterId: "encounter-live-001", requestId: "ci-discovery-001" };
+  assert.deepEqual(await verifyCloudflareDiscoveryResponse({
+    schema_version: "1", status: "no_package", encounter_id: context.encounterId, request_id: context.requestId,
+    reason: "no_accepted_compatible_package",
+  }, context), { encounter_id: context.encounterId, request_id: context.requestId, status: "no_package" });
+  const manifest = {
+    schema_version: "1", manifest_id: "discovery-live-001", encounter_id: context.encounterId, request_id: context.requestId,
+    package_id: "package-live-001", package_revision: 1, package_manifest_sha256: "a".repeat(64),
+    assembly_receipt_id: "receipt-live-001", assembly_receipt_sha256: "b".repeat(64),
+    catalog_revision_id: "catalog-live-001", catalog_revision_sha256: "c".repeat(64),
+    artifacts: [{ module_id: "body-live-001", revision: 1, uri: "https://artifacts.example.test/body.glb", sha256: "d".repeat(64), media_type: "model/gltf-binary", byte_length: 1 }],
+    issued_at: "2026-09-08T00:00:00Z",
+  };
+  const privateKey = await crypto.subtle.importKey("pkcs8", Buffer.from("MC4CAQAwBQYDK2VwBCIEII2uBd4SxWoOh7s251KvvH03Hyx3kfMAZTwku//Ga3A4", "base64"), { name: "Ed25519" }, false, ["sign"]);
+  const signature = Buffer.from(await crypto.subtle.sign({ name: "Ed25519" }, privateKey, new TextEncoder().encode(canonicalJson(manifest)))).toString("base64url");
+  const signingPublicKey = "MCowBQYDK2VwAyEA45D06/XjPdHC8dvH1W/4IIhmHRXsmeyPSOBrSDNcBpY=";
+  assert.deepEqual(await verifyCloudflareDiscoveryResponse({
+    schema_version: "1", status: "selected", encounter_id: context.encounterId, request_id: context.requestId,
+    manifest: { ...manifest, signature: { algorithm: "Ed25519", key_id: "package-discovery-ed25519-v1", value: signature } },
+  }, { ...context, signingPublicKey }), { encounter_id: context.encounterId, request_id: context.requestId, status: "selected" });
+  await assert.rejects(() => verifyCloudflareDiscoveryResponse({
+    schema_version: "1", status: "selected", encounter_id: context.encounterId, request_id: context.requestId,
+    manifest: { ...manifest, signature: { algorithm: "Ed25519", key_id: "package-discovery-ed25519-v1", value: "A".repeat(86) } },
+  }, { ...context, signingPublicKey }), /invalid Ed25519 signature/);
 });
 
 test("a Railway preview stays non-mutating while deployment requires GitHub context", () => {
@@ -139,7 +200,7 @@ test("a Railway preview stays non-mutating while deployment requires GitHub cont
 
 test("only non-mutating provider checks run on a pull request, and local deploy commands fail closed", () => {
   assert.deepEqual(providerCommand("cloudflare", "preview", "dev"), [
-    "npx", ["--yes", "wrangler@4.37.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"],
+    "npx", ["--yes", "wrangler@4.130.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"],
   ]);
   assert.deepEqual(providerCommand("modal", "preview", "dev"), [
     "python3", ["modal/infrastructure.py", "--environment", "dev", "--check-files"],
@@ -213,11 +274,18 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
   assert.match(deployWorkflow, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
   assert.doesNotMatch(deployWorkflow, /uses: \.\/\.github\/workflows\/provider-modal\.yml/);
-  assert.match(deployWorkflow, /railway:[\s\S]*?secrets: inherit/);
+  assert.match(deployWorkflow, /railway:[\s\S]*?RAILWAY_TOKEN: \$\{\{ secrets\.RAILWAY_TOKEN \}\}/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
   assert.match(executor, /if: inputs\.provider == 'cloudflare'/);
+  assert.match(executor, /PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: \$\{\{ secrets\.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY \}\}/);
+  assert.match(executor, /CLOUDFLARE_WORKER_URL: \$\{\{ vars\.CLOUDFLARE_WORKER_URL \}\}/);
+  assert.match(executor, /PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY: \$\{\{ vars\.PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY \}\}/);
+  assert.match(executor, /Verify authenticated encounter-scoped package discovery live/);
+  assert.match(executor, /id: discovery/);
+  assert.match(executor, /CLOUDFLARE_DISCOVERY_OUTCOME: \$\{\{ steps\.discovery\.outcome \}\}/);
+  assert.match(executor, /\"\$PROVIDER\" != cloudflare \|\| \"\$DISCOVERY_OUTCOME\" == success/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
   assert.match(executor, /provider command did not produce parseable result/);
   assert.match(executor, /assert-github-deployment/);
@@ -228,6 +296,10 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
   assert.match(terraformFoundation, /id-token: write/);
+  assert.match(terraformFoundation, /TF_VAR_package_discovery_signing_private_key: \$\{\{ secrets\.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY \}\}/);
+  assert.match(terraformFoundation, /TF_VAR_catalog_acceptance_token: \$\{\{ secrets\.CATALOG_ACCEPTANCE_TOKEN \}\}/);
+  assert.match(terraformFoundation, /TF_VAR_railway_token: \$\{\{ secrets\.RAILWAY_TOKEN \}\}/);
+  assert.doesNotMatch(terraformFoundation, /secrets\.TF_VAR_(?:package_discovery_signing_private_key|catalog_acceptance_token|railway_token)/);
 
   const preview = JSON.parse(execFileSync(
     "ruby",
@@ -244,8 +316,10 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/provider-railway.yml"],
     { encoding: "utf8" },
   ));
+  const cloudflareConfig = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
   assert.match(deploy.jobs["write-unavailable-provider-receipts"].steps[0].uses, /^actions\/checkout@/);
   assert.equal(railwayProvider.jobs.deploy.secrets, "inherit");
+  assert.deepEqual(cloudflareConfig.secrets.required, ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"]);
   for (const job of [
     "terraform-foundation-preview",
     "cloudflare-preview",
@@ -298,7 +372,7 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("Modal activation consumes environment secrets in the top-level deployment job", () => {
+test("environment-scoped provider activation consumes secrets in top-level deployment jobs", () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
@@ -318,4 +392,25 @@ test("Modal activation consumes environment secrets in the top-level deployment 
   assert.match(receiptStep.run, /trusted_github_context=false/);
   assert.match(receiptStep.run, /if \[\[ "\$PREFLIGHT_OUTCOME" == success \]\]; then/);
   assert.doesNotMatch(receiptStep.run, /\\"\$PREFLIGHT_OUTCOME\\"/);
+
+  const railway = workflow.jobs.railway;
+  const railwayDeploy = railway.steps.find((step) => step.id === "railway").env;
+  const railwayReceiptStep = railway.steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Railway receipt"));
+  assert.equal(railway.environment.name, "${{ inputs.environment || 'dev' }}");
+  assert.equal(railway.concurrency.group, "myth-maker-deploy-railway-${{ inputs.environment || 'dev' }}");
+  assert.match(railwayDeploy.RAILWAY_TOKEN, /secrets\.RAILWAY_TOKEN/);
+  assert.doesNotMatch(JSON.stringify(railwayReceiptStep.env), /RAILWAY_TOKEN/);
+  assert.equal(railway.uses, undefined);
+
+  const cloudflare = workflow.jobs.cloudflare;
+  const cloudflareDeploy = cloudflare.steps.find((step) => step.id === "deploy").env;
+  const cloudflareDiscovery = cloudflare.steps.find((step) => step.id === "discovery").env;
+  const cloudflareReceiptStep = cloudflare.steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Cloudflare receipt"));
+  assert.equal(cloudflare.environment.name, "${{ inputs.environment || 'dev' }}");
+  assert.equal(cloudflare.concurrency.group, "myth-maker-deploy-cloudflare-${{ inputs.environment || 'dev' }}");
+  assert.match(cloudflareDeploy.CLOUDFLARE_API_TOKEN, /secrets\.CLOUDFLARE_API_TOKEN/);
+  assert.equal(cloudflareDiscovery.PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY, "MCowBQYDK2VwAyEAt1H5uJR0eCDxb2C4uHf+vRovjT9UJtCr5VBVYit1rgM=");
+  assert.match(JSON.stringify(cloudflareReceiptStep.env), /steps\.discovery\.outcome/);
+  assert.doesNotMatch(JSON.stringify(cloudflareReceiptStep.env), /AGENT_INGRESS_TOKEN|PRIVATE_KEY/);
+  assert.equal(cloudflare.uses, undefined);
 });

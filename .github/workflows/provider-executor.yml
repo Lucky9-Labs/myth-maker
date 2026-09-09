@@ -41,17 +41,66 @@ jobs:
           test "$SOURCE_SHA" = "$GITHUB_SHA"
           node scripts/deployment/controller.mjs assert-github-deployment
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - name: Run Cloudflare provider adapter without runtime credentials
+      - name: Bind discovery credentials and deploy the immutable Cloudflare Worker version
         id: deploy
         if: inputs.provider == 'cloudflare'
         run: |
           set -euo pipefail
-          node scripts/deployment/controller.mjs preview --event "$GITHUB_EVENT_NAME" --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT"
+          test -n "$CLOUDFLARE_WORKER_URL"
+          test -n "$CLOUDFLARE_DISCOVERY_ENCOUNTER_ID"
           node scripts/deployment/controller.mjs deploy --provider cloudflare --environment "$DEPLOYMENT_ENVIRONMENT" > "$RUNNER_TEMP/provider-result.json"
           node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
         env:
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           RESULT: ${{ runner.temp }}/provider-result.json
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          AGENT_INGRESS_TOKEN: ${{ secrets.AGENT_INGRESS_TOKEN }}
+          PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: ${{ secrets.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY }}
+          CLOUDFLARE_WORKER_URL: ${{ vars.CLOUDFLARE_WORKER_URL }}
+          CLOUDFLARE_DISCOVERY_ENCOUNTER_ID: ${{ vars.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID }}
+      - name: Verify authenticated encounter-scoped package discovery live
+        id: discovery
+        if: inputs.provider == 'cloudflare'
+        shell: bash
+        env:
+          RESULT: ${{ runner.temp }}/provider-result.json
+          RESPONSE: ${{ runner.temp }}/cloudflare-package-discovery.json
+          EVIDENCE: ${{ runner.temp }}/cloudflare-package-discovery-evidence.json
+          CLOUDFLARE_WORKER_URL: ${{ vars.CLOUDFLARE_WORKER_URL }}
+          CLOUDFLARE_DISCOVERY_ENCOUNTER_ID: ${{ vars.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID }}
+          PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY: ${{ vars.PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY }}
+          AGENT_INGRESS_TOKEN: ${{ secrets.AGENT_INGRESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY"
+          request_id="ci-discovery-${GITHUB_SHA:0:16}"
+          response_url="${CLOUDFLARE_WORKER_URL%/}/v1/encounters/${CLOUDFLARE_DISCOVERY_ENCOUNTER_ID}/package-discoveries"
+          curl_config="$RUNNER_TEMP/cloudflare-package-discovery.curl"
+          trap 'rm -f "$curl_config"' EXIT
+          umask 077
+          printf 'header = "authorization: Bearer %s"\n' "$AGENT_INGRESS_TOKEN" > "$curl_config"
+          curl --config "$curl_config" --fail-with-body --silent --show-error --max-time 30 \
+            --request POST "$response_url" \
+            --header "content-type: application/json" \
+            --data "{\"schema_version\":\"1\",\"request_id\":\"$request_id\",\"idempotency_key\":\"$request_id\",\"host_capabilities\":{\"schema_version\":\"1\",\"host_id\":\"ci-host\",\"host_build\":\"$GITHUB_SHA\",\"platform\":\"linux\",\"scripting_backend\":\"il2cpp\",\"execution_kinds\":[\"runtime_asset\"],\"loaders\":[\"gltf\",\"urp\"],\"contracts\":[\"encounter.module.v1\"],\"limits\":{\"memory_mb\":1024,\"preload_seconds\":30,\"artifact_bytes\":52428800,\"actors\":8}}}" \
+            --output "$RESPONSE"
+          REQUEST_ID="$request_id" node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            import { verifyCloudflareDiscoveryResponse } from "./scripts/deployment/controller.mjs";
+            const response = JSON.parse(readFileSync(process.env.RESPONSE, "utf8"));
+            writeFileSync(process.env.EVIDENCE, JSON.stringify(await verifyCloudflareDiscoveryResponse(response, {
+              encounterId: process.env.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID,
+              requestId: process.env.REQUEST_ID,
+              signingPublicKey: process.env.PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY,
+            }));
+          '
+          node -e '
+            const fs = require("node:fs");
+            const result = JSON.parse(fs.readFileSync(process.env.RESULT, "utf8"));
+            const discovery = JSON.parse(fs.readFileSync(process.env.EVIDENCE, "utf8"));
+            result.evidence = { ...result.evidence, discovery };
+            fs.writeFileSync(process.env.RESULT, JSON.stringify(result));
+          '
       - name: Deploy and verify the Railway HTTP dispatcher
         id: railway
         if: inputs.provider == 'railway'
@@ -95,6 +144,7 @@ jobs:
         env:
           CLOUDFLARE_OUTCOME: ${{ steps.deploy.outcome }}
           CLOUDFLARE_STATUS: ${{ steps.deploy.outputs.provider_status }}
+          CLOUDFLARE_DISCOVERY_OUTCOME: ${{ steps.discovery.outcome }}
           RAILWAY_OUTCOME: ${{ steps.railway.outcome }}
           RAILWAY_STATUS: ${{ steps.railway.outputs.provider_status }}
           MODAL_OUTCOME: ${{ steps.modal.outcome }}
@@ -108,13 +158,13 @@ jobs:
         run: |
           set -euo pipefail
           case "$PROVIDER" in
-            cloudflare) DEPLOY_OUTCOME="$CLOUDFLARE_OUTCOME"; PROVIDER_STATUS="$CLOUDFLARE_STATUS" ;;
-            railway) DEPLOY_OUTCOME="$RAILWAY_OUTCOME"; PROVIDER_STATUS="$RAILWAY_STATUS" ;;
-            modal) DEPLOY_OUTCOME="$MODAL_OUTCOME"; PROVIDER_STATUS="$MODAL_STATUS" ;;
-            *) DEPLOY_OUTCOME=failure; PROVIDER_STATUS=failure ;;
+            cloudflare) DEPLOY_OUTCOME="$CLOUDFLARE_OUTCOME"; PROVIDER_STATUS="$CLOUDFLARE_STATUS"; DISCOVERY_OUTCOME="$CLOUDFLARE_DISCOVERY_OUTCOME" ;;
+            railway) DEPLOY_OUTCOME="$RAILWAY_OUTCOME"; PROVIDER_STATUS="$RAILWAY_STATUS"; DISCOVERY_OUTCOME=not_applicable ;;
+            modal) DEPLOY_OUTCOME="$MODAL_OUTCOME"; PROVIDER_STATUS="$MODAL_STATUS"; DISCOVERY_OUTCOME=not_applicable ;;
+            *) DEPLOY_OUTCOME=failure; PROVIDER_STATUS=failure; DISCOVERY_OUTCOME=not_applicable ;;
           esac
           status=failure
-          if [[ "$PREFLIGHT_OUTCOME" == success && "$DEPLOY_OUTCOME" == success ]]; then
+          if [[ "$PREFLIGHT_OUTCOME" == success && "$DEPLOY_OUTCOME" == success && ( "$PROVIDER" != cloudflare || "$DISCOVERY_OUTCOME" == success ) ]]; then
             case "$PROVIDER_STATUS" in
               deployed) status=success ;;
               skipped) status=skipped ;;
@@ -139,7 +189,7 @@ jobs:
             --status "$status" \
             --started-at "$started_at" \
             --completed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --verification "{\"trusted_github_context\":$([[ "$PREFLIGHT_OUTCOME" == success ]] && echo true || echo false),\"provider_command_outcome\":\"$DEPLOY_OUTCOME\",\"provider_result\":\"$PROVIDER_STATUS\"}" \
+            --verification "{\"trusted_github_context\":$([[ "$PREFLIGHT_OUTCOME" == success ]] && echo true || echo false),\"provider_command_outcome\":\"$DEPLOY_OUTCOME\",\"provider_result\":\"$PROVIDER_STATUS\",\"live_discovery_outcome\":\"${DISCOVERY_OUTCOME:-not_applicable}\"}" \
             --details "$details" \
             --output "receipts/$PROVIDER-$DEPLOYMENT_ENVIRONMENT.json"
       - name: Upload deployment receipt

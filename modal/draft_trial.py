@@ -20,7 +20,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
 from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need
-from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, read_stable, sha256, validate_native, write_json_atomic
+from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, modal_volume_receipt, read_stable, sha256, validate_native, write_json_atomic
 from desktop_readiness import terminal_failure, wait_for_desktop
 from infrastructure import runtime
 
@@ -184,8 +184,13 @@ def run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, project_i
         raise RuntimeError("Cloud component already claimed; reconcile its existing job, do not duplicate")
     try:
         provenance["project_id"] = project_id
+        function_call_id = modal.current_function_call_id()
+        input_id = modal.current_input_id()
+        if not function_call_id or not input_id:
+            raise RuntimeError("Modal did not provide call and input identities to the Blender draft")
         return _run_draft(job_id, inputs, provenance, part, resume_job, checkpoint_id, feedback,
-                          resume_artifact, resume_sha256, incremental, baseline_score)
+                          resume_artifact, resume_sha256, incremental, baseline_score,
+                          function_call_id, input_id)
     finally:
         # Hard container termination may leave this protective lease. A coordinator
         # must verify terminal state before manually repairing it; no age stealing.
@@ -196,7 +201,8 @@ def run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, project_i
 def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: str,
                resume_job: str = "", checkpoint_id: str = "", feedback: str = "",
                resume_artifact: str = "", resume_sha256: str = "",
-               incremental: bool = False, baseline_score: int = 0) -> dict:
+               incremental: bool = False, baseline_score: int = 0,
+               function_call_id: str = "", input_id: str = "") -> dict:
     native = native_name(part)
     provenance["part"] = part
     provenance["cloud_target"] = 8 if incremental else 4
@@ -586,6 +592,21 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             state["input_snapshot_unchanged"] = (digest((reference_dir / "source_scene.blend").read_bytes()) == digest(inputs["source_scene.blend"])) if "source_scene.blend" in inputs else None
             state["reference_snapshots_unchanged"] = all(digest((reference_dir / name).read_bytes()) == digest(data) for name, data in {**inputs, **input_aliases}.items())
             state["files"] = {str(p.relative_to(output)): {"bytes": p.stat().st_size, "sha256": digest(p.read_bytes())} for p in output.iterdir() if p.is_file()}
+            frame_paths = {
+                "initial": root / "screenshots" / "000-initial.png",
+                "latest": root / "latest.png",
+                "final": root / "final-desktop.png",
+            }
+            frames = {
+                name: (str(path.relative_to(root)), {"bytes": path.stat().st_size, "sha256": digest(path.read_bytes())})
+                for name, path in frame_paths.items() if path.is_file()
+            }
+            state["provider_receipt"] = modal_volume_receipt(
+                volume_name=RUNTIME.volume_name, job_id=job_id, app_name=RUNTIME.app_name,
+                environment=RUNTIME.environment, function_name="run_draft",
+                function_call_id=function_call_id, input_id=input_id,
+                output_files=state["files"], blender_frames=frames,
+            )
             checkpoint(force=True)
             state["resumable"] = bool(state.get("checkpoint_id"))
             if state["status"] in {"checkpointed_partial", "ready_for_review"} and not state["resumable"]:
