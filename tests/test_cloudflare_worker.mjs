@@ -127,11 +127,12 @@ function storage() {
   };
 }
 
-function coordinator() {
+function coordinator(envOverrides = {}) {
   return new EncounterCoordinator({ storage: storage() }, {
     WORK_DISPATCH_URL: "https://workers.example/dispatch",
     WORK_DISPATCH_TOKEN: "dispatch",
     PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: "MC4CAQAwBQYDK2VwBCIEII2uBd4SxWoOh7s251KvvH03Hyx3kfMAZTwku//Ga3A4",
+    ...envOverrides,
   });
 }
 
@@ -553,6 +554,23 @@ test("a dispatch failure is durably replayed without a second external dispatch"
     const blocked = (await body(replay)).work_item;
     assert.equal(blocked.status, "blocked");
     assert.deepEqual(blocked.failure, { error_code: "work_dispatch_http_503", retryable: true });
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("dispatch configuration and transport failures expose only stable safe codes", async () => {
+  const oldFetch = globalThis.fetch;
+  try {
+    const invalidUrl = await submit(coordinator({ WORK_DISPATCH_URL: "not-a-url" }), workOrder());
+    assert.deepEqual((await body(invalidUrl)).work_item.failure, { error_code: "work_dispatch_url_invalid", retryable: true });
+
+    const missingToken = await submit(coordinator({ WORK_DISPATCH_TOKEN: "" }), workOrder());
+    assert.deepEqual((await body(missingToken)).work_item.failure, { error_code: "work_dispatch_token_missing", retryable: true });
+
+    globalThis.fetch = async () => { throw new TypeError("sensitive transport detail"); };
+    const networkFailure = await submit(coordinator(), workOrder());
+    assert.deepEqual((await body(networkFailure)).work_item.failure, { error_code: "work_dispatch_network_error", retryable: true });
   } finally {
     globalThis.fetch = oldFetch;
   }
