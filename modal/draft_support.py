@@ -5,6 +5,14 @@ import re
 import json
 
 
+def pinned_worker_contract(provenance: dict) -> str:
+    """Render the caller-owned, generic component contract into the GUI brief."""
+    contract = provenance.get("worker_contract")
+    if not isinstance(contract, dict):
+        return ""
+    return "\n\n# Pinned component contract\n\n" + json.dumps(contract, indent=2, sort_keys=True)
+
+
 def classify_model_stop(report: str, has_native: bool) -> str:
     """Classify the end of a model turn independently from API response status."""
     markers = re.findall(r"^DRAFT_STATUS:\s*(PARTIAL|BLOCKED|READY_FOR_REVIEW)\s*$", report, re.MULTILINE)

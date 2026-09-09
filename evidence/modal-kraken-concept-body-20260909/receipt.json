@@ -1,0 +1,80 @@
+{
+  "schema_version": "1",
+  "evidence_tier": "modal_remote_observed_with_provider_blender_frames",
+  "request": {
+    "work_id": "kraken-concept-body-source",
+    "job_id": "draft-gui-kraken-concept-body-source-a4",
+    "attempt": 4,
+    "concept_sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008",
+    "source_input_sha256": "7fbc0055dd2f702b19c267c122ea8129c7166d3fb63bc1500b10210e516edb9f",
+    "worker_contract_sha256": "a1b190fc8ff64b582fc89751c7a041c8b92954e18da8df2dd0fcc4b8166a3dc6"
+  },
+  "modal": {
+    "environment": "dev",
+    "app_name": "myth-maker-encounter-draft",
+    "app_id": "ap-ATwBgtJqDSwSAv88YPtR74",
+    "app_version": "v6",
+    "deployment_commit": "5b2370fa021ede51cf0484655a0fcdf07da85de4",
+    "function_id": "fu-HhAuyxdxfJotO6IXWk2pTg",
+    "function_call_id": "fc-01M21VZ7FE4SVDGF2CSH7HJHAN",
+    "container_id": "ta-01M21VZ7RFDFVPXD8K76J8GRSR",
+    "submitted_at": "2026-09-09T01:19:26.961139Z",
+    "terminal_observed_at": "2026-09-09T01:23:26.807714Z"
+  },
+  "worker_terminal_state": {
+    "status": "checkpointed_partial",
+    "stop_reason": "budget_checkpoint",
+    "actions": 110,
+    "turns": 23,
+    "input_tokens": 609381,
+    "output_tokens": 2799,
+    "checkpoint_id": "cp-0023-ccb0708d9ac9",
+    "source_acceptance": "not_run",
+    "runtime_acceptance": "not_run",
+    "claim_boundary": "The cloud worker GUI-saved a source artifact and provider screenshots. It did not claim a completed silhouette refinement, game import, combat, rigging, collision, or acceptance."
+  },
+  "artifacts": [
+    {
+      "role": "provider_saved_blender_source",
+      "path": "kraken-concept-body-source.blend",
+      "sha256": "528684aabca5117a248943f00482e2221d778e8f073ab8d35b2224a35f2d9777",
+      "bytes": 122943,
+      "evidence": "Modal Volume output from the terminal worker receipt"
+    },
+    {
+      "role": "provider_blender_desktop_preview",
+      "path": "provider-final-desktop.png",
+      "sha256": "e2597a58d7cbe3e6595338f20aea8f4f655547de1488503f9282b519a8d659f2",
+      "bytes": 504308,
+      "evidence": "Provider-hosted Blender desktop frame copied after terminal state"
+    },
+    {
+      "role": "provider_blender_frame_gif",
+      "path": "provider-blender-frames.gif",
+      "sha256": "9444ddf23b82d25a93495c3626b10aed20cb8924b7472925fc59df518378b91c",
+      "evidence": "Local GIF assembled without edits from four named provider screenshots; it is visual evidence, not a cloud render"
+    },
+    {
+      "role": "render_of_cloud_source",
+      "path": "cloud-source-local-render-0001.png",
+      "sha256": "66df5be9bad83133dce479f6090afe672305facb29b6e63a80d1b85dcf6e1986",
+      "evidence": "Local Blender 5.2.1 render of the exact downloaded cloud source; not a substitute for the Modal receipt"
+    },
+    {
+      "role": "runtime_glb_of_cloud_source",
+      "path": "kraken-concept-body-source.glb",
+      "sha256": "737cff2c5eff32728e03c6c3de46fe82dcf3027bb92c1abf133cf63f7d177e94",
+      "bytes": 133160,
+      "evidence": "Local Blender 5.2.1 GLB export from the exact cloud source; GLB 2.0 magic, declared length, and actual length matched"
+    }
+  ],
+  "retrieval_handoff": {
+    "volume": "myth-maker-encounter-submissions",
+    "remote_prefix": "/draft-gui-kraken-concept-body-source-a4",
+    "commands": [
+      "modal volume get myth-maker-encounter-submissions /draft-gui-kraken-concept-body-source-a4/status.json <destination> --env dev",
+      "modal volume get myth-maker-encounter-submissions /draft-gui-kraken-concept-body-source-a4/output/kraken-concept-body-source.blend <destination> --env dev",
+      "modal volume get myth-maker-encounter-submissions /draft-gui-kraken-concept-body-source-a4/final-desktop.png <destination> --env dev"
+    ]
+  }
+}

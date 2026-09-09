@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, healthy_observation, recognizable_blender_ui, terminal_failure, window_geometry
+from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, healthy_observation, recognizable_blender_ui, receipt_error, terminal_failure, window_geometry
 
 
 class DesktopReadinessTests(unittest.TestCase):
@@ -24,6 +24,10 @@ class DesktopReadinessTests(unittest.TestCase):
             "stop_reason": "runtime_error",
             "error": "provider authentication failed",
         })
+
+    def test_terminal_receipt_redacts_partially_masked_provider_key_fragments(self):
+        message = receipt_error(RuntimeError("Incorrect API key provided: sk-abcde*****vwxyz."))
+        self.assertEqual(message, "Incorrect API key provided: sk-[REDACTED].")
 
     def healthy(self):
         return {"processes": [{"pid": 1, "exit_code": None}, {"pid": 2, "exit_code": None}, {"pid": 3, "exit_code": None}],

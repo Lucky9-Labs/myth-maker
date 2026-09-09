@@ -1,0 +1,80 @@
+{
+  "source": "operator-direct-deployed-modal-call",
+  "request_id": "modal-kraken-concept-body-20260908",
+  "attempt": 4,
+  "observed_at_submission": "2026-09-09T01:19:26.961139Z",
+  "git_head": "5b2370fa021ede51cf0484655a0fcdf07da85de4",
+  "worker_contract": {
+    "contract_id": "demo-body-source-contract",
+    "revision": 1,
+    "asset_type": "model",
+    "lineage": {
+      "kind": "concept_lineage",
+      "encounter_intent": {
+        "id": "demo-encounter-intent",
+        "revision": 1,
+        "content_sha256": "fe7ef1e0d43853f5117bf032402215ae132329602748269270d6f9b4d4c24d72"
+      },
+      "art_direction_revision": {
+        "id": "demo-encounter-direction",
+        "revision": 1,
+        "content_sha256": "01d7ce37bbd72d64b3524f09f0ca651e9559c3f9e54d3d384f8c9ec70a44c133"
+      },
+      "concept_reference_revision": {
+        "id": "demo-encounter-concept",
+        "revision": 1,
+        "content_sha256": "d1a734c72a5b7d2d1b269d4301cbca7358a54db80e1052ad4336e862a3db78c5"
+      }
+    },
+    "scope": "One generic encounter body source candidate only.",
+    "source_scene_policy": "Open /inputs/source_scene.blend through Blender GUI, immediately use GUI Save As to /output/kraken-concept-body-source.blend, then make one visible silhouette refinement only in that output copy.",
+    "acceptance_constraints": [
+      "Keep a central body and an approach-readable appendage gesture.",
+      "Keep the reference pane visible for a final provider screenshot.",
+      "Save the output through Blender GUI before any status marker."
+    ],
+    "non_goals": [
+      "Do not claim runtime, combat, collision, rig, or independent acceptance.",
+      "Do not edit the immutable /inputs source."
+    ]
+  },
+  "concept_production_gate": {
+    "kind": "concept_lineage",
+    "concept_reference": {
+      "uri": "repo://assets/concepts/kraken-observable-swarm-v1.png",
+      "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008",
+      "media_type": "image/png"
+    }
+  },
+  "files": {
+    "source_scene.blend": {
+      "path": "evidence/build-room-kraken-high-fanout-stress.json.artifacts/261fc2b0-1cf2-4a17-8d1f-b10b97b8ff42/wg-8340e6fcb9c609d3ddc8281669373364/source/wg-8340e6fcb9c609d3ddc8281669373364.r1.7fbc0055dd2f702b19c267c122ea8129c7166d3fb63bc1500b10210e516edb9f.blend",
+      "sha256": "7fbc0055dd2f702b19c267c122ea8129c7166d3fb63bc1500b10210e516edb9f",
+      "bytes": 117395
+    },
+    "structure_reference.png": {
+      "path": "assets/concepts/kraken-observable-swarm-v1.png",
+      "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008",
+      "bytes": 2780422
+    },
+    "component_reference.png": {
+      "path": "assets/concepts/kraken-observable-swarm-v1.png",
+      "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008",
+      "bytes": 2780422
+    },
+    "primary_artwork.png": {
+      "path": "assets/concepts/kraken-observable-swarm-v1.png",
+      "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008",
+      "bytes": 2780422
+    },
+    "concept_reference.png": {
+      "path": "assets/concepts/kraken-observable-swarm-v1.png",
+      "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008",
+      "bytes": 2780422
+    }
+  },
+  "project_id": "myth-maker",
+  "part": "kraken-concept-body-source",
+  "cloud_target": 4,
+  "local_target": 8
+}

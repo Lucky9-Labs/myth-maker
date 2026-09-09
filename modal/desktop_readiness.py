@@ -17,19 +17,28 @@ class StartupUnready(RuntimeError):
     pass
 
 
+def receipt_error(error: Exception) -> str:
+    """Return an operator-useful error without persisting credential fragments."""
+    message = str(error)
+    # Provider SDKs sometimes redact an API key only partially. A receipt is
+    # durable Volume evidence, so replace the entire displayed key token.
+    message = re.sub(r"\bsk-[A-Za-z0-9*_\-]+", "sk-[REDACTED]", message)
+    return message[:1500]
+
+
 def terminal_failure(error: Exception) -> dict[str, str]:
     """Return a terminal receipt patch without allowing error handling to mask its cause."""
     if isinstance(error, StartupUnready):
         return {
             "status": "blocked",
             "stop_reason": "startup_unready",
-            "error": str(error)[:1500],
+            "error": receipt_error(error),
             "desktop_readiness_report": "startup-readiness.json",
         }
     return {
         "status": "failed",
         "stop_reason": "runtime_error",
-        "error": str(error)[:1500],
+        "error": receipt_error(error),
     }
 
 
