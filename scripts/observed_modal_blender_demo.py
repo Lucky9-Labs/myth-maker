@@ -69,13 +69,25 @@ def public_terminal_receipt(state: dict, *, source_sha: str, job_id: str, recipe
         raise RuntimeError("deterministic Modal Blender receipt omitted its deployed function ID")
     if state.get("glb_validation", {}).get("format") != "glb-2.0-self-contained":
         raise RuntimeError("deterministic Modal Blender run did not validate its GLB")
+    required_nodes = {"encounter-body"} | {
+        f"encounter-appendage-{index:02d}" for index in range(recipe["appendages"]["count"])
+    }
+    glb_validation = state.get("glb_validation", {})
+    if glb_validation.get("appendage_count") != recipe["appendages"]["count"] or not required_nodes.issubset(
+            set(glb_validation.get("required_node_names", []))):
+        raise RuntimeError("deterministic Modal Blender GLB did not prove its required encounter geometry")
+    frame_validation = state.get("frame_validation", {})
+    expected_resolution = recipe["camera"]["resolution"]
+    if {name: item.get("width") for name, item in frame_validation.items()} != {name: expected_resolution[0] for name in frames} or \
+       {name: item.get("height") for name, item in frame_validation.items()} != {name: expected_resolution[1] for name in frames}:
+        raise RuntimeError("deterministic Modal Blender staged frames were not decoded at the recipe resolution")
     return {
         "format": "myth-maker.observed-modal-deterministic-demo/v1",
         "source_sha": source_sha, "work_id": WORK_ID, "job_id": job_id,
         "recipe": recipe, "recipe_sha256": recipe_digest(recipe),
         "provider_receipt": provider, "worker_receipt": {
             "execution": state["execution"], "glb_validation": state["glb_validation"],
-            "provenance": state["provenance"],
+            "frame_validation": state["frame_validation"], "provenance": state["provenance"],
         },
     }
 

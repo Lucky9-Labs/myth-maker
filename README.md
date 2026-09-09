@@ -90,11 +90,14 @@ It keeps request authorization, idempotency, and one active job per
 project/component in a Durable Object, then forwards opaque computer-use work to
 an external dispatcher. It does not run a model or Blender itself; agents outside
 Cloudflare remain responsible for deciding what to ask the computer-use workers
-to do. The GPU/Blender **cloud** worker integration remains deliberately
-unshipped until its desktop runtime has a passing cloud smoke test. The Build
-Room's optional local Blender CLI slice is a non-deployed, receipt-bearing
-process proof; it does not contact Cloudflare or Modal and does not establish a
-cloud, Unity-load, or player-facing acceptance claim.
+to do. The API-operated GUI GPU/Blender **cloud** worker integration remains
+deliberately unshipped until its desktop runtime has a passing cloud smoke test.
+A separate closed, deterministic Blender-recipe fallback is observed only after
+the trusted main CI deployment and proves in-container construction without an
+OpenAI API call. The Build Room's optional local Blender CLI slice is a
+non-deployed, receipt-bearing process proof; it does not contact Cloudflare or
+Modal and does not establish a cloud, Unity-load, or player-facing acceptance
+claim.
 
 ## Infrastructure foundation
 
