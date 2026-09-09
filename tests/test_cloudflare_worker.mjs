@@ -52,6 +52,67 @@ function workOrder(overrides = {}) {
   return { ...structuredClone(baseWorkOrder), ...overrides };
 }
 
+const unityHostCapabilities = {
+  schema_version: "2",
+  host_id: "unity-host",
+  host_build: "unity-6000.6.0f1-macos",
+  platform: "macos",
+  scripting_backend: "il2cpp",
+  execution_kinds: ["runtime_asset"],
+  loaders: ["unity.assetbundle"],
+  contracts: ["encounter.module.v1"],
+  limits: { memory_mb: 512, preload_seconds: 30, artifact_bytes: 512, actors: 1 },
+  artifact_formats: [{ media_type: "application/vnd.unity.assetbundle", loader: "unity.assetbundle", platform: "macos", build: "unity-6000.6.0f1-macos" }],
+};
+
+function unityRuntimeArtifact() {
+  return {
+    uri: "https://artifacts.example.test/encounter-alpha/baseline-core-macos.bundle",
+    sha256: "d".repeat(64),
+    media_type: "application/vnd.unity.assetbundle",
+    byte_length: 256,
+    compatibility: { platforms: ["macos"], builds: ["unity-6000.6.0f1-macos"], loaders: ["unity.assetbundle"] },
+  };
+}
+
+function unityPlayablePackage() {
+  return assembleEncounterPackage({
+    host: { ...baseWorkOrder.host_capabilities, execution_kinds: ["runtime_asset"], loaders: ["unity.assetbundle"] },
+    encounterId: "encounter-alpha",
+    packageId: "package-unity",
+    baselineModules: [{
+      schema_version: "1", module_id: "baseline-core", revision: 1, execution_kind: "runtime_asset",
+      provides: ["combat.core"], requires: ["encounter.module.v1"], conflicts: [],
+      compatibility: { host_contract_version: "1", platforms: ["macos"], scripting_backends: ["il2cpp"], bindings: { "unity.assetbundle": "1" } },
+      quality: { tier: 0, score: 1 }, artifact: { uri: "https://artifacts.example.test/encounter-alpha/baseline-core-macos.bundle", sha256: "d".repeat(64), media_type: "application/vnd.unity.assetbundle", byte_length: 256 }, fallback_module_ids: [],
+    }],
+    assembledAt: "2026-09-08T19:30:00.000Z",
+  }).package;
+}
+
+async function acceptedCatalogRevisionV2() {
+  const artifact = unityRuntimeArtifact();
+  const revision = {
+    schema_version: "2", catalog_revision_id: "catalog-unity-0001", encounter_id: "encounter-alpha", revision: 1, state: "accepted", created_at: "2026-09-08T19:30:00.000Z",
+    acceptance: { decision_id: "catalog-decision-0002", policy_id: "runtime-catalog-acceptance.v1", accepted_at: "2026-09-08T19:31:00.000Z" },
+    modules: [{ module_id: "baseline-core", revision: 1, runtime_artifacts: [artifact], compatibility: { platforms: ["macos"], scripting_backends: ["il2cpp"], execution_kinds: ["runtime_asset"], loaders: ["unity.assetbundle"], contracts: ["encounter.module.v1"], limits: { artifact_bytes: 512, actors: 1 } } }],
+  };
+  return { ...revision, catalog_sha256: await canonicalSha256(revision) };
+}
+
+async function acceptedAssemblyReceiptV2(packageRecord, catalogRevision) {
+  const selected_modules = [{ module_id: "baseline-core", revision: 1, runtime_artifacts: [unityRuntimeArtifact()] }];
+  const runtimeManifest = { schema_version: "2", profile: "runtime-artifact-manifest.v2", artifact_set_id: "unity-artifact-set", artifacts: selected_modules };
+  const runtime_artifact_manifest = { ...runtimeManifest, manifest_sha256: await canonicalSha256(runtimeManifest) };
+  const receipt = {
+    schema_version: "2", receipt_id: "assembly-receipt-unity", encounter_id: packageRecord.encounter_id, package_id: packageRecord.package_id, package_revision: packageRecord.revision, package_manifest_sha256: packageRecord.manifest_sha256,
+    catalog_revision_id: catalogRevision.catalog_revision_id, catalog_revision_sha256: catalogRevision.catalog_sha256, assembled_at: "2026-09-08T19:32:00.000Z",
+    acceptance: { decision_id: "assembly-decision-0002", policy_id: "runtime-assembly-acceptance.v1", accepted_at: "2026-09-08T19:33:00.000Z" },
+    selected_modules, runtime_artifact_manifest,
+  };
+  return { ...receipt, receipt_sha256: await canonicalSha256(receipt) };
+}
+
 function storage() {
   const values = new Map();
   const store = { get: async (key) => values.get(key), put: async (key, value) => values.set(key, value) };
@@ -300,6 +361,73 @@ test("the authenticated discovery route returns only a frozen package bound to a
     const publicKey = await crypto.subtle.importKey("spki", Buffer.from("MCowBQYDK2VwAyEA45D06/XjPdHC8dvH1W/4IIhmHRXsmeyPSOBrSDNcBpY=", "base64"), { name: "Ed25519" }, false, ["verify"]);
     assert.equal(await crypto.subtle.verify({ name: "Ed25519" }, publicKey, Buffer.from(selected.manifest.signature.value, "base64url"), new TextEncoder().encode(canonicalJson(unsignedManifest))), true);
     assert.deepEqual(await body(replay), selected);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("v2 discovery negotiates and signs an immutable Unity AssetBundle only for an exact host format", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder());
+    const packageRecord = unityPlayablePackage();
+    const catalogRevision = await acceptedCatalogRevisionV2();
+    const assemblyReceipt = await acceptedAssemblyReceiptV2(packageRecord, catalogRevision);
+    const recorded = await instance.fetch(new Request("https://coordinator/catalog-revisions", {
+      method: "POST", body: JSON.stringify({ catalog_revision: catalogRevision }),
+    }));
+    assert.equal(recorded.status, 201);
+    const frozen = await instance.fetch(new Request("https://coordinator/freeze", {
+      method: "POST", body: JSON.stringify({ package: packageRecord, catalog_revision_id: catalogRevision.catalog_revision_id, assembly_receipt: assemblyReceipt, host_capabilities: unityHostCapabilities }),
+    }));
+    assert.equal(frozen.status, 201);
+
+    const selected = await instance.fetch(new Request("https://coordinator/package-discoveries", {
+      method: "POST", body: JSON.stringify({ schema_version: "2", request_id: "discovery-unity-0001", idempotency_key: "discovery-unity-0001", host_capabilities: unityHostCapabilities }),
+    }));
+    assert.equal(selected.status, 200);
+    const value = await body(selected);
+    assert.equal(value.schema_version, "2");
+    assert.equal(value.status, "selected");
+    assert.deepEqual(value.manifest.artifacts, [{ module_id: "baseline-core", revision: 1, ...unityRuntimeArtifact() }]);
+    const unsignedManifest = structuredClone(value.manifest);
+    delete unsignedManifest.signature;
+    const publicKey = await crypto.subtle.importKey("spki", Buffer.from("MCowBQYDK2VwAyEA45D06/XjPdHC8dvH1W/4IIhmHRXsmeyPSOBrSDNcBpY=", "base64"), { name: "Ed25519" }, false, ["verify"]);
+    assert.equal(await crypto.subtle.verify({ name: "Ed25519" }, publicKey, Buffer.from(value.manifest.signature.value, "base64url"), new TextEncoder().encode(canonicalJson(unsignedManifest))), true);
+
+    const incompatibleHost = structuredClone(unityHostCapabilities);
+    incompatibleHost.host_build = "unity-6000.7.0f1-macos";
+    incompatibleHost.artifact_formats[0].build = incompatibleHost.host_build;
+    const rejected = await instance.fetch(new Request("https://coordinator/package-discoveries", {
+      method: "POST", body: JSON.stringify({ schema_version: "2", request_id: "discovery-unity-0002", idempotency_key: "discovery-unity-0002", host_capabilities: incompatibleHost }),
+    }));
+    assert.deepEqual(await body(rejected), { schema_version: "2", status: "no_package", encounter_id: "encounter-alpha", request_id: "discovery-unity-0002", reason: "no_accepted_compatible_package" });
+
+    const mixedVersion = await instance.fetch(new Request("https://coordinator/package-discoveries", {
+      method: "POST", body: JSON.stringify({ schema_version: "1", request_id: "discovery-unity-0003", idempotency_key: "discovery-unity-0003", host_capabilities: unityHostCapabilities }),
+    }));
+    assert.equal(mixedVersion.status, 400);
+    assert.equal((await body(mixedVersion)).error, "invalid_package_discovery_request");
+
+    for (const [reason, mutate] of [
+      ["media", (host) => { host.artifact_formats[0].media_type = "application/test"; }],
+      ["loader", (host) => { host.artifact_formats[0].loader = "other-loader"; host.loaders = ["other-loader"]; }],
+      ["platform", (host) => { host.platform = "windows"; host.artifact_formats[0].platform = "windows"; }],
+      ["bytes", (host) => { host.limits.artifact_bytes = 255; }],
+    ]) {
+      const incompatible = structuredClone(unityHostCapabilities);
+      mutate(incompatible);
+      const result = await instance.fetch(new Request("https://coordinator/package-discoveries", {
+        method: "POST", body: JSON.stringify({ schema_version: "2", request_id: `discovery-${reason}-0001`, idempotency_key: `discovery-${reason}-0001`, host_capabilities: incompatible }),
+      }));
+      assert.deepEqual(await body(result), { schema_version: "2", status: "no_package", encounter_id: "encounter-alpha", request_id: `discovery-${reason}-0001`, reason: "no_accepted_compatible_package" });
+    }
+
+    const tamperedReceipt = structuredClone(assemblyReceipt);
+    tamperedReceipt.selected_modules[0].runtime_artifacts[0].sha256 = "e".repeat(64);
+    assert.equal(await compatibleFrozenPackage({ packageRecord, catalogRevision, assemblyReceipt: tamperedReceipt, hostCapabilities: unityHostCapabilities }), false);
   } finally {
     globalThis.fetch = oldFetch;
   }

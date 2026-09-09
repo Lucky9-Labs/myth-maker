@@ -119,6 +119,18 @@ test("planner deterministically produces a generic parameterized component graph
                       first.work_orders.map((order) => order.work_id));
 });
 
+test("planner preserves a v2 host's declared runtime artifact formats in every dispatched work order", () => {
+  const v2Fixture = structuredClone(fixture);
+  v2Fixture.host_capabilities = {
+    ...hostCapabilities,
+    schema_version: "2",
+    artifact_formats: [{ media_type: "application/vnd.unity.assetbundle", loader: "recipe-loader", platform: "linux", build: "2026.09.08" }],
+  };
+  const graph = planEncounterWork(v2Fixture);
+  assert.ok(graph.work_orders.every((order) => order.host_capabilities.schema_version === "2"));
+  assert.deepEqual(graph.work_orders[0].host_capabilities.artifact_formats, v2Fixture.host_capabilities.artifact_formats);
+});
+
 test("assembly inputs retain a valid baseline when a horizontal lane is missing", () => {
   const graph = planEncounterWork(fixture);
   const roots = graph.work_orders.filter((order) => !["assembly", "validation"].includes(order.lane));
