@@ -11,7 +11,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
 import sys
 import tempfile
@@ -24,7 +23,6 @@ DICT_NAME = "myth-maker-encounter-component-leases"
 SECRET_NAME = "myth-maker-encounter-openai"
 PROBE_FUNCTION = "run_dispatch_probe"
 REQUIRED_CREDENTIALS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY")
-IMAGE_ID = re.compile(r"\bim-[A-Za-z0-9]+\b")
 # The initial image pull/import can outlive the short CLI request cadence. Keep
 # the CI probe bounded, but allow one cold start to reach a terminal receipt.
 PROBE_TIMEOUT_SECONDS = 300
@@ -57,16 +55,17 @@ def ensure_named_resources(environment: str) -> None:
     # Modal Dict creation is already a documented no-op when it exists.
     run("modal", "dict", "create", DICT_NAME, "--env", environment)
 
-    secrets = json_command("modal", "secret", "list", "--env", environment, "--json")
-    if not any(item.get("Name") == SECRET_NAME for item in secrets):
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as handle:
-            handle.write(json.dumps({"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}))
-            secret_file = handle.name
-        try:
-            os.chmod(secret_file, 0o600)
-            run("modal", "secret", "create", SECRET_NAME, "--env", environment, "--from-json", secret_file)
-        finally:
-            Path(secret_file).unlink(missing_ok=True)
+    # A named secret can outlive the CI credential that originally created it.
+    # Force replacement so the function deployed below receives the credential
+    # passed to this immutable CI run, without ever printing its value.
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as handle:
+        handle.write(json.dumps({"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}))
+        secret_file = handle.name
+    try:
+        os.chmod(secret_file, 0o600)
+        run("modal", "secret", "create", SECRET_NAME, "--env", environment, "--from-json", secret_file, "--force")
+    finally:
+        Path(secret_file).unlink(missing_ok=True)
 
 def observed_resource_ids(environment: str) -> dict[str, str]:
     """Read public Modal object IDs after bootstrap; never handle secret values here."""
@@ -83,30 +82,22 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
     return {"volume": volume.object_id, "dict": lease_dict.object_id}
 
 
-def emit_failed_image_logs(error: subprocess.CalledProcessError) -> None:
-    """Surface the provider's failed image layer without exposing credentials."""
+def emit_deploy_failure(error: subprocess.CalledProcessError) -> None:
+    """Keep the provider's original deploy failure visible without leaking CI secrets."""
     output = "\n".join(str(value) for value in (error.stdout, error.stderr, error.output) if value)
-    match = IMAGE_ID.search(output)
-    if not match:
-        return
-    image_id = match.group(0)
-    logs = subprocess.run(
-        ("modal", "image", "logs", image_id, "--all"),
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if logs.stdout:
-        print(f"Modal image build logs for {image_id}:\n{logs.stdout}", file=sys.stderr, end="")
-    elif logs.stderr:
-        print(f"Modal could not retrieve image build logs for {image_id}: {logs.stderr}", file=sys.stderr, end="")
+    for name in REQUIRED_CREDENTIALS:
+        value = os.environ.get(name)
+        if value:
+            output = output.replace(value, f"[{name} redacted]")
+    if output:
+        print(f"Modal deploy failed:\n{output}", file=sys.stderr, end="" if output.endswith("\n") else "\n")
 
 
 def deploy_app(environment: str) -> None:
     try:
         run("modal", "deploy", "--env", environment, "modal/draft_trial.py", capture=True)
     except subprocess.CalledProcessError as error:
-        emit_failed_image_logs(error)
+        emit_deploy_failure(error)
         raise
 
 

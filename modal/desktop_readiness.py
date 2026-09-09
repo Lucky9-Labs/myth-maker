@@ -17,6 +17,22 @@ class StartupUnready(RuntimeError):
     pass
 
 
+def terminal_error_state(error: Exception) -> dict[str, str]:
+    """Classify a worker exception while retaining its original diagnostic."""
+    if isinstance(error, StartupUnready):
+        return {
+            "status": "blocked",
+            "stop_reason": "startup_unready",
+            "error": str(error)[:1500],
+            "desktop_readiness_report": "startup-readiness.json",
+        }
+    return {
+        "status": "failed",
+        "stop_reason": "runtime_error",
+        "error": str(error)[:1500],
+    }
+
+
 def recognizable_blender_ui(text):
     words = set(re.findall(r"[a-z]+", text.lower()))
     return (len(words & {"file", "edit", "render", "window", "help"}) >= 3

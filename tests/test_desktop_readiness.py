@@ -6,10 +6,19 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, healthy_observation, recognizable_blender_ui, window_geometry
+from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, healthy_observation, recognizable_blender_ui, terminal_error_state, window_geometry
 
 
 class DesktopReadinessTests(unittest.TestCase):
+    def test_terminal_error_state_preserves_authentication_failure_and_startup_classification(self):
+        self.assertEqual(terminal_error_state(RuntimeError("401 invalid API key")), {
+            "status": "failed", "stop_reason": "runtime_error", "error": "401 invalid API key",
+        })
+        self.assertEqual(terminal_error_state(StartupUnready("desktop deadline")), {
+            "status": "blocked", "stop_reason": "startup_unready", "error": "desktop deadline",
+            "desktop_readiness_report": "startup-readiness.json",
+        })
+
     def healthy(self):
         return {"processes": [{"pid": 1, "exit_code": None}, {"pid": 2, "exit_code": None}, {"pid": 3, "exit_code": None}],
                 "x_ready": True, "window_identity_verified": True, "onscreen": True, "nonblank": True,

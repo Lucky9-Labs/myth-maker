@@ -21,6 +21,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
 from draft_support import blender_launch_args, budget_phase, classify_model_stop, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, read_stable, sha256, validate_native, write_json_atomic
+from desktop_readiness import terminal_error_state
 from infrastructure import runtime
 
 RUNTIME = runtime()
@@ -563,15 +564,8 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
         else:
             state["status"] = "checkpointed_partial" if (output / native).exists() else "blocked"
             state["stop_reason"] = "budget_limit"
-    except StartupUnready as error:
-        state["status"] = "blocked"
-        state["stop_reason"] = "startup_unready"
-        state["error"] = str(error)[:1500]
-        state["desktop_readiness_report"] = "startup-readiness.json"
     except Exception as error:
-        state["status"] = "failed"
-        state["stop_reason"] = "runtime_error"
-        state["error"] = str(error)[:1500]
+        state.update(terminal_error_state(error))
     finally:
         try:
             screenshot(root / "final-desktop.png")
