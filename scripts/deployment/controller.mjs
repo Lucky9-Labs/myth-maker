@@ -17,13 +17,13 @@ const ENVIRONMENT = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROVIDER = /^[a-z][a-z0-9-]{0,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RECEIPT_PROVIDERS = new Set(["cloudflare", "railway", "modal", "terraform-foundation"]);
-const CLOUDFLARE_DISCOVERY_SECRET_BINDINGS = Object.freeze(["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"]);
+const CLOUDFLARE_RUNTIME_SECRET_BINDINGS = Object.freeze(["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]);
 
 export const providerDefinitions = Object.freeze({
   cloudflare: Object.freeze({
     // Terraform may establish the Worker identity and non-secret bindings, but
     // trusted CI owns the immutable code version and its discovery secrets.
-    secretNames: ["CLOUDFLARE_API_TOKEN", ...CLOUDFLARE_DISCOVERY_SECRET_BINDINGS],
+    secretNames: ["CLOUDFLARE_API_TOKEN", ...CLOUDFLARE_RUNTIME_SECRET_BINDINGS],
     requiredFiles: ["wrangler.jsonc", "src/worker.js", "src/encounter-package-assembler.js", "src/package-discovery.js"],
     preview: ["npx", ["--yes", "wrangler@4.130.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"]],
     deploy: ["npx", ["--yes", "wrangler@4.130.0", "deploy", "--config", "wrangler.jsonc"]],
@@ -170,9 +170,9 @@ export function parseCloudflareDeploymentEvidence(output) {
   }
   if (!UUID.test(parsed?.version_id ?? "") || typeof parsed?.worker_url !== "string" || !parsed.worker_url.endsWith(".workers.dev")
     || !Array.isArray(parsed?.secret_bindings)
-    || parsed.secret_bindings.length !== CLOUDFLARE_DISCOVERY_SECRET_BINDINGS.length
-    || [...parsed.secret_bindings].sort().join(",") !== [...CLOUDFLARE_DISCOVERY_SECRET_BINDINGS].sort().join(",")) {
-    throw new Error("Cloudflare deployment evidence requires the current Worker version and both discovery secret bindings");
+    || parsed.secret_bindings.length !== CLOUDFLARE_RUNTIME_SECRET_BINDINGS.length
+    || [...parsed.secret_bindings].sort().join(",") !== [...CLOUDFLARE_RUNTIME_SECRET_BINDINGS].sort().join(",")) {
+    throw new Error("Cloudflare deployment evidence requires the current Worker version and all runtime secret bindings");
   }
   return { version_id: parsed.version_id, worker_url: parsed.worker_url, secret_bindings: [...parsed.secret_bindings].sort() };
 }
@@ -380,7 +380,7 @@ function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOut
 
 function executeCloudflareDeployment(invocation) {
   const config = JSON.parse(readFileSync("wrangler.jsonc", "utf8"));
-  for (const secretName of CLOUDFLARE_DISCOVERY_SECRET_BINDINGS) {
+  for (const secretName of CLOUDFLARE_RUNTIME_SECRET_BINDINGS) {
     cloudflareCommand(["secret", "put", secretName], { input: process.env[secretName] });
   }
   const deployOutput = executeProviderCommand(invocation);
@@ -393,7 +393,7 @@ function executeCloudflareDeployment(invocation) {
   return {
     version_id: currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOutput),
     worker_url: workerUrl,
-    secret_bindings: [...CLOUDFLARE_DISCOVERY_SECRET_BINDINGS],
+    secret_bindings: [...CLOUDFLARE_RUNTIME_SECRET_BINDINGS],
   };
 }
 

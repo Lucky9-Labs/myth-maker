@@ -34,7 +34,7 @@ the indicated CLI credentials in the environment that needs them:
 
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
-| Cloudflare adapter | `CLOUDFLARE_API_TOKEN`, `AGENT_INGRESS_TOKEN`, and `PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY` |
+| Cloudflare adapter | `CLOUDFLARE_API_TOKEN`, `AGENT_INGRESS_TOKEN`, `PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY`, and `CATALOG_ACCEPTANCE_TOKEN` |
 | Railway adapter | `RAILWAY_TOKEN`; the executor installs the pinned Railway CLI, uploads the exact trusted source revision to the configured service/environment, and polls for a `SUCCESS` deployment receipt |
 | Modal adapter | None until a documented machine-readable deploy/health query seam exists |
 
@@ -72,12 +72,13 @@ code activation does not wait on the unrelated Railway or Modal lanes.
 
 ## Cloudflare package-discovery activation
 
-On a trusted `main` push, the Cloudflare executor writes the ingress bearer and
-base64 PKCS#8 Ed25519 signing key to the Worker with `wrangler secret put`, then
+On a trusted `main` push, the Cloudflare executor writes the ingress bearer,
+base64 PKCS#8 Ed25519 signing key, and catalog-acceptance authority to the
+Worker with `wrangler secret put`, then
 deploys the checked-out immutable revision. It refuses a success receipt unless
 the deploy output, current deployment listing, and version listing agree on one
 current Worker version ID. Secret values are never logged; the receipt names
-only the two bound discovery secrets.
+only the three bound runtime secret names.
 
 The same job extracts the direct HTTPS workers.dev URL from the just-deployed
 version receipt (and rejects a URL whose worker-name prefix does not match
