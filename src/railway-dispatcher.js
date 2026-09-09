@@ -37,7 +37,10 @@ export function createRailwayDispatchHandler({ dispatcher, dispatchToken, eventS
       await dispatcher.flush(workOrder.work_id, eventSink);
       return response(dispatched, dispatched.deduplicated ? 200 : 202);
     } catch (error) {
-      if (error instanceof EventDeliveryError) return response({ error: "worker_event_delivery_failed" }, 502);
+      // This exposes only the downstream HTTP status, never a token or event
+      // payload, but makes a live outbox failure diagnosable from Railway's
+      // bounded receiver response.
+      if (error instanceof EventDeliveryError) return response({ error: "worker_event_delivery_failed", detail: error.message }, 502);
       if (error instanceof InvalidWorkerEventsError) return response({ error: "invalid_worker_events" }, 422);
       return response({ error: "invalid_work_order", detail: error.message }, 400);
     }

@@ -356,6 +356,19 @@ test("Railway accepts the exact closed-v1 Modal work order without a v2 producti
   assert.deepEqual(forwarded.map((event) => event.sequence), [0, 1, 2]);
 });
 
+test("Railway reports only the downstream callback status when receipt delivery fails", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  const handler = createRailwayDispatchHandler({
+    dispatcher: new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }) }), dispatchToken: "dispatch",
+    eventSink: { append: async () => { throw new Error("coordinator returned 401"); } },
+  });
+  const result = await handler(new Request("https://railway.example/v1/dispatch", {
+    method: "POST", headers: { authorization: "Bearer dispatch", "content-type": "application/json", "x-work-id": order.work_id }, body: JSON.stringify(order),
+  }));
+  assert.equal(result.status, 502);
+  assert.match((await result.json()).detail, /coordinator returned 401/);
+});
+
 test("dispatcher stores terminal failed receipts instead of relaunching stable work", async () => {
   const order = planEncounterWork(fixture).work_orders[0];
   let launches = 0;
