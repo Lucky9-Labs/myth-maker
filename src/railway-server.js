@@ -11,6 +11,7 @@ const receiptPath = resolve(requireEnv("RECEIPT_STORE_PATH"));
 const artifactStore = createRailwayArtifactStore({
   rootPath: requireEnv("ARTIFACT_STORE_PATH"),
   publicOrigin: requireEnv("PUBLIC_ARTIFACT_ORIGIN"),
+  runtimeArtifactMediaTypes: runtimeArtifactMediaTypes(process.env.RUNTIME_ARTIFACT_MEDIA_TYPES),
 });
 const artifacts = createRailwayArtifactHandler({
   store: artifactStore,
@@ -66,6 +67,11 @@ function requireEnv(name) {
   return value;
 }
 
+function runtimeArtifactMediaTypes(value) {
+  if (value === undefined) return undefined;
+  return new Set(value.split(",").map((mediaType) => mediaType.trim()));
+}
+
 async function readBody(request, maximumBytes = 256 * 1024) {
   const chunks = [];
   let bytes = 0;
@@ -79,7 +85,10 @@ async function readBody(request, maximumBytes = 256 * 1024) {
 
 function isArtifactRoute(pathname) {
   return pathname === "/v1/artifact-publications"
+    || pathname === "/v2/artifact-publications"
+    || pathname === "/v2/encounter-artifact-publications"
     || pathname === "/v1/encounter-artifact-publications"
     || /^\/v1\/artifacts\/[a-f0-9]{64}$/.test(pathname)
+    || /^\/v2\/artifacts\/[a-f0-9]{64}\.[a-z0-9]{1,16}$/.test(pathname)
     || /^\/v1\/artifact-receipts\/(catalog|package|assembly)$/.test(pathname);
 }
