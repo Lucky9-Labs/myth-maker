@@ -1,4 +1,5 @@
 import ast
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -8,7 +9,7 @@ sys.path.insert(0, str(MODAL_DIR))
 from draft_support import (KEY_ALIASES, blender_launch_args, budget_phase,
                            classify_model_stop, native_name, normalize_keys,
                            normalize_pointer_keys, render_prompt,
-                           finalize_terminal_state, validate_input_names,
+                           finalize_terminal_state, pinned_worker_contract, validate_input_names,
                            validate_typed_text)
 
 
@@ -63,6 +64,11 @@ class DraftPolicyTests(unittest.TestCase):
         for invalid in ("../escape", "Boss", "", "x" * 65):
             with self.assertRaises(ValueError):
                 native_name(invalid)
+
+    def test_pinned_worker_contract_is_generic_and_caller_owned(self):
+        self.assertEqual(pinned_worker_contract({"source": "test"}), "")
+        rendered = pinned_worker_contract({"worker_contract": {"asset_type": "model", "constraints": ["save"]}})
+        self.assertEqual(rendered, "\n\n# Pinned component contract\n\n" + json.dumps({"asset_type": "model", "constraints": ["save"]}, indent=2, sort_keys=True))
 
     def test_named_nonempty_input_contract_only(self):
         validate_input_names(INPUTS)

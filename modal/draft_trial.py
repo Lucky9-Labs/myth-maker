@@ -19,7 +19,7 @@ import modal
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
-from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, render_prompt, validate_cloud_need
+from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, read_stable, sha256, validate_native, write_json_atomic
 from desktop_readiness import terminal_failure
 from infrastructure import runtime
@@ -256,7 +256,7 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
     if feedback and not (resume_artifact or incremental):
         goal += "\n\n# User continuation direction\n" + feedback
     protocol = render_prompt(Path("/opt/draft_resume.md").read_text(), part)
-    prompt = goal + "\n\n" + protocol
+    prompt = goal + "\n\n" + protocol + pinned_worker_contract(provenance)
     if resume:
         (output / native).write_bytes(resume["blend"])
         prompt += ("\n\n# THIS IS A RESUME, NOT A FRESH SCENE\n"
