@@ -112,10 +112,10 @@ def emit_failed_image_logs(error: subprocess.CalledProcessError) -> None:
         value = os.environ.get(credential)
         if value:
             output = output.replace(value, "[REDACTED]")
+    if output:
+        print(f"Modal deploy failure context:\n{output}", file=sys.stderr, end="")
     match = IMAGE_ID.search(output)
     if not match:
-        if output:
-            print(f"Modal deploy failed before reporting an image ID:\n{output}", file=sys.stderr, end="")
         return
     image_id = match.group(0)
     logs = subprocess.run(
