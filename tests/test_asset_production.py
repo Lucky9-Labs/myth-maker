@@ -61,6 +61,7 @@ class AssetProductionTests(unittest.TestCase):
         driver = (MODAL_DIR / "asset_production_blender.py").read_text(encoding="utf-8")
         self.assertIn('scene.render.engine = "BLENDER_EEVEE"', driver)
         self.assertNotIn('scene.render.engine = "BLENDER_EEVEE_NEXT"', driver)
+        self.assertIn('scene.world = bpy.data.worlds.new("asset-review-world")', driver)
 
     def test_job_manifest_is_closed_and_has_a_stable_digest(self):
         checked = validate_job_manifest(job())
