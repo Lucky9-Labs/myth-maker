@@ -62,6 +62,16 @@ test("a Build Room selects a checked embedded animation and appends body and ani
     assert.equal(finished.topology.catalog.asset_revisions.count, 1);
     assert.equal(finished.topology.catalog.animations.count, 1);
     assert.equal(finished.topology.catalog.animation_revisions.count, 1);
+    const lineage = finished.production_lineage;
+    assert.equal(lineage.request_id, run.ids.requestId);
+    assert.ok(lineage.work_orders.every((work) => work.work_id && work.worker_id && work.evidence_kind));
+    assert.match(lineage.artifact_revisions[0].artifacts.blend.path, /\.blend$/);
+    assert.match(lineage.artifact_revisions[0].artifacts.glb.path, /\.glb$/);
+    assert.match(lineage.artifact_revisions[0].artifacts.frame.path, /\.png$/);
+    assert.equal(lineage.catalog_acceptance[0].evidence, "local_sqlite_record");
+    assert.equal(lineage.catalog_acceptance[0].runtime_acceptance_state, "candidate");
+    assert.equal(lineage.selected_package.package_id, lineage.assembly_receipt.package_id);
+    assert.ok(lineage.evidence_tier.includes("local_blender_cli"));
     const receipt = blenderEvent.evidence.receipt;
     assert.equal(receipt.note, "Observed local Blender CLI evidence; embedded GLB animation was structure-checked, but this is not Modal, Unity-load, or player proof.");
     assert.equal(receipt.commands.length, 3);
@@ -114,6 +124,10 @@ test("a Build Room selects a checked embedded animation and appends body and ani
     assert.equal(upgraded.topology.catalog.asset_revisions.count, 2);
     assert.equal(upgraded.topology.catalog.animations.count, 1);
     assert.equal(upgraded.topology.catalog.animation_revisions.count, 2);
+    assert.deepEqual(upgraded.production_lineage.revision_counts, {
+      artifacts: 2, packages: 2, catalog_assets: 2, catalog_animations: 2,
+    });
+    assert.equal(upgraded.production_lineage.assembly_receipt.package_revision, 2);
     const catalogRevision1 = catalog.getAsset(firstArtifact.artifact_id, 1);
     const catalogRevision2 = catalog.getAsset(firstArtifact.artifact_id, 2);
     assert.equal(catalogRevision1.sourceReceipt.sha256, firstArtifact.source_sha256);

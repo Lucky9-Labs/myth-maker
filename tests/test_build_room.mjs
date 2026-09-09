@@ -348,7 +348,7 @@ test("the Build Room page includes the evidence-driven revision loop and keeps i
   await once(server, "listening");
   try {
     const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
-    for (const expected of ["loop-flow", "Coordinator / planner", "Coordinator revision state", "Unity judge", "Concept-first gate", "Material", "Arena", "Deadline timer", "Component", "Selected", "Rejected", "Fallback", "Build details and evidence"]) {
+    for (const expected of ["loop-flow", "Coordinator / planner", "Coordinator revision state", "Unity judge", "Concept-first gate", "Material", "Arena", "Deadline timer", "Component", "Selected", "Rejected", "Fallback", "Production lineage", "Request → workers", "Fresh artifacts", "Catalog acceptance", "Assembly receipt", "Evidence tier", "Build details and evidence"]) {
       assert.match(page, new RegExp(expected));
     }
     assert.doesNotMatch(page, /id="submit"|Request next revision|\/upgrades/);

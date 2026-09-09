@@ -140,13 +140,17 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
   const manifest = run.generate_asset ? blenderBackend.resultFor(bodyOrder.work_id) : undefined;
   const candidate = manifest ? ingestGlbRuntimeCandidate({ module: manifest.module, loaderProfile: manifest.loader_profile }) : undefined;
   const animationCandidate = manifest ? bindEmbeddedAnimationCandidate(manifest, candidate) : undefined;
+  let catalogAssetRecord;
+  let catalogAnimationRecord;
   if (manifest) {
     const priorAsset = catalog.getAsset(manifest.asset_id);
-    if (priorAsset) catalog.appendAssetRevision(catalogAsset(manifest, priorAsset));
-    else catalog.createAsset(catalogAsset(manifest));
+    catalogAssetRecord = priorAsset
+      ? catalog.appendAssetRevision(catalogAsset(manifest, priorAsset))
+      : catalog.createAsset(catalogAsset(manifest));
     const priorAnimation = catalog.getAnimation(manifest.animation.animation_id);
-    if (priorAnimation) catalog.appendAnimationRevision(catalogAnimation(manifest, priorAnimation));
-    else catalog.createAnimation(catalogAnimation(manifest));
+    catalogAnimationRecord = priorAnimation
+      ? catalog.appendAnimationRevision(catalogAnimation(manifest, priorAnimation))
+      : catalog.createAnimation(catalogAnimation(manifest));
   }
   for (const order of graph.work_orders) {
     for (const event of result.events.filter((candidate) => candidate.work_id === order.work_id)) {
@@ -154,7 +158,9 @@ async function launchLocalBuild(room, run, persist, catalog, blenderBackend, art
       const projected = room.record(run.ids.encounterId, {
         eventId: event.event_id, workerId: event.worker_id, sequence: event.sequence, occurredAt: event.occurred_at,
         kind: event.kind, message: event.message,
-        ...(isBlender && manifest && event.kind === "candidate_produced" ? { artifact: artifactRevision(manifest, artifactUrl(artifactRoot, manifest.visual.path)) } : {}),
+        ...(isBlender && manifest && event.kind === "candidate_produced" ? {
+          artifact: artifactRevision(manifest, artifactUrl(artifactRoot, manifest.visual.path), catalogAssetRecord, catalogAnimationRecord),
+        } : {}),
         evidence: isBlender
           ? manifest
             ? { kind: "local_blender_cli", receipt: { ...manifest.worker_receipt, work_id: order.work_id, worker_id: event.worker_id, observed_at: event.occurred_at, source: manifest.source, runtime: manifest.runtime, visual: manifest.visual, source_inspection: manifest.source_inspection, embedded_animation: manifest.animation.embedded_glb, concept_first_lineage: manifest.concept_first_lineage, manifest_path: manifest.manifest_path } }
@@ -284,10 +290,32 @@ function catalogAnimation(manifest, prior = undefined) {
   };
 }
 
-function artifactRevision(manifest, thumbnailUrl) {
+function artifactRevision(manifest, thumbnailUrl, catalogAssetRecord, catalogAnimationRecord) {
   return { artifact_id: manifest.asset_id, revision: manifest.revision, source_sha256: manifest.source.artifact.sha256,
     runtime_sha256: manifest.runtime.sha256, visual_sha256: manifest.visual.sha256, profile: manifest.loader_profile.profile, thumbnail_url: thumbnailUrl,
+    artifacts: {
+      blend: { ...manifest.source.artifact, path: manifest.source.path },
+      glb: manifest.runtime,
+      frame: manifest.visual,
+    },
+    catalog_acceptance: {
+      asset: catalogRecordReceipt(catalogAssetRecord, "asset"),
+      animation: catalogRecordReceipt(catalogAnimationRecord, "animation"),
+    },
     origin: "newly-produced-local-blender", acceptance: "host-unaccepted-candidate" };
+}
+
+function catalogRecordReceipt(record, domain) {
+  if (!record) return null;
+  return {
+    domain,
+    stable_id: record.assetId || record.animationId,
+    revision: record.revision,
+    content_sha256: record.contentSha256,
+    source_acceptance_state: record.sourceAcceptanceState,
+    runtime_acceptance_state: record.runtimeAcceptanceState,
+    evidence: "local_sqlite_record",
+  };
 }
 
 function artifactUrl(root, path) { return `/generated/${encodeURIComponent(relative(root, path).split(sep).join("/"))}`; }
@@ -468,6 +496,7 @@ const PAGE = String.raw`<!doctype html>
   .loop-meta { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding-top: 14px; color: #9bb8c4; font-size: .82rem; } .loop-meta strong { color: #bdfcf3; } .quiet-lanes { display: flex; gap: 10px; flex-wrap: wrap; } .quiet-lane { color: #647b88; font-size: .76rem; } .lane-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin-top: 15px; } .lane-card { padding: 9px; border: 1px solid #315e73; background: rgba(4, 17, 31, .55); color: #a9c8ce; font-size: .76rem; } .lane-card strong { color: #c8f5f0; } .lane-card code { display: block; margin-top: 4px; } .loop-gates { display: flex; gap: 10px; margin-top: 13px; } .loop-gates .loop-node { flex: 0 1 230px; min-height: 72px; } .loop-gates .node-body { display: none; } .loop-gates .node-foot { min-height: auto; border-top: 0; }
   details.drawer { margin-top: 22px; border-top: 1px solid #31586c; border-bottom: 1px solid #31586c; background: rgba(3, 14, 27, .66); } summary { padding: 14px 4px; cursor: pointer; color: #c8f5f0; font-weight: 650; } .drawer-body { padding: 4px 4px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 22px; } .drawer-body h3 { margin-bottom: 8px; color: #a1e9e3; } .drawer-body ul { margin: 0; padding-left: 18px; } .drawer-body li { margin: 6px 0; color: #acc2cc; } code { color: #a8fcf0; overflow-wrap: anywhere; font-size: .8rem; }
   .build-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; } .build-link { display: block; padding: 14px; border: 1px solid #315e73; color: inherit; text-decoration: none; background: rgba(4, 18, 32, .65); } .build-link:hover { border-color: #82eade; } .empty-note { padding: 30px 4px; color: #819aa7; }
+  .lineage { margin-top: 18px; padding: 16px; border: 1px solid #315e73; background: rgba(3, 14, 27, .72); } .lineage-head { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; } .lineage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap: 10px; } .lineage-card { padding: 12px; border: 1px solid #274f64; background: rgba(7, 24, 39, .72); } .lineage-card h3 { margin-bottom: 8px; color: #a1e9e3; font-size: .9rem; } .lineage-card p, .lineage-card ul { margin-bottom: 0; } .lineage-card ul { padding-left: 18px; } .lineage-card li { margin: 5px 0; font-size: .78rem; color: #acc2cc; } .receipt-state { color: #ffe2a7; font-size: .78rem; }
   @media (max-width: 800px) { .composer { grid-template-columns: 1fr; } .loop-panel { margin-inline: -4px; } .loop-meta, .masthead { align-items: flex-start; flex-direction: column; gap: 8px; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
@@ -558,6 +587,21 @@ const CLIENT_SCRIPT = String.raw`
   function artifactRows(rows, key) { return rows.length ? "<ul>" + rows.map((row) => "<li><code>" + esc(row[key]) + "</code> · rev " + esc(row.revision) + "<br>" + json(row) + "</li>").join("") + "</ul>" : "<p class=\"muted\">None observed.</p>"; }
   function catalogRows(catalog) { return "<ul>" + Object.entries(catalog).map(([name, row]) => "<li>" + esc(name.replaceAll("_", " ")) + ": " + esc(row.count) + " · " + esc(row.evidence) + "</li>").join("") + "</ul>"; }
   function outcomeRows(run) { const current = latestRevision(run.packages); const outcomes = current && current.outcomes; if (!outcomes) return "<p class=\"muted\">No package outcome yet.</p>"; return "<ul><li><strong>Selected</strong>: " + outcomes.selected.map(esc).join(", ") + "</li><li><strong>Rejected</strong>: " + (outcomes.rejected.length ? outcomes.rejected.map((row) => esc(row.module_id) + " (" + row.reasons.map(esc).join(", ") + ")").join(", ") : "none") + "</li><li><strong>Fallback</strong>: " + (outcomes.fallback.used_fallback ? esc(outcomes.fallback.module_ids.join(", ")) : "not used") + "</li></ul>"; }
+  function lineageArtifact(row) {
+    const files = row.artifacts || {};
+    const fileRows = [[".blend", files.blend], ["GLB", files.glb], ["frame", files.frame]].filter((entry) => entry[1]);
+    return "<li><code>" + esc(row.artifact_id) + "@" + esc(row.revision) + "</code>" + (fileRows.length ? "<ul>" + fileRows.map(([label, file]) => "<li>" + label + " · <code>" + esc(file.path || file.uri || "path unreported") + "</code> · <code>" + esc(file.sha256 || "hash unreported") + "</code></li>").join("") + "</ul>" : " · receipt has no file tuple") + "</li>";
+  }
+  function productionLineage(run) {
+    const lineage = run.production_lineage;
+    if (!lineage) return "";
+    const work = lineage.work_orders.length ? lineage.work_orders.map((item) => "<li><code>" + esc(item.work_id) + "</code> → <code>" + esc(item.worker_id) + "</code><br>" + esc(item.lane) + " · " + esc(item.status) + " · " + esc(labels[item.evidence_kind] || item.evidence_kind) + "</li>").join("") : "<li>No worker receipt observed.</li>";
+    const artifacts = lineage.artifact_revisions.length ? lineage.artifact_revisions.map(lineageArtifact).join("") : "<li>No .blend / GLB / frame tuple observed.</li>";
+    const acceptance = lineage.catalog_acceptance.length ? lineage.catalog_acceptance.map((item) => "<li>" + esc(item.domain) + " <code>" + esc(item.stable_id) + "@" + esc(item.revision) + "</code><br>source " + esc(item.source_acceptance_state) + " · runtime " + esc(item.runtime_acceptance_state) + " · " + esc(item.evidence) + "</li>").join("") : "<li>No catalog acceptance receipt observed.</li>";
+    const selected = lineage.selected_package;
+    const receipt = lineage.assembly_receipt;
+    return "<section class=\"lineage\" aria-label=\"Production lineage\"><div class=\"lineage-head\"><div><h2>Production lineage</h2><p class=\"muted\">Receipt-backed fields only; unavailable links stay explicit.</p></div><span class=\"quiet\">Evidence tier: " + esc(lineage.evidence_tier.join(", ") || "none observed") + "</span></div><div class=\"lineage-grid\"><article class=\"lineage-card\"><h3>Request → workers</h3><code>" + esc(lineage.request_id) + "</code><ul>" + work + "</ul></article><article class=\"lineage-card\"><h3>Fresh artifacts</h3><ul>" + artifacts + "</ul><p class=\"receipt-state\">Revisions · artifacts " + esc(lineage.revision_counts.artifacts) + " · packages " + esc(lineage.revision_counts.packages) + "</p></article><article class=\"lineage-card\"><h3>Catalog acceptance</h3><ul>" + acceptance + "</ul></article><article class=\"lineage-card\"><h3>Compatible selected package</h3>" + (selected ? "<code>" + esc(selected.package_id) + "@" + esc(selected.revision) + "</code><p>" + esc(selected.state) + " · selected " + esc((selected.selection || []).join(", ")) + "</p>" : "<p class=\"receipt-state\">No compatible package selected.</p>") + "<h3>Assembly receipt</h3>" + (receipt ? "<code>" + esc(receipt.receipt_id) + "</code><p>" + esc(receipt.receipt_sha256) + "</p><p class=\"receipt-state\">Host acceptance: " + esc(receipt.host_acceptance || "unreported") + "</p>" : "<p class=\"receipt-state\">No assembly receipt observed.</p>") + "</article></div></section>";
+  }
   function details(run) {
     return "<details class=\"drawer\"><summary>Build details and evidence</summary><div class=\"drawer-body\"><section><h3>Identity</h3><ul><li>encounter <code>" + esc(run.ids.encounterId) + "</code></li><li>request <code>" + esc(run.ids.requestId) + "</code></li><li>correlation <code>" + esc(run.ids.workerId) + "</code></li><li>profile <code>" + esc(run.compile_profile) + "</code></li><li>deadline <code>" + esc(run.deadline_at) + "</code></li></ul><h3>Workers and dependencies</h3>" + workRows(run.topology.work_graph) + "</section><section><h3>Artifacts, receipts, and hashes</h3>" + artifactRows(run.artifacts, "artifact_id") + "<h3>Package outcomes</h3>" + outcomeRows(run) + "<h3>Package receipt</h3>" + artifactRows(run.packages, "package_id") + "</section><section><h3>Event log</h3><ul>" + eventRows(run.events) + "</ul><h3>Catalog counters</h3>" + catalogRows(run.topology.catalog) + "</section></div></details>";
   }
@@ -567,7 +611,7 @@ const CLIENT_SCRIPT = String.raw`
     main.innerHTML = assembly() + (builds.length ? "<details class=\"drawer\"><summary>Open an observed encounter</summary><div class=\"build-list\">" + builds.map(buildCard).join("") + "</div></details>" : "<p class=\"empty-note\">No coordinator-admitted encounters have been observed yet.</p>");
   }
   function render(run) {
-    main.innerHTML = assembly(run) + details(run);
+    main.innerHTML = assembly(run) + productionLineage(run) + details(run);
     refreshDeadlineTimers();
   }
   setInterval(refreshDeadlineTimers, 1000);
