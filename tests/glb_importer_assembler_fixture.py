@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -60,7 +61,8 @@ def main() -> int:
         validate_glb_v1_profile(profile)
     if args.malformed_module:
         module["undeclared"] = "forbidden"
-    print(json.dumps({"host": host, "profile": profile, "module": module}, sort_keys=True))
+    print(json.dumps({"host": host, "profile": profile, "module": module,
+                      "glb_bytes_base64": base64.b64encode(result.glb_bytes).decode("ascii")}, sort_keys=True))
     return 0
 
 

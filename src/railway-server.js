@@ -4,9 +4,18 @@ import { dirname, resolve } from "node:path";
 import { EncounterDispatcher, JsonReceiptStore } from "./encounter-dispatcher.js";
 import { ModalBridgeBackend } from "./modal-bridge-backend.js";
 import { createCoordinatorEventSink, createRailwayDispatchHandler } from "./railway-dispatcher.js";
+import { createRailwayArtifactHandler, createRailwayArtifactStore } from "./railway-artifact-store.js";
 
 const port = Number(process.env.PORT || 3000);
 const receiptPath = resolve(requireEnv("RECEIPT_STORE_PATH"));
+const artifactStore = createRailwayArtifactStore({
+  rootPath: requireEnv("ARTIFACT_STORE_PATH"),
+  publicOrigin: requireEnv("PUBLIC_ARTIFACT_ORIGIN"),
+});
+const artifacts = createRailwayArtifactHandler({
+  store: artifactStore,
+  publicationToken: requireEnv("ARTIFACT_PUBLICATION_TOKEN"),
+});
 const dispatcher = new EncounterDispatcher({
   backend: new ModalBridgeBackend(),
   receiptStore: new JsonReceiptStore(receiptPath),
@@ -29,9 +38,16 @@ catch (error) { console.error(`receipt recovery deferred: ${error.message}`); }
 
 createServer(async (request, response) => {
   const url = `http://${request.headers.host || "localhost"}${request.url || "/"}`;
-  if (request.method === "GET" && new URL(url).pathname === "/health") {
+  const pathname = new URL(url).pathname;
+  if (request.method === "GET" && pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     return response.end(JSON.stringify({ status: "ok", receipt_store: "mounted-json-v1", modal_app: process.env.MODAL_APP_NAME || "myth-maker-encounter-draft" }));
+  }
+  if (isArtifactRoute(pathname)) {
+    const body = await readBody(request, 52 * 1024 * 1024);
+    const result = await artifacts(new Request(url, { method: request.method, headers: request.headers, body: body.length ? body : undefined }));
+    response.writeHead(result.status, Object.fromEntries(result.headers));
+    return response.end(Buffer.from(await result.arrayBuffer()));
   }
   const body = await readBody(request);
   const result = await dispatch(new Request(url, { method: request.method, headers: request.headers, body: body.length ? body : undefined }));
@@ -45,13 +61,19 @@ function requireEnv(name) {
   return value;
 }
 
-async function readBody(request) {
+async function readBody(request, maximumBytes = 256 * 1024) {
   const chunks = [];
   let bytes = 0;
   for await (const chunk of request) {
     bytes += chunk.length;
-    if (bytes > 256 * 1024) throw new Error("request body too large");
+    if (bytes > maximumBytes) throw new Error("request body too large");
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+}
+
+function isArtifactRoute(pathname) {
+  return pathname === "/v1/artifact-publications"
+    || /^\/v1\/artifacts\/[a-f0-9]{64}$/.test(pathname)
+    || /^\/v1\/artifact-receipts\/(catalog|package|assembly)$/.test(pathname);
 }
