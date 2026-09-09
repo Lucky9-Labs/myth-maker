@@ -34,10 +34,14 @@ BLENDER_ARCHIVE_SHA256 = "a31f524fa99a527d3d52b7f5aaa68c34e1a19d5a1c9473f79c5cc6
 image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .apt_install("ca-certificates", "curl", "git", "git-lfs", "libegl1", "libgl1", "libxkbcommon0", "openssh-client", "scrot", "tk", "x11-xserver-utils", "xvfb")
          .run_commands(
-             f"curl --fail --location --retry 3 {BLENDER_ARCHIVE_URL} --output /tmp/blender.tar.xz",
-             f"echo '{BLENDER_ARCHIVE_SHA256}  /tmp/blender.tar.xz' | sha256sum --check --status",
-             "tar -C /opt -xf /tmp/blender.tar.xz",
-             "ln -s /opt/blender-5.2.1-linux-x64/blender /usr/local/bin/blender",
+             # Modal's legacy builder may not retain /tmp between distinct RUN
+             # commands.  Keep download, pinned-hash verification, extraction,
+             # and cleanup in one command so an unverified archive can never be
+             # promoted into the image.
+             f"curl --fail --location --retry 3 --retry-all-errors {BLENDER_ARCHIVE_URL} --output /tmp/blender.tar.xz && "
+             f"echo '{BLENDER_ARCHIVE_SHA256}  /tmp/blender.tar.xz' | sha256sum --check --status && "
+             "tar -C /opt -xf /tmp/blender.tar.xz && "
+             "ln -s /opt/blender-5.2.1-linux-x64/blender /usr/local/bin/blender && "
              "rm /tmp/blender.tar.xz")
          .pip_install("openai>=2,<3", "Pillow>=10,<12", "pyautogui>=0.9.54,<1")
          .apt_install("xdotool", "openbox", "x11-utils", "tesseract-ocr")
