@@ -43,6 +43,21 @@ The run-level public ledger is
 Only the final Unity receipt and explicit visual acceptance may move a run to
 `accepted`; a completed Modal job is source evidence, not game acceptance.
 
+`refresh_asset_progress_dashboards` runs every 300 seconds in Modal. It scans
+only hash-verified, completed production receipts and creates an animated GIF
+from the newest four revisions for `mech`, `railgun`, and `assembly`. Failed,
+partial, missing, and hash-mismatched renders remain outside the animation.
+Dashboards stay on the private Volume. Fetch one through authenticated Modal
+function access:
+
+```sh
+python3 scripts/fetch_asset_progress_dashboard.py --environment dev \
+  --run-id raptor-mech-railgun-pilot-001 --output output/asset-progress
+```
+
+Open `output/asset-progress/index.html`; it refreshes on the same five-minute
+cadence. Each frame includes the job type, attempt, and abbreviated render hash.
+
 `draft_trial.py` is the initial bounded worker for one encounter component. It
 runs Blender 5.2.1 in a headful virtual desktop (`Xvfb` + Openbox), sends desktop
 screenshots to Astra through the Responses API computer tool, validates returned

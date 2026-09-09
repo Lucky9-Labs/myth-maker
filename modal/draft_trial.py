@@ -29,6 +29,7 @@ from infrastructure import runtime
 from modal_volume_inputs import load_volume_inputs, validate_volume_input_manifest
 from asset_production import (create_run_ledger, run_asset_production_job as execute_asset_production_job,
                               validate_critique_request, validate_job_manifest, validate_visual_critique)
+from asset_progress import build_dashboard, dashboard_bundle
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -56,6 +57,7 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .add_local_file(HERE / "modal_volume_inputs.py", "/opt/modal_volume_inputs.py", copy=True))
 image = (image
          .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
+         .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
          .add_local_file(HERE / "asset_production_blender.py", "/opt/asset_production_blender.py", copy=True))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
@@ -326,6 +328,36 @@ def record_asset_production_run(wave: list[dict], receipts: list[dict]) -> dict:
     write_json_atomic(ledger_path, ledger)
     volume.commit()
     return ledger
+
+
+@app.function(image=image, schedule=modal.Period(seconds=300), cpu=0.25, memory=512,
+              timeout=120, retries=0, max_containers=1, volumes={"/submissions": volume})
+def refresh_asset_progress_dashboards() -> dict:
+    """Regenerate private progress GIFs for every observed production run."""
+    volume.reload()
+    root = SUBMISSIONS_ROOT / "asset-production"
+    refreshed = []
+    if root.is_dir():
+        for run_root in sorted(root.iterdir()):
+            if run_root.is_dir():
+                refreshed.append(build_dashboard(run_root))
+    volume.commit()
+    return {"status": "completed", "runs": len(refreshed), "dashboards": refreshed}
+
+
+@app.function(image=image, cpu=0.25, memory=512, timeout=120, retries=0,
+              max_containers=1, volumes={"/submissions": volume})
+def get_asset_progress_dashboard(run_id: str) -> dict:
+    """Fetch one private dashboard through authenticated Modal function access."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", run_id or ""):
+        raise ValueError("invalid asset production run id")
+    volume.reload()
+    run_root = SUBMISSIONS_ROOT / "asset-production" / run_id
+    if not run_root.is_dir():
+        raise ValueError("asset production run is unavailable")
+    bundle = dashboard_bundle(run_root)
+    volume.commit()
+    return bundle
 
 def screenshot(path: Path) -> bytes:
     subprocess.run(["scrot", "-o", str(path)], check=True, capture_output=True, timeout=5)

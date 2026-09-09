@@ -39,6 +39,7 @@ def offline_modal_module() -> ModuleType:
     module.App = lambda *_args, **_kwargs: _App()
     for name in ("Image", "Volume", "Secret", "Dict"):
         setattr(module, name, _Factory)
+    module.Period = lambda **_kwargs: _Chain()
     module.current_function_call_id = lambda: "fc-offline-preview"
     module.current_input_id = lambda: "in-offline-preview"
     return module
