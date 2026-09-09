@@ -213,7 +213,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
   assert.match(deployWorkflow, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
   assert.doesNotMatch(deployWorkflow, /uses: \.\/\.github\/workflows\/provider-modal\.yml/);
-  assert.match(deployWorkflow, /railway:[\s\S]*?secrets: inherit/);
+  assert.match(deployWorkflow, /railway:[\s\S]*?RAILWAY_TOKEN: \$\{\{ secrets\.RAILWAY_TOKEN \}\}/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);
@@ -298,7 +298,7 @@ test("preview scope CLI writes GitHub Actions outputs for an empty diff", () => 
   assert.equal(output, "terraform=false\ncloudflare=false\nrailway=false\nmodal=false\n");
 });
 
-test("Modal activation consumes environment secrets in the top-level deployment job", () => {
+test("environment-scoped provider activation consumes secrets in top-level deployment jobs", () => {
   const workflow = JSON.parse(execFileSync(
     "ruby",
     ["-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))", ".github/workflows/deploy.yml"],
@@ -318,4 +318,13 @@ test("Modal activation consumes environment secrets in the top-level deployment 
   assert.match(receiptStep.run, /trusted_github_context=false/);
   assert.match(receiptStep.run, /if \[\[ "\$PREFLIGHT_OUTCOME" == success \]\]; then/);
   assert.doesNotMatch(receiptStep.run, /\\"\$PREFLIGHT_OUTCOME\\"/);
+
+  const railway = workflow.jobs.railway;
+  const railwayDeploy = railway.steps.find((step) => step.id === "railway").env;
+  const railwayReceiptStep = railway.steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Railway receipt"));
+  assert.equal(railway.environment.name, "${{ inputs.environment || 'dev' }}");
+  assert.equal(railway.concurrency.group, "myth-maker-deploy-railway-${{ inputs.environment || 'dev' }}");
+  assert.match(railwayDeploy.RAILWAY_TOKEN, /secrets\.RAILWAY_TOKEN/);
+  assert.doesNotMatch(JSON.stringify(railwayReceiptStep.env), /RAILWAY_TOKEN/);
+  assert.equal(railway.uses, undefined);
 });

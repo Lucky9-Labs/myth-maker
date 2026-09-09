@@ -76,15 +76,94 @@ jobs:
           retention-days: 30
 
   railway:
-    # This pre-existing dispatcher has a reconciled service identity and a
-    # mounted receipt volume. Its immutable source upload is independently
-    # CI-owned; the broader gate below still controls Worker promotion.
     needs: assert-deployment-input
-    uses: ./.github/workflows/provider-railway.yml
-    secrets: inherit
-    with:
-      environment: ${{ inputs.environment || 'dev' }}
-      source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
+    # GitHub Environment secrets are resolved on this top-level job. They are
+    # not available to a reusable workflow merely because its nested executor
+    # declares the same Environment.
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment || 'dev' }}
+    concurrency:
+      group: myth-maker-deploy-railway-${{ inputs.environment || 'dev' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.0
+        with:
+          ref: ${{ needs.assert-deployment-input.outputs.source_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Derive and validate the trusted immutable main revision in the Railway executor
+        id: preflight
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_SHA" = "$GITHUB_SHA"
+          node scripts/deployment/controller.mjs assert-github-deployment
+          printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Deploy and verify the Railway HTTP dispatcher
+        id: railway
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          RESULT: ${{ runner.temp }}/provider-result.json
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
+        run: |
+          set -euo pipefail
+          npm install --global @railway/cli@4.16.1
+          node scripts/deployment/controller.mjs deploy --provider railway --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
+          node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
+      - name: Write machine-readable Railway receipt from provider output
+        if: always()
+        shell: bash
+        env:
+          RAILWAY_OUTCOME: ${{ steps.railway.outcome }}
+          RAILWAY_STATUS: ${{ steps.railway.outputs.provider_status }}
+          PREFLIGHT_OUTCOME: ${{ steps.preflight.outcome }}
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+          SOURCE_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}
+          STARTED_AT: ${{ steps.preflight.outputs.started_at }}
+          RESULT: ${{ runner.temp }}/provider-result.json
+        run: |
+          set -euo pipefail
+          status=failure
+          if [[ "$PREFLIGHT_OUTCOME" == success && "$RAILWAY_OUTCOME" == success && "$RAILWAY_STATUS" == deployed ]]; then
+            status=success
+          fi
+          trusted_github_context=false
+          if [[ "$PREFLIGHT_OUTCOME" == success ]]; then
+            trusted_github_context=true
+          fi
+          details="$(node -e '
+            const fs = require("node:fs");
+            let result = {};
+            try {
+              if (fs.existsSync(process.env.RESULT) && fs.statSync(process.env.RESULT).size > 0) {
+                result = JSON.parse(fs.readFileSync(process.env.RESULT, "utf8"));
+              }
+            } catch {}
+            process.stdout.write(JSON.stringify(result.evidence ? { provider_evidence: result.evidence } : { reason: result.reason || "provider command did not produce verified evidence" }));
+          ')"
+          node scripts/deployment/controller.mjs receipt \
+            --provider railway \
+            --environment "$DEPLOYMENT_ENVIRONMENT" \
+            --source-sha "$SOURCE_SHA" \
+            --status "$status" \
+            --started-at "${STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
+            --completed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --verification "{\"trusted_github_context\":$trusted_github_context,\"provider_command_outcome\":\"$RAILWAY_OUTCOME\",\"provider_result\":\"$RAILWAY_STATUS\"}" \
+            --details "$details" \
+            --output "receipts/railway-$DEPLOYMENT_ENVIRONMENT.json"
+      - name: Upload deployment receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deployment-receipt-railway-${{ inputs.environment || 'dev' }}-${{ needs.assert-deployment-input.outputs.source_sha }}
+          path: receipts/railway-${{ inputs.environment || 'dev' }}.json
+          if-no-files-found: error
+          retention-days: 30
   modal:
     needs: assert-deployment-input
     # Keep this job in the top-level workflow. GitHub resolves Environment
