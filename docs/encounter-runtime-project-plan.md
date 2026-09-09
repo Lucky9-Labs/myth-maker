@@ -31,48 +31,46 @@ run are different evidence tiers; none is used as a substitute for another.
 
 ### Proven
 
-**Myth Maker main is current through the following merged PR heads.** These are
-the verified GitHub PR head commits, not their merge commits: #92
-`77813c741453e9c34ccbe4ac86910132f1a68604`, #93
-`d9d950bc6c673c46b1ac051f850c80995c6c126d`, #94
-`fd5d07d8b8bc33db80668312b52ed54f7d4fe7b5`, #96
-`2c65385b0ac5bb9c9ca0601f45e700d1f499c94d`, #97
-`2e27a1419fdfe005a28fc3bcbaa162a4f8c01993`, #98
-`426b1b9e887a492aceba0f5d35d1b5c653dfed52`, and #99
-`1560bab7e441b7bc18d2f636c5e74beeac56ef82`. Myth Maker PR #100 is merged at
-`22e994b9f21eb439d515905d1b244a4b63cd651d`.
+**Myth Maker main includes the current production-lineage work.** Myth Maker
+PRs #103 and #104 are merged. The fresh proof chain is tied to modal encounter
+`encounter-deterministic-kraken-20260909-22`, work
+`work-deterministic-kraken-20260909-22`, job
+`deterministic-encounter-kraken-20260909-22`, and function call
+`fc-01M22C47C6FHPGK3W66QNY6P63`.
 
-**Modal input and deterministic artifact evidence are real, bounded proofs.**
-PR #94 resolves the draft's inputs from the immutable Modal-volume manifest,
-verifying the allowed relative paths, SHA-256 values, and lengths inside the
-mounted volume rather than transmitting a large mutable base64 input package.
-The observed deterministic Modal run independently re-downloaded and verified
-the generated `.blend`, GLB, and all three frames (initial, appendages, and
-final). This proves those exact Modal-volume bytes and the three-stage output;
-it does not prove that a human-visible Blender GUI replay completed.
+**The deterministic source, accepted runtime bytes, and publication receipts
+are hash-bound.** The source GLB is 441,172 bytes with SHA-256
+`b7d08d8ae7a70e232e0f363e7c078b885d50ecbd768f3b7bc72693176b924ffa`.
+Clean merged-main rematerialization produced the accepted macOS Mono
+AssetBundle: 375,855 bytes with SHA-256
+`05583aab5eedf0926c196df44fe7c2849a529fb49ff3e44363dbea88665f1223`,
+publicly locatable at
+[`05583aab5eedf0926c196df44fe7c2849a529fb49ff3e44363dbea88665f1223.bundle`](https://myth-maker-dev-dispatcher-dev.up.railway.app/v2/artifacts/05583aab5eedf0926c196df44fe7c2849a529fb49ff3e44363dbea88665f1223.bundle).
+The corresponding publication SHA-256 is
+`adbd5780fe43a533aa944a295f6a720381d2f33932551f9bf8b0f752ff1166b0`,
+the catalog SHA-256 is
+`6f70cb9953c3c61ae660e0927dea4b046a727e71d1eb9c0f6c97cbb1909a4222`,
+the package-manifest SHA-256 is
+`ba7c298df02eeee9a5e07d36b30f1dd92558bdbd02ef7668a5fa043482206e2f`,
+and the assembly-receipt SHA-256 is
+`5dfdab0b517ca603e4dcd5d96d14fafc487654552a47a41094f5d8f90b4e85a0`.
+The discovery package is signed by `package-discovery-ed25519-v1`.
 
-**The exact Unity runtime artifact is publicly available, signed, and
-independently verifiable.** The macOS Mono AssetBundle is
-[`5094518ad5b3de581b971d5fa22625e5efb1e86d9798ede8eadc9bc716dbb839.bundle`](https://myth-maker-dev-dispatcher-dev.up.railway.app/v2/artifacts/5094518ad5b3de581b971d5fa22625e5efb1e86d9798ede8eadc9bc716dbb839.bundle).
-Its public HTTPS response is `application/vnd.unity.assetbundle`, carries the
-same SHA-256 in `Digest`, and has `Content-Length: 374813`. The signed discovery
-proof is scoped to encounter `encounter-modal-x11-proof-20260909-13`, verified
-against manifest `discovery-unity-59ef3fb8ebfa4c8ca50855cc53f88056` with key
-`package-discovery-ed25519-v1`. Those stable IDs bind the selected artifact,
-catalog/assembly evidence, and host proof.
+**The prior bundle discrepancy is reconciled, not ignored.** The earlier
+reported `0f30` bundle was overwritten and is no longer available; it cannot
+serve as locatable accepted-artifact evidence. The clean merged-main
+rematerialization above created the current locatable accepted bytes. Its
+render SHA-256, `150d3fb16163b68160d9c66f2ca8a7a164750f947011e3ed24a8b67162af447c`,
+is identical to the prior render, reconciling the visual output while keeping
+the accepted artifact identity anchored to the current bundle bytes.
 
-**The signed remote encounter completed the live Unity proof path.** Mech PR
-#48 is merged at `aa79d5e8accd54ade632bdae43acdcee8813ee19`. Its joined run
-loaded the signed artifact above and recorded 92,736 visible non-background
-pixels, critical damage of 25, player HP of 92, and both victory and restart.
-This is the player-facing first-person encounter proof for the retained
-encounter identity, manifest, signing key, and artifact hash.
-
-**Custom GUI readiness now passes.** The suffix18 replay persisted three
-visible Blender frames, each 752,214 bytes with SHA-256
-`fbdbea7a9a88820b9f95a341d998613647f87743fe2ea7ecb90e5e57e3b527a6`.
-This is visible Blender-frame persistence evidence, rather than only an X11
-diagnostic or a renderer substitute.
+**The signed-remote Unity run proves the fresh runtime chain at its recorded
+scope.** Mech PR #49 is merged. The run verified one bundle module and the
+exact manifest artifact hash and length, rendered 92,736 non-background pixels,
+applied 25 critical damage from a base 10, left player HP at 92 after the
+attack, and reached both victory and restart. Batch mode did not write a
+full-window screenshot. The explicit RenderTexture proof and receipt passed,
+but this is not claimed as player-facing first-person visual proof.
 
 ### Blocked / separately required
 
