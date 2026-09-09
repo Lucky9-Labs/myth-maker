@@ -121,12 +121,28 @@ class DesktopProbe:
         # auth contents or API credentials.
         self.env = os.environ.copy()
 
-    def command(self, argv, deadline, *, data=None):
+    def command(self, argv, deadline, *, data=None, check=True):
         remaining = deadline - self.clock()
         if remaining <= 0:
             raise StartupUnready("Desktop readiness deadline expired")
-        return subprocess.run(argv, input=data, capture_output=True, check=True,
+        return subprocess.run(argv, input=data, capture_output=True, check=check,
                               timeout=min(5, remaining), env=self.env).stdout
+
+    def window_diagnostics(self, deadline):
+        """Return bounded, non-admitting X11 evidence for a missing visible window."""
+        tree = self.command(["xwininfo", "-root", "-tree"], deadline, check=False).decode(errors="replace")
+        ids = self.command(["xdotool", "search", "--class", "[Bb]lender"],
+                           deadline, check=False).decode().split()[:8]
+        properties = []
+        for window in ids:
+            text = self.command(["xprop", "-id", window, "_NET_WM_PID", "WM_CLASS", "WM_NAME"],
+                                deadline, check=False).decode(errors="replace")
+            properties.append({"window_id": window, "properties": receipt_error(text)[:1000]})
+        return {
+            "x11_root_tree": receipt_error(tree)[:6000],
+            "nonvisible_blender_candidates": ids,
+            "nonvisible_blender_properties": properties,
+        }
 
     def record(self, observation):
         self.observations.append(observation)
@@ -151,11 +167,12 @@ class DesktopProbe:
             # may omit or rewrite _NET_WM_PID, so identity is a unique visible
             # Blender-class window rather than launcher-PID equality.
             ids = self.command(["xdotool", "search", "--onlyvisible", "--class",
-                                "[Bb]lender"], deadline).decode().split()
+                                "[Bb]lender"], deadline, check=False).decode().split()
             observation["candidate_windows"] = ids
             if len(ids) != 1:
                 observation["window_identity_verified"] = False
                 observation["window_identity_ambiguous"] = len(ids) > 1
+                observation.update(self.window_diagnostics(deadline))
                 return observation
             window = ids[0]
             props = self.command(["xprop", "-id", window, "_NET_WM_PID", "WM_CLASS", "WM_NAME"], deadline).decode(errors="replace")
