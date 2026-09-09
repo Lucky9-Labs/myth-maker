@@ -5,7 +5,9 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from draft_checkpoints import CheckpointStore, handoff_text, load_resume, load_terminal_artifact, sha256, validate_native
+from draft_checkpoints import (CheckpointStore, handoff_text, load_resume,
+                               load_terminal_artifact, modal_volume_receipt,
+                               sha256, validate_native)
 
 
 REFS = {name: b"reference" for name in (
@@ -90,6 +92,31 @@ class CheckpointTests(unittest.TestCase):
         validate_native(bytes.fromhex("28b52ffd") + b"x" * 64)
         with self.assertRaises(ValueError):
             validate_native(b"not a blend" * 20)
+
+    def test_modal_receipt_exposes_hash_addressed_private_artifacts_and_frames(self):
+        receipt = modal_volume_receipt(
+            volume_name="myth-maker-encounter-submissions", job_id="draft-gui-kraken-cloud-a1",
+            app_name="myth-maker-encounter-draft", environment="dev", function_name="run_draft",
+            function_call_id="fc-observed", input_id="in-observed",
+            output_files={"kraken-cloud.blend": {"bytes": 128, "sha256": "a" * 64}},
+            blender_frames={"final": ("final-desktop.png", {"bytes": 64, "sha256": "b" * 64})},
+        )
+        self.assertEqual(receipt["output_artifacts"]["kraken-cloud.blend"]["uri"],
+                         "modal-volume://myth-maker-encounter-submissions/draft-gui-kraken-cloud-a1/output/kraken-cloud.blend")
+        self.assertEqual(receipt["blender_window_frames"]["final"]["uri"],
+                         "modal-volume://myth-maker-encounter-submissions/draft-gui-kraken-cloud-a1/final-desktop.png")
+        self.assertEqual(receipt["function_call_id"], "fc-observed")
+
+    def test_modal_receipt_rejects_an_invalid_hash_or_escaped_path(self):
+        args = dict(
+            volume_name="myth-maker-encounter-submissions", job_id="draft-gui-kraken-cloud-a1",
+            app_name="myth-maker-encounter-draft", environment="dev", function_name="run_draft",
+            function_call_id="fc-observed", input_id="in-observed", blender_frames={},
+        )
+        with self.assertRaisesRegex(ValueError, "artifact"):
+            modal_volume_receipt(**args, output_files={"../escape.blend": {"bytes": 1, "sha256": "a" * 64}})
+        with self.assertRaisesRegex(ValueError, "artifact"):
+            modal_volume_receipt(**args, output_files={"safe.blend": {"bytes": 1, "sha256": "not-a-hash"}})
 
 
 if __name__ == "__main__":
