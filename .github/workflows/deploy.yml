@@ -190,13 +190,15 @@ jobs:
           test "$SOURCE_SHA" = "$GITHUB_SHA"
           node scripts/deployment/controller.mjs assert-github-deployment
           printf 'started_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-      - name: Bind discovery credentials and deploy the immutable Cloudflare Worker version
+      - name: Bind discovery and dispatcher credentials and deploy the immutable Cloudflare Worker version
         id: deploy
         env:
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
           RESULT: ${{ runner.temp }}/provider-result.json
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           AGENT_INGRESS_TOKEN: ${{ secrets.AGENT_INGRESS_TOKEN }}
+          WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
+          WORK_DISPATCH_URL: ${{ vars.WORK_DISPATCH_URL }}
           PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: ${{ secrets.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY }}
           CATALOG_ACCEPTANCE_TOKEN: ${{ secrets.CATALOG_ACCEPTANCE_TOKEN }}
           CLOUDFLARE_DISCOVERY_ENCOUNTER_ID: ${{ vars.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID || 'ci-discovery-001' }}
