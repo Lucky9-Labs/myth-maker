@@ -52,6 +52,9 @@ def main() -> int:
 
     calls = [production.spawn(item) for item in wave]
     receipts = [call.get(timeout=20 * 60) for call in calls]
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"receipts": receipts, "ledger": None}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     assembly = fan_in_assembly_job(wave, receipts)
     receipts.append(production.remote(assembly))
     ledger_function = modal.Function.from_name(
@@ -62,8 +65,6 @@ def main() -> int:
     if not ledger_function.object_id:
         raise RuntimeError("deployed Modal asset ledger function has no provider identity")
     ledger = ledger_function.remote(wave, receipts)
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps({"receipts": receipts, "ledger": ledger}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
 
