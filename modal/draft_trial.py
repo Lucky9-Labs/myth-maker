@@ -38,8 +38,10 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
              # commands.  Keep download, pinned-hash verification, extraction,
              # and cleanup in one command so an unverified archive can never be
              # promoted into the image.
-             f"curl --fail --location --retry 3 --retry-all-errors {BLENDER_ARCHIVE_URL} --output /tmp/blender.tar.xz && "
-             f"echo '{BLENDER_ARCHIVE_SHA256}  /tmp/blender.tar.xz' | sha256sum --check --status && "
+             f"curl --fail --location --retry 3 --retry-all-errors --silent --show-error {BLENDER_ARCHIVE_URL} --output /tmp/blender.tar.xz && "
+             f"(echo '{BLENDER_ARCHIVE_SHA256}  /tmp/blender.tar.xz' | sha256sum --check --status || "
+             f"{{ actual_sha=$(sha256sum /tmp/blender.tar.xz | awk '{{print $1}}'); actual_bytes=$(wc -c < /tmp/blender.tar.xz); "
+             f"printf 'Blender archive checksum mismatch: expected %s, actual %s, bytes %s\\n' '{BLENDER_ARCHIVE_SHA256}' \"$actual_sha\" \"$actual_bytes\" >&2; exit 1; }}) && "
              "tar -C /opt -xf /tmp/blender.tar.xz && "
              "ln -s /opt/blender-5.2.1-linux-x64/blender /usr/local/bin/blender && "
              "rm /tmp/blender.tar.xz")

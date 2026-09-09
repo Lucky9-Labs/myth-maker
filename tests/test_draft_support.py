@@ -100,12 +100,15 @@ class DraftPolicyTests(unittest.TestCase):
 
     def test_blender_archive_is_verified_before_it_can_cross_a_builder_step(self):
         text = (MODAL_DIR / "draft_trial.py").read_text()
-        self.assertIn(
-            'f"curl --fail --location --retry 3 --retry-all-errors {BLENDER_ARCHIVE_URL} --output /tmp/blender.tar.xz && "\n'
-            '             f"echo \'{BLENDER_ARCHIVE_SHA256}  /tmp/blender.tar.xz\' | sha256sum --check --status && "\n'
-            '             "tar -C /opt -xf /tmp/blender.tar.xz && "',
-            text,
-        )
+        download = "curl --fail --location --retry 3 --retry-all-errors --silent --show-error"
+        verification = "sha256sum --check --status"
+        extraction = "tar -C /opt -xf /tmp/blender.tar.xz"
+        self.assertIn(download, text)
+        self.assertIn(verification, text)
+        self.assertIn(extraction, text)
+        self.assertLess(text.index(download), text.index(verification))
+        self.assertLess(text.index(verification), text.index(extraction))
+        self.assertIn("Blender archive checksum mismatch: expected %s, actual %s, bytes %s", text)
 
 
 if __name__ == "__main__":
