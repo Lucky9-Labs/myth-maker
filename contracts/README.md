@@ -3,9 +3,9 @@
 `v1/` is the first stable interchange boundary between the coordinator,
 generation workers, artifact builders, and the Unity host. The schemas describe
 encounters generically; no actor shape, scale, genre, or objective is privileged.
-`v2/` publishes the planner and work-order evolution that requires a
-concept-first dispatch gate, while leaving every v1 schema unchanged for its
-existing producers.
+`v2/` publishes the planner/work-order evolution and an additive runtime
+artifact negotiation boundary, while leaving every v1 schema unchanged for
+its existing producers.
 
 The firm contracts are:
 
@@ -18,6 +18,7 @@ The firm contracts are:
 | `EncounterModule` | Worker/assembler boundary | Describes one composable behavior, asset, or remote-logic contribution. |
 | `PlayableEncounterPackage` | Assembler/host boundary | Names one immutable, compatible module selection that can be preloaded and frozen. |
 | `PackageDiscoveryManifest` | Cloudflare/host boundary | Pins a selected frozen package, accepted catalog/assembly evidence, remote GLB artifacts, and an Ed25519 signature. |
+| `PackageDiscoveryManifestV2` | Cloudflare/host boundary | Negotiates one immutable artifact representation per module against the host's declared media type, loader, platform, and build, then signs the selected set with Ed25519. |
 | `GlbAssemblyManifest` | GLB assembler/host boundary | Defines one hash-addressed, deterministic composite runtime asset assembled from independently accepted GLB fragments. |
 | `ConceptFirstAssetProductionGate` | Concept/worker/assembler boundary | Pins the immutable intent, art direction, concept reference, worker brief, asset revision, and assembly decision for one type-neutral production candidate. |
 
@@ -52,3 +53,10 @@ These schemas intentionally do not standardize the internal Unity command API,
 artifact file formats, scoring algorithm, or coordinator persistence layout.
 Those interfaces remain ambiguous until their implementation spikes establish
 what the target player and generation services can actually support.
+
+The v2 artifact lane standardizes only the safe discovery seam. A host declares
+`artifact_formats`; each accepted runtime artifact pins its HTTPS URI, SHA-256,
+byte length, media type, and allowed platform/build/loader tuples. Selection
+requires an exact tuple match and a signed manifest. `model/gltf-binary`
+continues to use the unchanged v1 lane; Unity AssetBundles use
+`application/vnd.unity.assetbundle` only when explicitly declared by a v2 host.
