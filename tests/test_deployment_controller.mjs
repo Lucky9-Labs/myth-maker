@@ -119,7 +119,8 @@ test("provider-environment locks isolate providers and serialize duplicates", ()
 
 test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
-  assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]);
+  assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN", "WORK_DISPATCH_TOKEN"]);
+  assert.deepEqual(providerDefinitions.cloudflare.variableNames, ["WORK_DISPATCH_URL"]);
   assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
@@ -129,11 +130,13 @@ test("Cloudflare receipts require the deployed current Worker version and bound 
   assert.deepEqual(parseCloudflareDeploymentEvidence(JSON.stringify({
     version_id: versionId,
     worker_url: "https://myth-maker-encounter-runtime.example.workers.dev",
-    secret_bindings: ["AGENT_INGRESS_TOKEN", "CATALOG_ACCEPTANCE_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"],
+    secret_bindings: ["AGENT_INGRESS_TOKEN", "CATALOG_ACCEPTANCE_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "WORK_DISPATCH_TOKEN"],
+    runtime_variables: ["WORK_DISPATCH_URL"],
   })), {
     version_id: versionId,
     worker_url: "https://myth-maker-encounter-runtime.example.workers.dev",
-    secret_bindings: ["AGENT_INGRESS_TOKEN", "CATALOG_ACCEPTANCE_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"],
+    secret_bindings: ["AGENT_INGRESS_TOKEN", "CATALOG_ACCEPTANCE_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "WORK_DISPATCH_TOKEN"],
+    runtime_variables: ["WORK_DISPATCH_URL"],
   });
   for (const output of ["not-json", JSON.stringify({ version_id: versionId }), JSON.stringify({
     version_id: versionId, secret_bindings: ["AGENT_INGRESS_TOKEN"],
@@ -331,7 +334,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   const cloudflareConfig = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
   assert.match(deploy.jobs["write-unavailable-provider-receipts"].steps[0].uses, /^actions\/checkout@/);
   assert.equal(railwayProvider.jobs.deploy.secrets, "inherit");
-  assert.deepEqual(cloudflareConfig.secrets.required, ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]);
+  assert.deepEqual(cloudflareConfig.secrets.required, ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN", "WORK_DISPATCH_TOKEN"]);
   for (const job of [
     "terraform-foundation-preview",
     "cloudflare-preview",
@@ -422,6 +425,8 @@ test("environment-scoped provider activation consumes secrets in top-level deplo
   assert.equal(cloudflare.concurrency.group, "myth-maker-deploy-cloudflare-${{ inputs.environment || 'dev' }}");
   assert.match(cloudflareDeploy.CLOUDFLARE_API_TOKEN, /secrets\.CLOUDFLARE_API_TOKEN/);
   assert.match(cloudflareDeploy.CATALOG_ACCEPTANCE_TOKEN, /secrets\.CATALOG_ACCEPTANCE_TOKEN/);
+  assert.match(cloudflareDeploy.WORK_DISPATCH_TOKEN, /secrets\.WORK_DISPATCH_TOKEN/);
+  assert.match(cloudflareDeploy.WORK_DISPATCH_URL, /vars\.WORK_DISPATCH_URL/);
   assert.equal(cloudflareDiscovery.PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY, "MCowBQYDK2VwAyEAt1H5uJR0eCDxb2C4uHf+vRovjT9UJtCr5VBVYit1rgM=");
   assert.match(JSON.stringify(cloudflareReceiptStep.env), /steps\.discovery\.outcome/);
   assert.doesNotMatch(JSON.stringify(cloudflareReceiptStep.env), /AGENT_INGRESS_TOKEN|PRIVATE_KEY/);
