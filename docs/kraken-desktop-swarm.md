@@ -1,0 +1,32 @@
+# Kraken desktop swarm: two-worker gate
+
+This is an intentionally small local launcher for the first two isolated Blender GUI workers. It is not a substitute for the coordinator, package assembler, or Unity acceptance.
+
+The two reservations are intentionally disjoint:
+
+- `kraken-mantle-core` owns only the mantle/head silhouette and eight named attachment empties, `Mount_T01` through `Mount_T08`.
+- `kraken-tentacle-01` owns one complete tentacle and its local anchors, `T01_Root`, `T01_Tip`, and `T01_AccentRail`.
+
+Each container receives a private writable source directory, HOME, temp directory, and a 127.0.0.1-only noVNC port. The exact concept image is read-only. Its baseline checkpoint is copied before launch, then the copy is the only `.blend` it may save.
+
+Launch the gate from a clean checkout with an immutable source checkpoint:
+
+```sh
+node tools/kraken-desktop-swarm.mjs launch kraken-mantle-core \
+  --baseline /absolute/baseline.blend \
+  --concept assets/concepts/kraken-observable-swarm-v1.png \
+  --commit "$(git rev-parse HEAD)"
+node tools/kraken-desktop-swarm.mjs launch kraken-tentacle-01 \
+  --baseline /absolute/baseline.blend \
+  --concept assets/concepts/kraken-observable-swarm-v1.png \
+  --commit "$(git rev-parse HEAD)"
+```
+
+The registry is written outside the checkout by default at `/tmp/myth-maker-kraken-desktop-workers/registry.json`. Before assigning Blender UI actions, inspect both entries and their actual desktop:
+
+```sh
+node tools/kraken-desktop-swarm.mjs inspect kraken-mantle-core
+node tools/kraken-desktop-swarm.mjs inspect kraken-tentacle-01
+```
+
+Passing infrastructure health alone is not a passed worker gate. Each assigned operator must inspect the correct noVNC desktop, make GUI-only changes, save through Blender's UI, emit before/after and final desktop views, then GUI-reopen the immutable checkpoint layout. A serialized integration worker owns the derivative assembly; these workers never write it.
