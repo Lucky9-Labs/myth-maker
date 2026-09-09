@@ -199,6 +199,8 @@ jobs:
           AGENT_INGRESS_TOKEN: ${{ secrets.AGENT_INGRESS_TOKEN }}
           PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: ${{ secrets.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY }}
           CATALOG_ACCEPTANCE_TOKEN: ${{ secrets.CATALOG_ACCEPTANCE_TOKEN }}
+          WORK_DISPATCH_TOKEN: ${{ secrets.WORK_DISPATCH_TOKEN }}
+          WORK_DISPATCH_URL: ${{ vars.WORK_DISPATCH_URL }}
           CLOUDFLARE_DISCOVERY_ENCOUNTER_ID: ${{ vars.CLOUDFLARE_DISCOVERY_ENCOUNTER_ID || 'ci-discovery-001' }}
         run: |
           set -euo pipefail

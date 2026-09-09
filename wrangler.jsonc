@@ -4,7 +4,10 @@
   "compatibility_date": "2026-09-08",
   "compatibility_flags": ["nodejs_compat"],
   "secrets": {
-    "required": ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]
+    "required": ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN", "WORK_DISPATCH_TOKEN"]
+  },
+  "vars": {
+    "WORK_DISPATCH_URL": ""
   },
   "durable_objects": {
     "bindings": [

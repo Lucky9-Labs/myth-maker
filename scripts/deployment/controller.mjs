@@ -17,13 +17,15 @@ const ENVIRONMENT = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PROVIDER = /^[a-z][a-z0-9-]{0,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const RECEIPT_PROVIDERS = new Set(["cloudflare", "railway", "modal", "terraform-foundation"]);
-const CLOUDFLARE_RUNTIME_SECRET_BINDINGS = Object.freeze(["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]);
+const CLOUDFLARE_RUNTIME_SECRET_BINDINGS = Object.freeze(["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN", "WORK_DISPATCH_TOKEN"]);
+const CLOUDFLARE_RUNTIME_PLAIN_BINDINGS = Object.freeze(["WORK_DISPATCH_URL"]);
 
 export const providerDefinitions = Object.freeze({
   cloudflare: Object.freeze({
     // Terraform may establish the Worker identity and non-secret bindings, but
     // trusted CI owns the immutable code version and its discovery secrets.
     secretNames: ["CLOUDFLARE_API_TOKEN", ...CLOUDFLARE_RUNTIME_SECRET_BINDINGS],
+    plainVariableNames: [...CLOUDFLARE_RUNTIME_PLAIN_BINDINGS],
     requiredFiles: ["wrangler.jsonc", "src/worker.js", "src/encounter-package-assembler.js", "src/package-discovery.js"],
     preview: ["npx", ["--yes", "wrangler@4.130.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"]],
     deploy: ["npx", ["--yes", "wrangler@4.130.0", "deploy", "--config", "wrangler.jsonc"]],
@@ -171,10 +173,12 @@ export function parseCloudflareDeploymentEvidence(output) {
   if (!UUID.test(parsed?.version_id ?? "") || typeof parsed?.worker_url !== "string" || !parsed.worker_url.endsWith(".workers.dev")
     || !Array.isArray(parsed?.secret_bindings)
     || parsed.secret_bindings.length !== CLOUDFLARE_RUNTIME_SECRET_BINDINGS.length
-    || [...parsed.secret_bindings].sort().join(",") !== [...CLOUDFLARE_RUNTIME_SECRET_BINDINGS].sort().join(",")) {
+    || [...parsed.secret_bindings].sort().join(",") !== [...CLOUDFLARE_RUNTIME_SECRET_BINDINGS].sort().join(",")
+    || Object.keys(parsed?.plain_bindings ?? {}).sort().join(",") !== [...CLOUDFLARE_RUNTIME_PLAIN_BINDINGS].sort().join(",")
+    || !validHttpsUrl(parsed.plain_bindings.WORK_DISPATCH_URL)) {
     throw new Error("Cloudflare deployment evidence requires the current Worker version and all runtime secret bindings");
   }
-  return { version_id: parsed.version_id, worker_url: parsed.worker_url, secret_bindings: [...parsed.secret_bindings].sort() };
+  return { version_id: parsed.version_id, worker_url: parsed.worker_url, secret_bindings: [...parsed.secret_bindings].sort(), plain_bindings: { WORK_DISPATCH_URL: parsed.plain_bindings.WORK_DISPATCH_URL } };
 }
 
 export async function verifyCloudflareDiscoveryResponse(response, { encounterId, requestId, signingPublicKey }) {
@@ -290,6 +294,9 @@ function assertEnvironment(value) {
 }
 
 function uuid(value) { return UUID.test(value ?? ""); }
+function validHttpsUrl(value) {
+  try { return new URL(value).protocol === "https:"; } catch { return false; }
+}
 
 function parseArgs(argv) {
   const [command, ...rest] = argv;
@@ -386,10 +393,12 @@ export function currentCloudflareVersionId(deploymentsOutput, versionsOutput, de
 
 function executeCloudflareDeployment(invocation) {
   const config = JSON.parse(readFileSync("wrangler.jsonc", "utf8"));
+  const workDispatchUrl = process.env.WORK_DISPATCH_URL;
+  if (!validHttpsUrl(workDispatchUrl)) throw new Error("WORK_DISPATCH_URL must be an absolute HTTPS URL");
   for (const secretName of CLOUDFLARE_RUNTIME_SECRET_BINDINGS) {
     cloudflareCommand(["secret", "put", secretName], { input: process.env[secretName] });
   }
-  const deployOutput = executeProviderCommand(invocation);
+  const deployOutput = executeProviderCommand([invocation[0], [...invocation[1], "--var", `WORK_DISPATCH_URL:${workDispatchUrl}`]]);
   const deploymentsOutput = cloudflareCommand(["deployments", "list", "--json"]);
   const versionsOutput = cloudflareCommand(["versions", "list", "--json"]);
   const workerUrl = deployOutput.match(/https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+\.workers\.dev/ig)?.find((url) => {
@@ -400,6 +409,7 @@ function executeCloudflareDeployment(invocation) {
     version_id: currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOutput),
     worker_url: workerUrl,
     secret_bindings: [...CLOUDFLARE_RUNTIME_SECRET_BINDINGS],
+    plain_bindings: { WORK_DISPATCH_URL: workDispatchUrl },
   };
 }
 
@@ -453,6 +463,8 @@ function run(command, options) {
   if (missingSecrets.length) {
     throw new Error(`${missingSecrets.join(", ")} are required only after the reviewed environment gate`);
   }
+  const missingVariables = (providerDefinitions[provider].plainVariableNames || []).filter((name) => !process.env[name]);
+  if (missingVariables.length) throw new Error(`${missingVariables.join(", ")} are required plain variables after the reviewed environment gate`);
   if (provider === "railway") {
     const evidence = executeRailwayDeployment(invocation);
     process.stdout.write(`${JSON.stringify({ ...request, status: "deployed", evidence })}\n`);
