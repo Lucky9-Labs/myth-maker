@@ -69,6 +69,6 @@ class ModalDeployTest(unittest.TestCase):
             modal_deploy.emit_failed_image_logs(error)
         run.assert_not_called()
         rendered = "".join(str(call.args[0]) for call in stderr.write.call_args_list)
-        self.assertIn("Modal deploy failed before reporting an image ID", rendered)
+        self.assertIn("Modal deploy failure context", rendered)
         self.assertIn("[REDACTED]", rendered)
         self.assertNotIn("sensitive-value", rendered)
