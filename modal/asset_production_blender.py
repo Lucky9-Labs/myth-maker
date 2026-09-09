@@ -200,7 +200,7 @@ def mount_railgun_to_mech() -> int:
     grip = next((obj for obj in railgun if obj.name.lower() == "primary-grip"), None)
     if not railgun or not hands or grip is None:
         raise RuntimeError("assembly cannot resolve railgun group, primary grip, and mech hands")
-    target = sum((obj.matrix_world.translation for obj in hands), Vector()) / len(hands)
+    target = sum((obj.matrix_world.translation for obj in hands), Vector((0, 0, 0))) / len(hands)
     offset = target - grip.matrix_world.translation
     roots = [obj for obj in railgun if obj.parent is None]
     for obj in roots: obj.location += offset
