@@ -17,7 +17,8 @@ class StartupUnready(RuntimeError):
     pass
 
 
-def configure_isolated_x11(environment, *, xauthority="/tmp/draft.Xauthority"):
+def configure_isolated_x11(environment, *, xauthority="/tmp/draft.Xauthority",
+                           runtime_dir="/tmp/draft-runtime"):
     """Force GUI children onto the owned Xvfb display, independent of host hints."""
     # Blender treats an empty value as the explicit opt-out that forces X11.
     environment["WAYLAND_DISPLAY"] = ""
@@ -25,6 +26,15 @@ def configure_isolated_x11(environment, *, xauthority="/tmp/draft.Xauthority"):
     environment["GDK_BACKEND"] = "x11"
     environment["DISPLAY"] = ":99"
     environment["XAUTHORITY"] = xauthority
+    environment["XDG_RUNTIME_DIR"] = runtime_dir
+
+
+def prepare_isolated_x11_runtime(environment):
+    """Create the private runtime directory required by Blender's Wayland probe."""
+    runtime = Path(environment["XDG_RUNTIME_DIR"])
+    runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+    runtime.chmod(0o700)
+    return runtime
 
 
 def receipt_error(error: Exception) -> str:

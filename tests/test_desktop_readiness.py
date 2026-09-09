@@ -1,4 +1,5 @@
 from pathlib import Path
+import stat
 import sys
 import tempfile
 import unittest
@@ -6,19 +7,29 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, configure_isolated_x11, healthy_observation, recognizable_blender_ui, receipt_error, terminal_failure, window_geometry
+from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, configure_isolated_x11, healthy_observation, prepare_isolated_x11_runtime, recognizable_blender_ui, receipt_error, terminal_failure, window_geometry
 
 
 class DesktopReadinessTests(unittest.TestCase):
     def test_isolated_x11_environment_cannot_inherit_wayland_selection(self):
         environment = {"WAYLAND_DISPLAY": "wayland-0", "XDG_SESSION_TYPE": "wayland", "KEEP": "yes"}
-        configure_isolated_x11(environment, xauthority="/tmp/test.Xauthority")
+        configure_isolated_x11(environment, xauthority="/tmp/test.Xauthority",
+                               runtime_dir="/tmp/test-runtime")
         self.assertEqual(environment["WAYLAND_DISPLAY"], "")
         self.assertEqual(environment["XDG_SESSION_TYPE"], "x11")
         self.assertEqual(environment["GDK_BACKEND"], "x11")
         self.assertEqual(environment["DISPLAY"], ":99")
         self.assertEqual(environment["XAUTHORITY"], "/tmp/test.Xauthority")
+        self.assertEqual(environment["XDG_RUNTIME_DIR"], "/tmp/test-runtime")
         self.assertEqual(environment["KEEP"], "yes")
+
+    def test_isolated_runtime_directory_exists_with_owner_only_permissions(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime = Path(temporary) / "runtime"
+            environment = {"XDG_RUNTIME_DIR": str(runtime)}
+            self.assertEqual(prepare_isolated_x11_runtime(environment), runtime)
+            self.assertTrue(runtime.is_dir())
+            self.assertEqual(stat.S_IMODE(runtime.stat().st_mode), 0o700)
 
     def test_terminal_failure_preserves_the_original_runtime_or_startup_cause(self):
         startup = terminal_failure(StartupUnready("desktop did not become ready"))
