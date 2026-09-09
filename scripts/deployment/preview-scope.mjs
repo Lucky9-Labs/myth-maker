@@ -9,7 +9,7 @@ const controllerOwned = [
 
 const providerPatterns = {
   terraform: [/^infra\/terraform\//],
-  cloudflare: [/^src\/(?:worker|encounter-package-assembler)\.js$/, /^wrangler\.jsonc$/],
+  cloudflare: [/^src\/(?:worker|encounter-package-assembler|package-discovery)\.js$/, /^wrangler\.jsonc$/],
   railway: [/^railway\.json$/, /^src\/(?:railway-[^/]+|postgres-receipt-store|encounter-dispatcher)\.js$/, /^package(?:-lock)?\.json$/],
   modal: [/^modal\//, /^package(?:-lock)?\.json$/],
 };

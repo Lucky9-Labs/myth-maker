@@ -24,6 +24,11 @@ output "application_configuration_contract" {
           source = "src/encounter-package-assembler.js"
           sha256 = filesha256("${path.module}/../../src/encounter-package-assembler.js")
         },
+        {
+          name   = "package-discovery.js"
+          source = "src/package-discovery.js"
+          sha256 = filesha256("${path.module}/../../src/package-discovery.js")
+        },
       ]
     }
     railway = {
@@ -52,7 +57,7 @@ output "application_configuration_contract" {
       deployment_owner = "ci-only"
       release_revision = var.release_revision
       required_secret_inputs = {
-        cloudflare = ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token"]
+        cloudflare = ["CLOUDFLARE_API_TOKEN", "TF_VAR_agent_ingress_token", "TF_VAR_work_dispatch_token", "TF_VAR_catalog_acceptance_token", "TF_VAR_package_discovery_signing_private_key"]
         railway    = ["TF_VAR_railway_token", "WORK_DISPATCH_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]
         modal      = ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]
       }
@@ -108,6 +113,10 @@ output "deployment_receipt_facts" {
         {
           name   = "encounter-package-assembler.js"
           sha256 = filesha256("${path.module}/../../src/encounter-package-assembler.js")
+        },
+        {
+          name   = "package-discovery.js"
+          sha256 = filesha256("${path.module}/../../src/package-discovery.js")
         },
       ]
     }

@@ -52,19 +52,19 @@ class InfrastructureContractTests(unittest.TestCase):
 
     def test_cloudflare_bundle_resolves_imports_and_matches_runtime_bindings(self):
         modules = configured_module_sources()
-        self.assertEqual(set(modules), {"worker.js", "encounter-package-assembler.js"})
+        self.assertEqual(set(modules), {"worker.js", "encounter-package-assembler.js", "package-discovery.js"})
         for name, source in modules.items():
             self.assertTrue(source.is_file(), f"configured module {name} must exist")
             for relative_import in re.findall(r'from\s+["\'](\.[^"\']+)["\']', source.read_text()):
                 imported = (source.parent / relative_import).resolve()
                 self.assertIn(imported, modules.values(), f"{name} imports unbundled {relative_import}")
 
-        runtime_bindings = set(re.findall(r"env\.(WORK_DISPATCH_(?:URL|TOKEN))", WORKER_SOURCE.read_text()))
-        terraform_bindings = set(re.findall(r'name\s+=\s+"(WORK_DISPATCH_(?:URL|TOKEN))"', TERRAFORM_MAIN.read_text()))
+        runtime_bindings = set(re.findall(r"env\.((?:WORK_DISPATCH_(?:URL|TOKEN)|PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY|CATALOG_ACCEPTANCE_TOKEN))", WORKER_SOURCE.read_text()))
+        terraform_bindings = set(re.findall(r'name\s+=\s+"((?:WORK_DISPATCH_(?:URL|TOKEN)|PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY|CATALOG_ACCEPTANCE_TOKEN))"', TERRAFORM_MAIN.read_text()))
         contract = self.render()
         contract_bindings = set(contract["cloudflare"]["required_plain_configuration"])
         contract_bindings.update(contract["cloudflare"]["required_secret_names"])
-        self.assertEqual(runtime_bindings, {"WORK_DISPATCH_URL", "WORK_DISPATCH_TOKEN"})
+        self.assertEqual(runtime_bindings, {"WORK_DISPATCH_URL", "WORK_DISPATCH_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"})
         self.assertEqual(runtime_bindings, terraform_bindings)
         self.assertEqual(runtime_bindings, runtime_bindings & contract_bindings)
 
