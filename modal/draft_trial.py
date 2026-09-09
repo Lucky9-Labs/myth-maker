@@ -29,7 +29,7 @@ from infrastructure import runtime
 from modal_volume_inputs import load_volume_inputs, validate_volume_input_manifest
 from asset_production import (create_run_ledger, run_asset_production_job as execute_asset_production_job,
                               validate_critique_request, validate_job_manifest, validate_visual_critique)
-from asset_progress import build_dashboard, dashboard_bundle
+from asset_progress import build_dashboard, dashboard_bundle, evaluate_reference_progress
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -331,7 +331,7 @@ def record_asset_production_run(wave: list[dict], receipts: list[dict]) -> dict:
 
 
 @app.function(image=image, schedule=modal.Period(seconds=300), cpu=0.25, memory=512,
-              timeout=120, retries=0, max_containers=1, volumes={"/submissions": volume})
+              timeout=360, retries=0, max_containers=1, secrets=[secret], volumes={"/submissions": volume})
 def refresh_asset_progress_dashboards() -> dict:
     """Regenerate private progress GIFs for every observed production run."""
     volume.reload()
@@ -340,9 +340,26 @@ def refresh_asset_progress_dashboards() -> dict:
     if root.is_dir():
         for run_root in sorted(root.iterdir()):
             if run_root.is_dir():
+                from openai import OpenAI
+                evaluate_reference_progress(run_root, OpenAI())
                 refreshed.append(build_dashboard(run_root))
     volume.commit()
     return {"status": "completed", "runs": len(refreshed), "dashboards": refreshed}
+
+
+@app.function(image=image, cpu=0.25, memory=512, timeout=360, retries=0,
+              max_containers=1, secrets=[secret], volumes={"/submissions": volume})
+def evaluate_asset_reference_progress(run_id: str) -> dict:
+    """Run or reuse the reference evaluation for the current revision set."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", run_id or ""):
+        raise ValueError("invalid asset production run id")
+    volume.reload()
+    run_root = SUBMISSIONS_ROOT / "asset-production" / run_id
+    if not run_root.is_dir(): raise ValueError("asset production run is unavailable")
+    from openai import OpenAI
+    receipt = evaluate_reference_progress(run_root, OpenAI())
+    build_dashboard(run_root); volume.commit()
+    return receipt
 
 
 @app.function(image=image, cpu=0.25, memory=512, timeout=120, retries=0,

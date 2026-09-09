@@ -15,6 +15,8 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     config = runtime(args.environment)
+    evaluator = modal.Function.from_name(config.app_name, "evaluate_asset_reference_progress", environment_name=config.environment)
+    evaluator.remote(args.run_id)
     function = modal.Function.from_name(config.app_name, "get_asset_progress_dashboard", environment_name=config.environment)
     bundle = function.remote(args.run_id)
     output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
