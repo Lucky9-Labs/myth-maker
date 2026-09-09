@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { EncounterDispatcher, JsonReceiptStore } from "./encounter-dispatcher.js";
 import { ModalBridgeBackend } from "./modal-bridge-backend.js";
 import { createCoordinatorEventSink, createRailwayDispatchHandler } from "./railway-dispatcher.js";
-import { createRailwayArtifactHandler, createRailwayArtifactStore } from "./railway-artifact-store.js";
+import { createCoordinatorArtifactPublicationClient, createRailwayArtifactHandler, createRailwayArtifactStore } from "./railway-artifact-store.js";
 
 const port = Number(process.env.PORT || 3000);
 const receiptPath = resolve(requireEnv("RECEIPT_STORE_PATH"));
@@ -15,6 +15,11 @@ const artifactStore = createRailwayArtifactStore({
 const artifacts = createRailwayArtifactHandler({
   store: artifactStore,
   publicationToken: requireEnv("ARTIFACT_PUBLICATION_TOKEN"),
+  coordinator: createCoordinatorArtifactPublicationClient({
+    coordinatorUrl: requireEnv("COORDINATOR_URL"),
+    ingressToken: requireEnv("AGENT_INGRESS_TOKEN"),
+    catalogAcceptanceToken: requireEnv("CATALOG_ACCEPTANCE_TOKEN"),
+  }),
 });
 const dispatcher = new EncounterDispatcher({
   backend: new ModalBridgeBackend(),
@@ -74,6 +79,7 @@ async function readBody(request, maximumBytes = 256 * 1024) {
 
 function isArtifactRoute(pathname) {
   return pathname === "/v1/artifact-publications"
+    || pathname === "/v1/encounter-artifact-publications"
     || /^\/v1\/artifacts\/[a-f0-9]{64}$/.test(pathname)
     || /^\/v1\/artifact-receipts\/(catalog|package|assembly)$/.test(pathname);
 }

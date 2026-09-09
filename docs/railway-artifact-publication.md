@@ -29,6 +29,15 @@ Catalog and assembly payloads use their existing v1 acceptance validators;
 package receipts need a canonical matching `manifest_sha256`. All are
 append-only JSON records on the mounted volume.
 
+`POST /v1/encounter-artifact-publications` is the required assembled path. It
+accepts the publication request plus the accepted catalog revision, selected
+package, assembly receipt, host capabilities, and discovery request as one
+bundle. It refuses a bundle unless the same published artifact is selected by
+both the catalog and assembly receipt and the package is compatible. It stores
+all three receipts before forwarding catalog admission, package freeze, and
+discovery to the coordinator. The coordinator—not Railway—owns the existing
+fixed-key canonical Ed25519 discovery signature.
+
 ## Railway configuration
 
 Mount a persistent volume and configure paths within it, such as
@@ -59,3 +68,11 @@ node scripts/verify-published-artifact.mjs \
 
 The JSON output proves that download's hash, byte length, media type, and
 status. It does not claim that Blender ran in Railway or Unity loaded the asset.
+
+Verify the coordinator response separately with its public signing key:
+
+```sh
+node scripts/verify-signed-discovery-manifest.mjs --manifest-file=selected-manifest.json
+```
+
+The verifier fixes the known public key ID to `package-discovery-ed25519-v1`.

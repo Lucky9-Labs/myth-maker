@@ -15,6 +15,7 @@
     "test:cloudflare": "node --test tests/test_cloudflare_worker.mjs",
     "test:contracts": "node --test tests/test_contracts.mjs",
     "test:infrastructure": "python3 -m unittest tests/test_infrastructure_contract.py",
-    "verify:published-artifact": "node scripts/verify-published-artifact.mjs"
+    "verify:published-artifact": "node scripts/verify-published-artifact.mjs",
+    "verify:signed-discovery": "node scripts/verify-signed-discovery-manifest.mjs"
   }
 }

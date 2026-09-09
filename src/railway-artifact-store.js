@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { artifactRelativePath, prepareAcceptedArtifactPublication, validPublicationReceipt } from "./artifact-publication.js";
-import { acceptedAssemblyReceipt, acceptedCatalogRevision, canonicalSha256 } from "./package-discovery.js";
+import { acceptedAssemblyReceipt, acceptedCatalogRevision, canonicalSha256, compatibleFrozenPackage } from "./package-discovery.js";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const RECEIPT_KINDS = new Set(["catalog", "package", "assembly"]);
@@ -60,11 +60,36 @@ export function createRailwayArtifactStore({ rootPath, publicOrigin, clock = () 
         ? { status: 200, value: prior }
         : { status: 409, value: { error: "receipt_id_reused_with_different_payload" } };
     },
+
+    async publishBundle(value) {
+      if (!value || typeof value !== "object" || Array.isArray(value)
+        || Object.keys(value).sort().join(",") !== "assembly_receipt,catalog_revision,discovery_request,host_capabilities,package,publication,schema_version"
+        || value.schema_version !== "1") return { status: 400, value: { error: "invalid_artifact_publication_bundle" } };
+      const published = await this.publish(value.publication);
+      if (published.status >= 400) return published;
+      const catalog = await acceptedCatalogRevision(value.catalog_revision);
+      const assembly = await acceptedAssemblyReceipt(value.assembly_receipt);
+      const packageReceipt = await validateReceipt("package", value.package);
+      if (!catalog || !assembly || !packageReceipt
+        || !(await compatibleFrozenPackage({ packageRecord: value.package, catalogRevision: catalog, assemblyReceipt: assembly, hostCapabilities: value.host_capabilities }))) {
+        return { status: 400, value: { error: "publication_bundle_receipt_mismatch" } };
+      }
+      const artifact = published.value.artifact;
+      if (!catalog.modules.some((module) => sameArtifact(module.artifact, artifact))
+        || !assembly.selected_modules.some((module) => sameArtifact(module.artifact, artifact))) {
+        return { status: 409, value: { error: "publication_artifact_not_selected" } };
+      }
+      for (const [kind, payload] of [["catalog", catalog], ["package", packageReceipt], ["assembly", assembly]]) {
+        const recorded = await this.recordReceipt(kind, payload);
+        if (recorded.status >= 400) return recorded;
+      }
+      return { status: published.status, value: { schema_version: "1", publication: published.value, catalog_revision: catalog, package: packageReceipt, assembly_receipt: assembly, discovery_request: structuredClone(value.discovery_request) } };
+    },
   };
 }
 
-export function createRailwayArtifactHandler({ store, publicationToken } = {}) {
-  if (!store || typeof store.publish !== "function" || typeof store.readArtifact !== "function" || typeof store.recordReceipt !== "function") throw new TypeError("artifact handler needs an artifact store");
+export function createRailwayArtifactHandler({ store, publicationToken, coordinator } = {}) {
+  if (!store || typeof store.publish !== "function" || typeof store.publishBundle !== "function" || typeof store.readArtifact !== "function" || typeof store.recordReceipt !== "function") throw new TypeError("artifact handler needs an artifact store");
   if (!publicationToken || typeof publicationToken !== "string") throw new TypeError("artifact handler needs a publication token");
   return async function handle(request) {
     const url = new URL(request.url);
@@ -77,9 +102,36 @@ export function createRailwayArtifactHandler({ store, publicationToken } = {}) {
     if (request.method === "POST" && url.pathname === "/v1/artifact-publications") {
       return resultResponse(await store.publish(await jsonBody(request)));
     }
+    if (request.method === "POST" && url.pathname === "/v1/encounter-artifact-publications") {
+      if (!coordinator || typeof coordinator.freezeAndDiscover !== "function") return jsonResponse({ error: "coordinator_publication_unavailable" }, 503);
+      const bundle = await store.publishBundle(await jsonBody(request));
+      if (bundle.status >= 400) return resultResponse(bundle);
+      try {
+        const discovery = await coordinator.freezeAndDiscover(bundle.value);
+        return jsonResponse({ ...bundle.value, discovery }, bundle.status);
+      } catch { return jsonResponse({ error: "coordinator_package_discovery_failed" }, 502); }
+    }
     const receipt = url.pathname.match(/^\/v1\/artifact-receipts\/(catalog|package|assembly)$/);
     if (receipt && request.method === "POST") return resultResponse(await store.recordReceipt(receipt[1], await jsonBody(request)));
     return jsonResponse({ error: "not_found" }, 404);
+  };
+}
+
+export function createCoordinatorArtifactPublicationClient({ coordinatorUrl, ingressToken, catalogAcceptanceToken, fetcher = fetch } = {}) {
+  if (!coordinatorUrl || !ingressToken || !catalogAcceptanceToken) throw new TypeError("coordinatorUrl, ingressToken, and catalogAcceptanceToken are required");
+  const base = coordinatorUrl.replace(/\/$/, "");
+  return {
+    async freezeAndDiscover(bundle) {
+      const encounterId = bundle.catalog_revision.encounter_id;
+      const headers = { authorization: `Bearer ${ingressToken}`, "content-type": "application/json" };
+      await expectOk(await fetcher(`${base}/v1/encounters/${encounterId}/catalog-revisions`, {
+        method: "POST", headers: { ...headers, "x-catalog-acceptance-token": catalogAcceptanceToken }, body: JSON.stringify({ catalog_revision: bundle.catalog_revision }),
+      }));
+      await expectOk(await fetcher(`${base}/v1/encounters/${encounterId}/freeze`, {
+        method: "POST", headers, body: JSON.stringify({ package: bundle.package, catalog_revision_id: bundle.catalog_revision.catalog_revision_id, assembly_receipt: bundle.assembly_receipt, host_capabilities: bundle.discovery_request.host_capabilities }),
+      }));
+      return expectOk(await fetcher(`${base}/v1/encounters/${encounterId}/package-discoveries`, { method: "POST", headers, body: JSON.stringify(bundle.discovery_request) }));
+    },
   };
 }
 
@@ -115,6 +167,8 @@ async function writeJsonImmutable(path, value) {
 }
 async function readJson(path) { try { return JSON.parse(await readFile(path, "utf8")); } catch { return null; } }
 function canonicalReceiptEquals(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+function sameArtifact(left, right) { return left?.uri === right?.uri && left?.sha256 === right?.sha256 && left?.media_type === right?.media_type && left?.byte_length === right?.byte_length; }
+async function expectOk(response) { if (!response?.ok) throw new Error("coordinator request failed"); return response.json(); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 function resolveRequiredPath(value, name) { if (typeof value !== "string" || !value) throw new TypeError(`${name} is required`); return resolve(value); }
 function requireHttpsOrigin(value) { const url = new URL(value); if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash) throw new TypeError("publicOrigin must be an HTTPS origin"); return url.href; }
