@@ -357,7 +357,7 @@ function cloudflareCommand(args, options = {}) {
   });
 }
 
-function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOutput) {
+export function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOutput) {
   let deployments;
   let versions;
   try {
@@ -367,8 +367,14 @@ function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOut
     throw new Error("Cloudflare did not return JSON deployment and version receipts");
   }
   const deploymentList = Array.isArray(deployments) ? deployments : deployments?.deployments;
-  const active = deploymentList?.[0]?.versions?.filter((version) => version?.percentage === 100);
-  const versionId = active?.length === 1 ? active[0].version_id : null;
+  const activeDeployments = (deploymentList || []).flatMap((deployment) => {
+    const active = deployment?.versions?.filter((version) => version?.percentage === 100);
+    const createdAt = Date.parse(deployment?.created_on);
+    return active?.length === 1 && Number.isFinite(createdAt)
+      ? [{ version_id: active[0].version_id, created_at: createdAt }]
+      : [];
+  }).sort((left, right) => right.created_at - left.created_at || String(left.version_id).localeCompare(String(right.version_id)));
+  const versionId = activeDeployments[0]?.version_id;
   const deployVersionId = deployOutput.match(/Current Version ID:\s*([0-9a-f-]{36})/i)?.[1];
   const versionList = Array.isArray(versions) ? versions : versions?.versions;
   if (!UUID.test(versionId ?? "") || !UUID.test(deployVersionId ?? "") || versionId !== deployVersionId
