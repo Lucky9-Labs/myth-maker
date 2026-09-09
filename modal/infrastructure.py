@@ -20,6 +20,7 @@ class ModalRuntime:
     environment: str
     app_name: str = "myth-maker-encounter-draft"
     function_name: str = "run_draft"
+    deterministic_recipe_function_name: str = "run_deterministic_recipe"
     volume_name: str = "myth-maker-encounter-submissions"
     lease_dict_name: str = "myth-maker-encounter-component-leases"
     openai_secret_name: str = "myth-maker-encounter-openai"
@@ -84,6 +85,13 @@ def application_contract(environment: str = "dev") -> dict:
             },
         },
         "modal": asdict(config),
+        "deterministic_recipe_fallback": {
+            "format": "myth-maker.deterministic-encounter-recipe/v1",
+            "function_name": config.deterministic_recipe_function_name,
+            "requires_openai_secret": False,
+            "artifacts": ["native-blend", "validated-glb", "initial-png", "intermediate-png", "final-png"],
+            "rule": "The recipe is bounded generic construction data; named demos are caller-owned data, not runtime schema.",
+        },
         "connections": [
             {
                 "from": "cloudflare.WORK_DISPATCH_URL",

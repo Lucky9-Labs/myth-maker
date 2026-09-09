@@ -15,20 +15,35 @@ def digest(path: Path) -> str:
 def verify(receipt_path: Path, artifact_dir: Path) -> dict:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     provider = receipt.get("provider_receipt", {})
-    if receipt.get("format") != "myth-maker.observed-modal-blender-demo/v1" or provider.get("provider") != "modal":
+    format_ = receipt.get("format")
+    if format_ not in {"myth-maker.observed-modal-blender-demo/v1", "myth-maker.observed-modal-deterministic-demo/v1"} or provider.get("provider") != "modal":
         raise ValueError("not an observed Modal Blender receipt")
-    expected = {
-        "source": provider.get("output_artifacts", {}).get(receipt.get("work_id", "") + ".blend"),
-        "preview": provider.get("output_artifacts", {}).get(receipt.get("work_id", "") + "_preview.png"),
-        "initial": provider.get("blender_window_frames", {}).get("initial"),
-        "latest": provider.get("blender_window_frames", {}).get("latest"),
-        "final": provider.get("blender_window_frames", {}).get("final"),
-    }
-    local = {
-        "source": artifact_dir / "source.blend", "preview": artifact_dir / "preview.png",
-        "initial": artifact_dir / "initial.png", "latest": artifact_dir / "latest.png",
-        "final": artifact_dir / "final.png",
-    }
+    if format_ == "myth-maker.observed-modal-deterministic-demo/v1":
+        expected = {
+            "source": provider.get("output_artifacts", {}).get(receipt.get("work_id", "") + ".blend"),
+            "glb": provider.get("output_artifacts", {}).get(receipt.get("work_id", "") + ".glb"),
+            "initial": provider.get("blender_window_frames", {}).get("initial"),
+            "intermediate": provider.get("blender_window_frames", {}).get("intermediate"),
+            "final": provider.get("blender_window_frames", {}).get("final"),
+        }
+        local = {
+            "source": artifact_dir / "source.blend", "glb": artifact_dir / "encounter.glb",
+            "initial": artifact_dir / "initial.png", "intermediate": artifact_dir / "intermediate.png",
+            "final": artifact_dir / "final.png",
+        }
+    else:
+        expected = {
+            "source": provider.get("output_artifacts", {}).get(receipt.get("work_id", "") + ".blend"),
+            "preview": provider.get("output_artifacts", {}).get(receipt.get("work_id", "") + "_preview.png"),
+            "initial": provider.get("blender_window_frames", {}).get("initial"),
+            "latest": provider.get("blender_window_frames", {}).get("latest"),
+            "final": provider.get("blender_window_frames", {}).get("final"),
+        }
+        local = {
+            "source": artifact_dir / "source.blend", "preview": artifact_dir / "preview.png",
+            "initial": artifact_dir / "initial.png", "latest": artifact_dir / "latest.png",
+            "final": artifact_dir / "final.png",
+        }
     verified = {}
     for label, metadata in expected.items():
         path = local[label]

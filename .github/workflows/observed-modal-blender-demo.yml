@@ -7,7 +7,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: myth-maker-observed-modal-blender-dev
+  # This job deploys the checked-out app before observing it, so it must share
+  # the provider deployment lock rather than race a normal dev activation.
+  group: myth-maker-deploy-modal-dev
   cancel-in-progress: false
 
 jobs:
@@ -26,12 +28,17 @@ jobs:
           python-version: '3.12'
       - name: Install the pinned Modal client
         run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
+      - name: Deploy this checked-out deterministic Blender function
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+        run: modal deploy --env dev modal/draft_trial.py
       - name: Submit the bounded provider-observed Blender work order
         id: draft
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          OBSERVED_MODAL_JOB_ID: draft-gui-kraken-cloud-observed-demo-${{ github.run_id }}-${{ github.run_attempt }}
+          OBSERVED_MODAL_JOB_ID: deterministic-encounter-demo-${{ github.run_id }}-${{ github.run_attempt }}
         run: python3 scripts/observed_modal_blender_demo.py
       - name: Retrieve provider-persisted source and Blender frames
         env:
@@ -43,10 +50,10 @@ jobs:
           set -euo pipefail
           mkdir -p provider-evidence/modal-blender-demo
           modal volume get myth-maker-encounter-submissions "$JOB_ID/output/$WORK_ID.blend" provider-evidence/modal-blender-demo/source.blend --env dev
-          modal volume get myth-maker-encounter-submissions "$JOB_ID/output/${WORK_ID}_preview.png" provider-evidence/modal-blender-demo/preview.png --env dev
-          modal volume get myth-maker-encounter-submissions "$JOB_ID/screenshots/000-initial.png" provider-evidence/modal-blender-demo/initial.png --env dev
-          modal volume get myth-maker-encounter-submissions "$JOB_ID/latest.png" provider-evidence/modal-blender-demo/latest.png --env dev
-          modal volume get myth-maker-encounter-submissions "$JOB_ID/final-desktop.png" provider-evidence/modal-blender-demo/final.png --env dev
+          modal volume get myth-maker-encounter-submissions "$JOB_ID/output/$WORK_ID.glb" provider-evidence/modal-blender-demo/encounter.glb --env dev
+          modal volume get myth-maker-encounter-submissions "$JOB_ID/frames/000-initial.png" provider-evidence/modal-blender-demo/initial.png --env dev
+          modal volume get myth-maker-encounter-submissions "$JOB_ID/frames/010-appendages.png" provider-evidence/modal-blender-demo/intermediate.png --env dev
+          modal volume get myth-maker-encounter-submissions "$JOB_ID/frames/020-final.png" provider-evidence/modal-blender-demo/final.png --env dev
       - name: Verify downloaded provider bytes against the terminal receipt
         run: python3 scripts/verify_observed_modal_artifacts.py --receipt provider-evidence/modal-blender-demo-receipt.json --artifact-dir provider-evidence/modal-blender-demo
       - name: Upload observed Modal Blender evidence

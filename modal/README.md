@@ -73,6 +73,30 @@ native output, validate dependencies, and run the host game's import,
 gameplay-interface, animation, collision, and encounter checks before a result
 can graduate.
 
+## Deterministic recipe fallback
+
+`draft_trial.run_deterministic_recipe` is a separate bounded Modal function for
+an observable fallback when the API-operated GUI worker cannot be used. It
+accepts the closed `myth-maker.deterministic-encounter-recipe/v1` shape:
+generic body dimensions, repeated curved appendage dimensions, four material
+colors, and one camera. It runs Blender's own Python entrypoint inside the
+Modal container and writes a native `.blend`, a self-contained GLB validated by
+the existing GLB structural validator, and three real renders: `initial`,
+`intermediate`, and `final`.
+
+This function has the same private evidence Volume but **does not mount the
+OpenAI secret, initialize an OpenAI client, or require `OPENAI_API_KEY`**. Its
+in-container receipt binds the provider call/input IDs, immutable source
+revision, recipe hash, native/GLB/frame hashes, Blender command result hashes,
+and GLB structural summary. The observed GitHub workflow downloads every
+provider-persisted byte and rejects any mismatch. `Kraken` is merely the
+workflow's demo recipe ID; it is not a type, schema field, or special branch in
+the construction code.
+
+The fallback proves Blender construction and artifact persistence, not a
+gameplay-ready enemy. It does not claim rigging, collision, navigation, AI,
+host import, or player-facing acceptance.
+
 ## v1 worker-event adapter
 
 `encounter_worker_adapter.py` is an offline-testable adapter around one
