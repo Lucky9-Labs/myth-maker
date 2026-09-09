@@ -90,25 +90,26 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertIn("skip_if_exists=True", text)
         self.assertIn("lease_key = project_id + \":\" + part", text)
         self.assertIn("part_leases.get(lease_key) == job_id", text)
-        self.assertIn("BLENDER_ARCHIVE_SHA256", text)
-        self.assertIn("sha256sum --check --status", text)
         self.assertIn('modal.Image.from_registry("python:3.12-slim-bookworm")', text)
+        self.assertIn('.add_local_file(HERE / "install_blender.sh", "/opt/install_blender.sh")', text)
+        self.assertIn('.run_commands(\n             "/bin/sh /opt/install_blender.sh")', text)
         self.assertNotIn("modal.Image.debian_slim", text)
         self.assertIn('"infrastructure.py", "/opt/infrastructure.py"', text)
         self.assertNotIn("create_if_missing=True", text)
         self.assertNotIn("bpy.", text)
 
     def test_blender_archive_is_verified_before_it_can_cross_a_builder_step(self):
-        text = (MODAL_DIR / "draft_trial.py").read_text()
+        text = (MODAL_DIR / "install_blender.sh").read_text()
         download = "curl --fail --location --retry 3 --retry-all-errors --silent --show-error"
         verification = "sha256sum --check --status"
-        extraction = "tar -C /opt -xf /tmp/blender.tar.xz"
+        extraction = 'tar -C /opt -xf "$archive"'
         self.assertIn(download, text)
         self.assertIn(verification, text)
         self.assertIn(extraction, text)
         self.assertLess(text.index(download), text.index(verification))
         self.assertLess(text.index(verification), text.index(extraction))
         self.assertIn("Blender archive checksum mismatch: expected %s, actual %s, bytes %s", text)
+        self.assertIn("a31f524fa99a527d3d52b7f5aaa68c34e1a19d5a1c9473f79c5cc610fd5b10e9", text)
 
 
 if __name__ == "__main__":
