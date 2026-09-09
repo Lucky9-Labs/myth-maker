@@ -22,6 +22,80 @@ collector, asset-swarm, catalog, worker-observation, and worker-steering ideas,
 and now carries the encounter-generic draft-by-deadline flow and checkpoint
 summary below.
 
+## Current technical status — 2026-09-09
+
+This section is the current evidence ledger. It supersedes older prose in this
+plan where they conflict. A merged implementation, an independently downloaded
+artifact, a provider receipt, a local renderer capture, and a joined player
+run are different evidence tiers; none is used as a substitute for another.
+
+### Proven
+
+**Myth Maker main is current through the following merged PR heads.** These are
+the verified GitHub PR head commits, not their merge commits: #92
+`77813c741453e9c34ccbe4ac86910132f1a68604`, #93
+`d9d950bc6c673c46b1ac051f850c80995c6c126d`, #94
+`fd5d07d8b8bc33db80668312b52ed54f7d4fe7b5`, #96
+`2c65385b0ac5bb9c9ca0601f45e700d1f499c94d`, #97
+`2e27a1419fdfe005a28fc3bcbaa162a4f8c01993`, #98
+`426b1b9e887a492aceba0f5d35d1b5c653dfed52`, and #99
+`1560bab7e441b7bc18d2f636c5e74beeac56ef82`.
+
+**Modal input and deterministic artifact evidence are real, bounded proofs.**
+PR #94 resolves the draft's inputs from the immutable Modal-volume manifest,
+verifying the allowed relative paths, SHA-256 values, and lengths inside the
+mounted volume rather than transmitting a large mutable base64 input package.
+The observed deterministic Modal run independently re-downloaded and verified
+the generated `.blend`, GLB, and all three frames (initial, appendages, and
+final). This proves those exact Modal-volume bytes and the three-stage output;
+it does not prove that a human-visible Blender GUI replay completed.
+
+**The exact Unity runtime artifact is publicly available and independently
+verifiable.** The macOS Mono AssetBundle is
+[`5094518ad5b3de581b971d5fa22625e5efb1e86d9798ede8eadc9bc716dbb839.bundle`](https://myth-maker-dev-dispatcher-dev.up.railway.app/v2/artifacts/5094518ad5b3de581b971d5fa22625e5efb1e86d9798ede8eadc9bc716dbb839.bundle).
+Its public HTTPS response is `application/vnd.unity.assetbundle`, carries the
+same SHA-256 in `Digest`, and has `Content-Length: 374813`. The signed discovery
+proof is scoped to encounter
+`encounter-modal-x11-proof-20260909-13`; it is the encounter identity to retain
+when joining the selected artifact, catalog/assembly evidence, and host proof.
+
+**The host combat spine is merged.** Mech PR #47, “Add generic verified
+encounter combat spine,” merged at head
+`a1ddb9a106901a282ad68011d1f71b5d559ff03b` (merge
+`da9b446c98ea4b1132658d4688af9c8707f9e7e4`). It provides the generic session,
+critical damage, three readable attacks, objective/restart behavior, and a
+fixture-bound first-person proof-capture seam. This is a combat-spine result,
+not yet the joined remote encounter proof.
+
+### In progress
+
+**Custom GUI replay diagnostics are narrowed, not passed.** The post-#98
+custom replay suffix16 reached `accepted` / `started` / `failed` with the owned
+X11 display, empty `WAYLAND_DISPLAY`, a private mode-0700 XDG runtime, and a
+Blender X11 connection. Across all 44 readiness samples it found zero visible
+Blender-class windows. PR #99 keeps that fail-closed rule and records a bounded
+X11 root-window tree plus up to eight non-visible Blender-class candidates and
+their bounded identity properties. This is a durable diagnostic state, not
+visual GUI success.
+
+**Mech PR #48 has a local visible renderer result but is not merged.** Its
+current open head is `38e0589b691742a1afc3e4f63276891b21efc2e2`. The explicit
+local 960x720 render has 164,694 non-background pixels, which is renderer
+evidence for that checkout. It is not evidence that the same selected signed
+remote artifact completed the player-facing encounter path.
+
+### Blocked / required join
+
+The remaining D0-level proof is one signed-remote joined run: preserve the
+`encounter-modal-x11-proof-20260909-13` discovery selection, independently
+refetch the exact public AssetBundle above, load it in the Mech proof path, and
+capture the resulting first-person gameplay/render evidence under the same
+stable IDs and hashes. Until that run exists, do not claim remote package
+admission plus host loading/rendering as an end-to-end player proof. Separately,
+the custom Modal GUI replay remains blocked on finding exactly one visible
+Blender-class X11 window; PR #99's bounded diagnostics are the current evidence
+needed to resolve that failure without weakening the visibility requirement.
+
 ## D0 — Core demo target
 
 D0 is the non-negotiable proof that this repository can produce one real,
