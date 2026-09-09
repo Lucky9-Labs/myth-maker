@@ -24,6 +24,12 @@ class ModalDeployTest(unittest.TestCase):
         secret_call = next(call for call in run.call_args_list if call.args[:3] == ("modal", "secret", "create"))
         self.assertIn("--force", secret_call.args)
 
+    def test_resource_bootstrap_accepts_current_lowercase_cli_json_keys(self):
+        with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
+            modal_deploy.ensure_named_resources("dev")
+        self.assertFalse(any(call.args[:3] == ("modal", "volume", "create") for call in run.call_args_list))
+        self.assertIn("--force", next(call for call in run.call_args_list if call.args[:3] == ("modal", "secret", "create")).args)
+
     def test_failed_modal_deploy_fetches_only_the_reported_image_build_logs(self):
         error = subprocess.CalledProcessError(
             1,
