@@ -132,17 +132,34 @@ class DesktopReadinessTests(unittest.TestCase):
                 self.assertFalse(healthy_observation(observation))
                 self.assertEqual(probe.command.call_args_list[1].args[0],
                                  ["xdotool", "search", "--onlyvisible", "--class", "[Bb]lender"])
+                self.assertFalse(probe.command.call_args_list[1].kwargs["check"])
 
     def test_adapter_rejects_ambiguous_blender_class_windows(self):
         process = Mock(pid=42)
         process.poll.return_value = None
         with tempfile.TemporaryDirectory() as directory:
             probe = DesktopProbe(directory, [process], clock=lambda: 0)
-            probe.command = Mock(side_effect=[b"X11", b"123 456"])
+            probe.command = Mock(side_effect=[b"X11", b"123 456", b"root tree", b"123 456",
+                                                  b'WM_CLASS = "Blender"', b'WM_CLASS = "Blender"'])
             observation = probe.sample(60, blender_pid=42)
             self.assertEqual(observation["candidate_windows"], ["123", "456"])
             self.assertFalse(observation["window_identity_verified"])
             self.assertTrue(observation["window_identity_ambiguous"])
+            self.assertFalse(healthy_observation(observation))
+
+    def test_adapter_records_bounded_nonvisible_window_diagnostics_without_admission(self):
+        process = Mock(pid=42)
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as directory:
+            probe = DesktopProbe(directory, [process], clock=lambda: 0)
+            probe.command = Mock(side_effect=[b"X11", b"", b"root tree", b"789",
+                                                  b'_NET_WM_PID = 99\nWM_CLASS = "Blender"'])
+            observation = probe.sample(60, blender_pid=42)
+            self.assertEqual(observation["candidate_windows"], [])
+            self.assertEqual(observation["x11_root_tree"], "root tree")
+            self.assertEqual(observation["nonvisible_blender_candidates"], ["789"])
+            self.assertEqual(observation["nonvisible_blender_properties"][0]["window_id"], "789")
+            self.assertFalse(observation["window_identity_verified"])
             self.assertFalse(healthy_observation(observation))
 
     def test_adapter_dead_process_does_not_run_capture_or_ocr(self):
