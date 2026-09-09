@@ -1,0 +1,46 @@
+{
+  "job_id": "draft-gui-kraken-concept-body-source-a4",
+  "part": "kraken-concept-body-source",
+  "cloud_target": 4,
+  "local_target": 8,
+  "status": "checkpointed_partial",
+  "model": "gpt-6-astra",
+  "actions": 110,
+  "turns": 23,
+  "input_tokens": 609381,
+  "output_tokens": 2799,
+  "acceptance": "not reviewed",
+  "model_report": "Saved through Blender\u2019s GUI: `/output/kraken-concept-body-source.blend`.\n\nHandoff:\n- Geometry preserved; the single silhouette refinement is still pending.\n- Front and three-quarter views inspected.\n- Object Mode, `generated-body` active; overlays hidden.\n- `/inputs/structure_reference.png` remains visible beside the model.\n- Next: compare the remaining references, make one bounded silhouette refinement, inspect, and save.\n\nThis checkpoint does not establish gameplay, rigging, collision, or engine readiness.\n\nDRAFT_STATUS: PARTIAL",
+  "resumed_from": null,
+  "resume_kind": null,
+  "stop_reason": "budget_checkpoint",
+  "updated_at": "2026-09-09T01:23:26.807714+00:00",
+  "artifacts": {
+    "kraken-concept-body-source.blend": 122943,
+    "kraken-concept-body-source.blend1": 123254,
+    "kraken-concept-body-source_preview.png": 504308
+  },
+  "last_response_id": "resp_023854c1b32ad909006aa0b505586087d090c2232cfb72b225",
+  "latest_commentary": "Saved through Blender\u2019s GUI: `/output/kraken-concept-body-source.blend`.\n\nHandoff:\n- Geometry preserved; the single silhouette refinement is still pending.\n- Front and three-quarter views inspected.\n- Object Mode, `generated-body` active; overlays hidden.\n- `/inputs/structure_reference.png` remains visible beside the model.\n- Next: compare the remaining references, make one bounded silhouette refinement, inspect, and save.\n\nThis checkpoint does not establish gameplay, rigging, collision, or engine readiness.\n\nDRAFT_STATUS: PARTIAL",
+  "checkpoint_id": "cp-0023-ccb0708d9ac9",
+  "checkpoint_native_sha256": "528684aabca5117a248943f00482e2221d778e8f073ab8d35b2224a35f2d9777",
+  "checkpoint_error": null,
+  "checkpoint_requested": true,
+  "input_snapshot_unchanged": true,
+  "reference_snapshots_unchanged": true,
+  "files": {
+    "kraken-concept-body-source.blend": {
+      "bytes": 122943,
+      "sha256": "528684aabca5117a248943f00482e2221d778e8f073ab8d35b2224a35f2d9777"
+    },
+    "kraken-concept-body-source.blend1": {
+      "bytes": 123254,
+      "sha256": "8905d2302f5d20452df0a1fd9131c3a7101627c53fb83528e2263caf41c3974e"
+    },
+    "kraken-concept-body-source_preview.png": {
+      "bytes": 504308,
+      "sha256": "e2597a58d7cbe3e6595338f20aea8f4f655547de1488503f9282b519a8d659f2"
+    }
+  },
+  "resumable": true
+}
