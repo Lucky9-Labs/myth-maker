@@ -419,6 +419,7 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           GITHUB_SHA: ${{ needs.assert-deployment-input.outputs.source_sha }}
+          OBSERVED_MODAL_REQUEST_ID: modal-run-${{ github.run_id }}-${{ github.run_attempt }}
           OBSERVED_MODAL_JOB_ID: deterministic-encounter-demo-${{ github.run_id }}-${{ github.run_attempt }}
         run: python3 scripts/observed_modal_blender_demo.py
       - name: Retrieve provider-persisted source and Blender frames
