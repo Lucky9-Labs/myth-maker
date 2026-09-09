@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
+import { canonicalJson, canonicalSha256, compatibleFrozenPackage } from "../src/package-discovery.js";
 import worker, { EncounterCoordinator } from "../src/worker.js";
 
 const baseWorkOrder = {
@@ -19,7 +20,7 @@ const baseWorkOrder = {
     execution_kinds: ["recipe"],
     loaders: ["recipe-loader"],
     contracts: ["encounter.module.v1"],
-    limits: { memory_mb: 512, preload_seconds: 30 },
+    limits: { memory_mb: 512, preload_seconds: 30, artifact_bytes: 512, actors: 1 },
   },
   input_module_ids: [],
   attempt: 1,
@@ -69,6 +70,7 @@ function coordinator() {
   return new EncounterCoordinator({ storage: storage() }, {
     WORK_DISPATCH_URL: "https://workers.example/dispatch",
     WORK_DISPATCH_TOKEN: "dispatch",
+    PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY: "MC4CAQAwBQYDK2VwBCIEII2uBd4SxWoOh7s251KvvH03Hyx3kfMAZTwku//Ga3A4",
   });
 }
 
@@ -102,6 +104,99 @@ function appendEvent(instance, value) {
 
 async function body(result) {
   return result.json();
+}
+
+async function acceptedCatalogRevision(overrides = {}) {
+  const revision = {
+    schema_version: "1",
+    catalog_revision_id: "catalog-alpha-0001",
+    encounter_id: "encounter-alpha",
+    revision: 1,
+    state: "accepted",
+    created_at: "2026-09-08T19:30:00.000Z",
+    acceptance: {
+      decision_id: "catalog-decision-0001",
+      policy_id: "runtime-catalog-acceptance.v1",
+      accepted_at: "2026-09-08T19:31:00.000Z",
+    },
+    modules: [{
+      module_id: "baseline-core",
+      revision: 1,
+      artifact: {
+        uri: "https://artifacts.example.test/encounter-alpha/baseline-core.glb",
+        sha256: "a".repeat(64),
+        media_type: "model/gltf-binary",
+        byte_length: 256,
+      },
+      compatibility: {
+        platforms: ["macos"],
+        scripting_backends: ["il2cpp"],
+        execution_kinds: ["recipe"],
+        loaders: ["recipe-loader"],
+        contracts: ["encounter.module.v1"],
+        limits: { artifact_bytes: 512, actors: 1 },
+      },
+    }],
+    ...overrides,
+  };
+  return { ...revision, catalog_sha256: await canonicalSha256(revision) };
+}
+
+async function acceptedAssemblyReceipt(packageRecord, catalogRevision, overrides = {}) {
+  const artifact = catalogRevision.modules[0].artifact;
+  const manifestArtifact = { ...artifact, uri: `sha256:${artifact.sha256}` };
+  const manifest = {
+    schema_version: "1",
+    profile: "glb.assembly.v1",
+    assembly_id: "assembly-alpha-0001",
+    revision: 1,
+    assembled_at: "2026-09-08T19:32:00.000Z",
+    coordinate_convention: { handedness: "right", up_axis: "y", unit: "meter", transforms: "parent-relative" },
+    runtime_target: { loader: { id: "gltf", version: "2.0" }, target: { platform: "macos", render_pipeline: { id: "urp", version: "17" } } },
+    root_slot_id: "root",
+    fragments: [{
+      slot_id: "root", fragment_id: "baseline-core", revision: 1, selected_as: "primary",
+      runtime_artifact: manifestArtifact, runtime_linkage_sha256: "c".repeat(64),
+      material_slots: [], markers: [], motion_binding: { kind: "procedural" }, provenance: { producer: "accepted-worker" },
+    }],
+    attachments: [], missing_slots: [], fallback_provenance: { used_fallback: false, slot_ids: [] }, rejection_reasons: [],
+  };
+  const assemblyManifest = { ...manifest, manifest_sha256: await canonicalSha256(manifest) };
+  const receipt = {
+    schema_version: "1",
+    receipt_id: "assembly-receipt-0001",
+    encounter_id: packageRecord.encounter_id,
+    package_id: packageRecord.package_id,
+    package_revision: packageRecord.revision,
+    package_manifest_sha256: packageRecord.manifest_sha256,
+    catalog_revision_id: catalogRevision.catalog_revision_id,
+    catalog_revision_sha256: catalogRevision.catalog_sha256,
+    assembled_at: "2026-09-08T19:32:00.000Z",
+    acceptance: {
+      decision_id: "assembly-decision-0001",
+      policy_id: "runtime-assembly-acceptance.v1",
+      accepted_at: "2026-09-08T19:33:00.000Z",
+    },
+    selected_modules: [{ module_id: "baseline-core", revision: 1, artifact }],
+    assembly_manifest: assemblyManifest,
+    ...overrides,
+  };
+  return { ...receipt, receipt_sha256: await canonicalSha256(receipt) };
+}
+
+async function freezeInputs(instance, packageRecord) {
+  const catalogRevision = await acceptedCatalogRevision();
+  const recorded = await instance.fetch(new Request("https://coordinator/catalog-revisions", {
+    method: "POST", body: JSON.stringify({ catalog_revision: catalogRevision }),
+  }));
+  assert.equal(recorded.status, 201);
+  return {
+    package: packageRecord,
+    catalog_revision: catalogRevision,
+    catalog_revision_id: catalogRevision.catalog_revision_id,
+    assembly_receipt: await acceptedAssemblyReceipt(packageRecord, catalogRevision),
+    host_capabilities: baseWorkOrder.host_capabilities,
+  };
 }
 
 test("the edge route scopes each work submission to its encounter", async () => {
@@ -142,6 +237,108 @@ test("the edge route rejects a work order for a different encounter", async () =
   assert.equal(result.status, 409);
   assert.equal(called, true);
   assert.equal((await body(result)).error, "encounter_path_mismatch");
+});
+
+test("catalog admission requires the separate acceptance authority rather than a host discovery credential", async () => {
+  let forwarded = false;
+  const env = {
+    AGENT_INGRESS_TOKEN: "ingress",
+    CATALOG_ACCEPTANCE_TOKEN: "catalog-authority",
+    ENCOUNTER_COORDINATOR: {
+      idFromName(name) { return name; },
+      get() { return { fetch: async () => { forwarded = true; return new Response("{}", { status: 201 }); } }; },
+    },
+  };
+  const request = new Request("https://runtime/v1/encounters/encounter-alpha/catalog-revisions", {
+    method: "POST", headers: { authorization: "Bearer ingress", "content-type": "application/json" },
+    body: JSON.stringify({ catalog_revision: { encounter_id: "encounter-alpha" } }),
+  });
+  const result = await worker.fetch(request, env);
+  assert.equal(result.status, 401);
+  assert.equal((await body(result)).error, "catalog_acceptance_unauthorized");
+  assert.equal(forwarded, false);
+});
+
+test("the authenticated discovery route returns only a frozen package bound to accepted catalog and assembly revisions", async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("accepted", { status: 202 });
+  try {
+    const instance = coordinator();
+    await submit(instance, workOrder());
+    const packageRecord = playablePackage();
+    const inputs = await freezeInputs(instance, packageRecord);
+    assert.equal(await compatibleFrozenPackage({ packageRecord, catalogRevision: inputs.catalog_revision, assemblyReceipt: inputs.assembly_receipt, hostCapabilities: baseWorkOrder.host_capabilities }), true);
+    const frozen = await instance.fetch(new Request("https://coordinator/freeze", {
+      method: "POST",
+      body: JSON.stringify(inputs),
+    }));
+    assert.equal(frozen.status, 201);
+
+    const request = {
+      schema_version: "1",
+      request_id: "discovery-request-0001",
+      idempotency_key: "discovery-request-0001",
+      host_capabilities: baseWorkOrder.host_capabilities,
+    };
+    const first = await instance.fetch(new Request("https://coordinator/package-discoveries", { method: "POST", body: JSON.stringify(request) }));
+    const replay = await instance.fetch(new Request("https://coordinator/package-discoveries", { method: "POST", body: JSON.stringify(request) }));
+    assert.equal(first.status, 200);
+    assert.equal(replay.status, 200);
+    const selected = await body(first);
+    assert.equal(selected.status, "selected");
+    assert.deepEqual(selected.manifest.artifacts, [{
+      module_id: "baseline-core", revision: 1,
+      uri: "https://artifacts.example.test/encounter-alpha/baseline-core.glb",
+      sha256: "a".repeat(64), media_type: "model/gltf-binary", byte_length: 256,
+    }]);
+    assert.equal(selected.manifest.catalog_revision_id, inputs.catalog_revision_id);
+    assert.equal(selected.manifest.assembly_receipt_id, inputs.assembly_receipt.receipt_id);
+    assert.deepEqual(selected.manifest.signature.algorithm, "Ed25519");
+    assert.match(selected.manifest.signature.value, /^[A-Za-z0-9_-]{86}$/);
+    const unsignedManifest = structuredClone(selected.manifest);
+    delete unsignedManifest.signature;
+    const publicKey = await crypto.subtle.importKey("spki", Buffer.from("MCowBQYDK2VwAyEA45D06/XjPdHC8dvH1W/4IIhmHRXsmeyPSOBrSDNcBpY=", "base64"), { name: "Ed25519" }, false, ["verify"]);
+    assert.equal(await crypto.subtle.verify({ name: "Ed25519" }, publicKey, Buffer.from(selected.manifest.signature.value, "base64url"), new TextEncoder().encode(canonicalJson(unsignedManifest))), true);
+    assert.deepEqual(await body(replay), selected);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});
+
+test("discovery fails closed for an absent accepted package and never accepts a receipt-shaped report", async () => {
+  const instance = coordinator();
+  const absent = await instance.fetch(new Request("https://coordinator/package-discoveries", {
+    method: "POST",
+    headers: { "x-encounter-id": "encounter-alpha" },
+    body: JSON.stringify({ schema_version: "1", request_id: "discovery-empty-0001", idempotency_key: "discovery-empty-0001", host_capabilities: baseWorkOrder.host_capabilities }),
+  }));
+  assert.equal(absent.status, 200);
+  assert.deepEqual(await body(absent), {
+    schema_version: "1", status: "no_package", encounter_id: "encounter-alpha", request_id: "discovery-empty-0001", reason: "no_accepted_compatible_package",
+  });
+
+  const report = await instance.fetch(new Request("https://coordinator/catalog-revisions", {
+    method: "POST",
+    body: JSON.stringify({ catalog_revision: { schema_version: "1", catalog_revision_id: "report-0001", encounter_id: "encounter-alpha", state: "accepted" } }),
+  }));
+  assert.equal(report.status, 400);
+  assert.equal((await body(report)).error, "invalid_accepted_catalog_revision");
+
+  const sprinter = await acceptedCatalogRevision({
+    catalog_revision_id: "catalog-sprinter-0001",
+    modules: [{
+      ...(await acceptedCatalogRevision()).modules[0],
+      artifact: {
+        uri: "https://artifacts.example.test/SPRINTER/baseline-core.glb",
+        sha256: "b".repeat(64), media_type: "model/gltf-binary", byte_length: 256,
+      },
+    }],
+  });
+  const rejectedSource = await instance.fetch(new Request("https://coordinator/catalog-revisions", {
+    method: "POST", body: JSON.stringify({ catalog_revision: sprinter }),
+  }));
+  assert.equal(rejectedSource.status, 400);
+  assert.equal((await body(rejectedSource)).error, "invalid_accepted_catalog_revision");
 });
 
 test("the coordinator dispatches a v1 work item through the adapter", async () => {
@@ -365,7 +562,7 @@ test("freezing persists one immutable assembler-supplied package", async () => {
       body: JSON.stringify({ package: { ...packageToFreeze, manifest_sha256: "0".repeat(64) } }),
     }));
     assert.equal(tampered.status, 400);
-    const firstFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST", body: JSON.stringify({ package: packageToFreeze }) }));
+    const firstFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST", body: JSON.stringify(await freezeInputs(instance, packageToFreeze)) }));
     const frozen = await body(firstFreeze);
     const replayFreeze = await instance.fetch(new Request("https://coordinator/freeze", { method: "POST" }));
     assert.equal(firstFreeze.status, 201);
@@ -395,7 +592,7 @@ test("freezing accepts only a hash-valid pre-frozen assembler package", async ()
     assert.equal(tampered.status, 400);
     const accepted = await instance.fetch(new Request("https://coordinator/freeze", {
       method: "POST",
-      body: JSON.stringify({ package: frozenPackage }),
+      body: JSON.stringify(await freezeInputs(instance, frozenPackage)),
     }));
     assert.equal(accepted.status, 201);
     assert.deepEqual(await body(accepted), frozenPackage);

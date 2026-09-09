@@ -88,6 +88,22 @@ variable "work_dispatch_token" {
   sensitive   = true
 }
 
+variable "package_discovery_signing_private_key" {
+  description = "Base64 PKCS#8 Ed25519 private key for PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY. Never commit this value."
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+}
+
+variable "catalog_acceptance_token" {
+  description = "Value for the CATALOG_ACCEPTANCE_TOKEN Worker secret used only by the catalog acceptance authority. Never commit this value."
+  type        = string
+  default     = null
+  nullable    = true
+  sensitive   = true
+}
+
 variable "release_revision" {
   description = "Immutable source revision recorded by the CI deployment controller in deployment receipts. Null is allowed for local validation only."
   type        = string

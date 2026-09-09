@@ -11,6 +11,8 @@ locals {
   cloudflare_secret_names = [
     "AGENT_INGRESS_TOKEN",
     "WORK_DISPATCH_TOKEN",
+    "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY",
+    "CATALOG_ACCEPTANCE_TOKEN",
   ]
 
   railway_secret_names = [
@@ -53,6 +55,14 @@ locals {
       type = "secret_text"
       name = "WORK_DISPATCH_TOKEN"
       text = var.work_dispatch_token
+      }], var.package_discovery_signing_private_key == null ? [] : [{
+      type = "secret_text"
+      name = "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"
+      text = var.package_discovery_signing_private_key
+      }], var.catalog_acceptance_token == null ? [] : [{
+      type = "secret_text"
+      name = "CATALOG_ACCEPTANCE_TOKEN"
+      text = var.catalog_acceptance_token
   }])
 }
 
@@ -106,6 +116,10 @@ resource "cloudflare_worker_version" "coordinator" {
     name         = "encounter-package-assembler.js"
     content_type = "application/javascript+module"
     content_file = "${path.module}/../../src/encounter-package-assembler.js"
+    }, {
+    name         = "package-discovery.js"
+    content_type = "application/javascript+module"
+    content_file = "${path.module}/../../src/package-discovery.js"
   }]
   bindings = local.cloudflare_bindings
   migrations = var.cloudflare_do_migration_tag == null ? null : {
@@ -119,9 +133,11 @@ resource "cloudflare_worker_version" "coordinator" {
         var.work_dispatch_url != null &&
         var.agent_ingress_token != null &&
         var.work_dispatch_token != null &&
+        var.package_discovery_signing_private_key != null &&
+        var.catalog_acceptance_token != null &&
         var.release_revision != null
       )
-      error_message = "An enabled Worker deployment requires the explicit dispatcher URL, both secret values, and an immutable release_revision."
+      error_message = "An enabled Worker deployment requires the explicit dispatcher URL, ingress/dispatcher/catalog-acceptance/discovery-signing secrets, and an immutable release_revision."
     }
   }
 }

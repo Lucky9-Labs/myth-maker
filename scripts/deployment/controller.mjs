@@ -21,7 +21,7 @@ export const providerDefinitions = Object.freeze({
     // The Terraform foundation owns Cloudflare bindings and their runtime
     // secrets. This provider adapter has no direct deployment command yet.
     secretNames: [],
-    requiredFiles: ["wrangler.jsonc", "src/worker.js", "src/encounter-package-assembler.js"],
+    requiredFiles: ["wrangler.jsonc", "src/worker.js", "src/encounter-package-assembler.js", "src/package-discovery.js"],
     preview: ["npx", ["--yes", "wrangler@4.37.0", "deploy", "--dry-run", "--config", "wrangler.jsonc"]],
     // Terraform owns the Worker version/deployment because it also owns the
     // environment bindings. A second Wrangler deploy would race that state.
