@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 import { canonicalJson, canonicalSha256, compatibleFrozenPackage } from "../src/package-discovery.js";
-import worker, { EncounterCoordinator } from "../src/worker.js";
+import worker, { EncounterCoordinator, WorkDispatcherAdapter } from "../src/worker.js";
 
 const baseWorkOrder = {
   schema_version: "1",
@@ -574,6 +574,21 @@ test("dispatch configuration and transport failures expose only stable safe code
   } finally {
     globalThis.fetch = oldFetch;
   }
+});
+
+test("the dispatcher invokes an injected fetcher without rebinding its receiver", async () => {
+  let receiver;
+  const fetcher = function () {
+    receiver = this;
+    return Promise.resolve(new Response("accepted", { status: 202 }));
+  };
+  const dispatcher = new WorkDispatcherAdapter({
+    WORK_DISPATCH_URL: "https://workers.example/dispatch",
+    WORK_DISPATCH_TOKEN: "dispatch",
+  }, fetcher);
+
+  assert.deepEqual(await dispatcher.dispatch(workOrder()), { ok: true, status: 202 });
+  assert.equal(receiver, undefined);
 });
 
 test("a restarted coordinator recovers a journaled dispatch with the stable work ID", async () => {

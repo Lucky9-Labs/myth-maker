@@ -245,7 +245,7 @@ function eventStatus(current, event) {
 }
 
 export class WorkDispatcherAdapter {
-  constructor(env, fetcher = fetch) {
+  constructor(env, fetcher) {
     this.url = env.WORK_DISPATCH_URL;
     this.token = env.WORK_DISPATCH_TOKEN;
     this.fetcher = fetcher;
@@ -257,7 +257,8 @@ export class WorkDispatcherAdapter {
     if (dispatchUrl.protocol !== "https:") return { ok: false, error_code: "work_dispatch_url_invalid" };
     if (typeof this.token !== "string" || this.token.length === 0) return { ok: false, error_code: "work_dispatch_token_missing" };
     try {
-      const dispatched = await this.fetcher(dispatchUrl, {
+      const fetcher = this.fetcher || ((input, init) => fetch(input, init));
+      const dispatched = await fetcher(dispatchUrl, {
         method: "POST",
         headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json", "x-work-id": workOrder.work_id },
         body: JSON.stringify(workOrder),
