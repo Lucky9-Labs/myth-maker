@@ -173,6 +173,18 @@ class DesktopProbe:
                 observation["window_identity_verified"] = False
                 observation["window_identity_ambiguous"] = len(ids) > 1
                 observation.update(self.window_diagnostics(deadline))
+                hidden = observation["nonvisible_blender_candidates"]
+                properties = observation["nonvisible_blender_properties"]
+                if not ids and len(hidden) == 1 and len(properties) == 1:
+                    props = properties[0]["properties"]
+                    class_verified = re.search(r'WM_CLASS\([^)]*\).*"[Bb]lender"', props) is not None
+                    pid_verified = re.search(
+                        r"_NET_WM_PID\([^)]*\)\s*=\s*" + str(blender_pid) + r"\b", props) is not None
+                    observation["nonvisible_window_class_verified"] = class_verified
+                    observation["nonvisible_window_pid_verified"] = pid_verified
+                    if class_verified and pid_verified:
+                        self.command(["xdotool", "windowmap", hidden[0]], deadline)
+                        observation["window_map_requested"] = hidden[0]
                 return observation
             window = ids[0]
             props = self.command(["xprop", "-id", window, "_NET_WM_PID", "WM_CLASS", "WM_NAME"], deadline).decode(errors="replace")

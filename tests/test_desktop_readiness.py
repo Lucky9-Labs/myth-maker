@@ -153,14 +153,31 @@ class DesktopReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             probe = DesktopProbe(directory, [process], clock=lambda: 0)
             probe.command = Mock(side_effect=[b"X11", b"", b"root tree", b"789",
-                                                  b'_NET_WM_PID = 99\nWM_CLASS = "Blender"'])
+                                                  b'_NET_WM_PID(CARDINAL) = 99\nWM_CLASS(STRING) = "Blender"'])
             observation = probe.sample(60, blender_pid=42)
             self.assertEqual(observation["candidate_windows"], [])
             self.assertEqual(observation["x11_root_tree"], "root tree")
             self.assertEqual(observation["nonvisible_blender_candidates"], ["789"])
             self.assertEqual(observation["nonvisible_blender_properties"][0]["window_id"], "789")
             self.assertFalse(observation["window_identity_verified"])
+            self.assertTrue(observation["nonvisible_window_class_verified"])
+            self.assertFalse(observation["nonvisible_window_pid_verified"])
+            self.assertNotIn("window_map_requested", observation)
             self.assertFalse(healthy_observation(observation))
+
+    def test_adapter_maps_one_owned_nonvisible_blender_window_but_waits_for_later_proof(self):
+        process = Mock(pid=42)
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as directory:
+            probe = DesktopProbe(directory, [process], clock=lambda: 0)
+            probe.command = Mock(side_effect=[b"X11", b"", b"root tree", b"789",
+                                                  b'_NET_WM_PID(CARDINAL) = 42\nWM_CLASS(STRING) = "Blender"', b""])
+            observation = probe.sample(60, blender_pid=42)
+            self.assertEqual(observation["window_map_requested"], "789")
+            self.assertTrue(observation["nonvisible_window_class_verified"])
+            self.assertTrue(observation["nonvisible_window_pid_verified"])
+            self.assertFalse(healthy_observation(observation))
+            self.assertEqual(probe.command.call_args_list[-1].args[0], ["xdotool", "windowmap", "789"])
 
     def test_adapter_dead_process_does_not_run_capture_or_ocr(self):
         process = Mock(pid=42)
