@@ -91,6 +91,8 @@ class DraftPolicyTests(unittest.TestCase):
         text = (MODAL_DIR / "draft_trial.py").read_text()
         ast.parse(text)
         self.assertIn("MAX_SECONDS = 12 * 60", text)
+        self.assertIn("wait_for_desktop(root, processes, time.monotonic() + 45)", text)
+        self.assertNotIn("Astra receives the capture and uses passive", text)
         self.assertIn("retries=0", text)
         self.assertIn("max_retries=0", text)
         self.assertIn("skip_if_exists=True", text)

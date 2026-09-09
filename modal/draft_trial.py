@@ -21,7 +21,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
 from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, read_stable, sha256, validate_native, write_json_atomic
-from desktop_readiness import terminal_failure
+from desktop_readiness import terminal_failure, wait_for_desktop
 from infrastructure import runtime
 
 RUNTIME = runtime()
@@ -349,18 +349,21 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             process_logs.append((root / (name + ".log")).open("w"))
         processes.append(subprocess.Popen(["Xvfb", ":99", "-ac", "-screen", "0", "1600x1000x24", "-nolisten", "tcp"],
                                           stdout=process_logs[0], stderr=subprocess.STDOUT))
-        # Match the historically working worker: Blender may initially render a
-        # black desktop, so Astra receives the capture and uses passive
-        # screenshot/wait turns while the GUI completes its own startup.
         time.sleep(2)
         processes.append(subprocess.Popen(["openbox"], stdout=process_logs[1], stderr=subprocess.STDOUT))
         blender_args = blender_launch_args(bool(resume), part)
         processes.append(subprocess.Popen(blender_args, stdout=process_logs[2], stderr=subprocess.STDOUT))
-        time.sleep(5)
         if any(process.poll() is not None for process in processes):
             raise RuntimeError("An isolated desktop process exited during startup")
-        initial = screenshot(shots / "000-initial.png")
-        shutil.copy2(shots / "000-initial.png", root / "latest.png")
+        # Do not spend model turns guessing at a black or unrecognized X11
+        # desktop. The bounded probe records concrete startup evidence first.
+        initial, readiness = wait_for_desktop(root, processes, time.monotonic() + 45)
+        startup_capture = root / readiness["capture"]
+        shutil.copy2(startup_capture, shots / "000-initial.png")
+        shutil.copy2(startup_capture, root / "latest.png")
+        state["desktop_readiness"] = {"capture": readiness["capture"],
+                                      "window_id": readiness["window_id"],
+                                      "ui_text": readiness["ui_text"]}
         state["status"] = "running"
         checkpoint()
         persist()
