@@ -146,6 +146,67 @@ def normalize_scene(job: dict) -> None:
                 polygon.use_smooth = False
 
 
+def isolate_worker_ownership(job_type: str) -> int:
+    """Make structure and armor lanes disjoint before immutable fan-in."""
+    if job_type not in {"mech-structure", "mech-armor"}:
+        return 0
+    removed = 0
+    keep_role = "structure" if job_type == "mech-structure" else "removable-armor"
+    for obj in list(bpy.context.scene.objects):
+        if obj.type == "MESH" and obj.get("asset_role") != keep_role:
+            bpy.data.objects.remove(obj, do_unlink=True); removed += 1
+    return removed
+
+
+def _thicken(obj, factor: float) -> None:
+    dimensions = list(obj.dimensions)
+    longest = max(range(3), key=lambda index: dimensions[index])
+    for axis in range(3):
+        if axis != longest: obj.scale[axis] *= factor
+
+
+def apply_reference_corrections(job_type: str) -> int:
+    """Apply the bounded first defect batch observed against the frozen refs."""
+    changed = 0
+    for obj in bpy.context.scene.objects:
+        if obj.type != "MESH": continue
+        name = obj.name.lower()
+        if job_type == "mech-structure":
+            if any(token in name for token in ("thigh", "calf", "shin", "forearm", "upperarm", "upper-arm")):
+                _thicken(obj, 1.18); changed += 1
+            elif "hand" in name or "finger" in name:
+                _thicken(obj, 1.30); changed += 1
+            elif "foot" in name or "toe" in name:
+                _thicken(obj, 1.22); changed += 1
+        elif job_type == "mech-armor":
+            if obj.get("asset_role") == "removable-armor":
+                _thicken(obj, 1.10); changed += 1
+                if "canopy" in name or "cockpit" in name:
+                    obj.rotation_euler.x += math.radians(-7); changed += 1
+        elif job_type == "railgun":
+            if any(token in name for token in ("muzzle", "front", "barrel")):
+                _thicken(obj, 0.86); changed += 1
+            elif "sight" in name or "optic" in name:
+                obj.scale *= 1.12; changed += 1
+    if changed == 0:
+        raise RuntimeError("reference correction batch matched no owned geometry")
+    return changed
+
+
+def mount_railgun_to_mech() -> int:
+    """Translate Worker C's immutable group from its primary grip to the mech hands."""
+    railgun = [obj for obj in bpy.context.scene.objects if "worker-c" in str(obj.get("asset_production_work", ""))]
+    hands = [obj for obj in bpy.context.scene.objects if obj.type == "MESH" and "hand" in obj.name.lower()]
+    grip = next((obj for obj in railgun if obj.name.lower() == "primary-grip"), None)
+    if not railgun or not hands or grip is None:
+        raise RuntimeError("assembly cannot resolve railgun group, primary grip, and mech hands")
+    target = sum((obj.matrix_world.translation for obj in hands), Vector((0, 0, 0))) / len(hands)
+    offset = target - grip.matrix_world.translation
+    roots = [obj for obj in railgun if obj.parent is None]
+    for obj in roots: obj.location += offset
+    return len(roots)
+
+
 def ensure_railgun_anchors() -> None:
     meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
     if not meshes:
@@ -313,7 +374,12 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     kinds = {operation["kind"] for operation in job["operations"]}
     load_sources(source_files(Path(args.inputs)), "assemble" in kinds or job["job_type"] == "kit-assembly")
+    if job["job_type"] == "kit-assembly":
+        mount_railgun_to_mech()
     normalize_scene(job)
+    isolate_worker_ownership(job["job_type"])
+    if "apply-reference-corrections" in kinds:
+        apply_reference_corrections(job["job_type"])
     if "apply-core-kit" in kinds:
         apply_core_kit()
     if job["job_type"] == "railgun" or "animate" in kinds:

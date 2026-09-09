@@ -15,7 +15,7 @@ FORMAT = "myth-maker.asset-production-job/v1"
 SLOTS = ("worker-a", "worker-b", "worker-c", "worker-d")
 JOB_TYPES = ("mech-structure", "mech-armor", "railgun", "core-kit", "kit-assembly", "final-validation")
 OPERATIONS = (
-    "normalize", "apply-core-kit", "assemble", "bind-rig", "animate",
+    "normalize", "apply-core-kit", "apply-reference-corrections", "assemble", "bind-rig", "animate",
     "render-review", "export-glb", "validate",
 )
 VIEWS = (
@@ -181,6 +181,37 @@ def plan_production_wave(values: list[dict]) -> list[dict]:
         if item["worker_slot"] == "worker-d" and item["job_type"] not in {"core-kit", "kit-assembly", "final-validation"}:
             raise ValueError("worker-d is reserved for kit assembly and validation")
     return sorted(checked, key=lambda item: SLOTS.index(item["worker_slot"]))
+
+
+def prepare_correction_wave(run_root: Path, runtime_deployment: dict) -> list[dict]:
+    """Advance A-C from their latest completed native assets and retain D as fan-in template."""
+    if set(runtime_deployment) != {"source_sha", "function_id"}:
+        raise ValueError("correction wave requires the current runtime deployment")
+    receipts = []
+    for path in run_root.glob("*/attempt-*/receipt.json"):
+        try: receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError): continue
+        if isinstance(receipt, dict): receipts.append((path, receipt))
+    wave = []
+    for slot in SLOTS:
+        candidates = [(path, item) for path, item in receipts if item.get("worker_slot") == slot and item.get("status") == "completed" and (item.get("artifacts") or {}).get("asset.blend")]
+        if not candidates: raise ValueError("correction wave has no completed native baseline for " + slot)
+        receipt_path, receipt = max(candidates, key=lambda pair: pair[1].get("attempt", 0))
+        prior = json.loads((receipt_path.parent / "job.json").read_text(encoding="utf-8"))
+        native = receipt["artifacts"]["asset.blend"]
+        references = [dict(item) for item in prior["inputs"] if item["media_type"] in {"image/png", "image/jpeg"}]
+        inputs = ([{"path": native["volume_path"], "bytes": native["bytes"], "sha256": native["sha256"],
+                    "media_type": "application/x-blender", "staged_name": "source.blend"}, *references]
+                  if slot != "worker-d" else [dict(item) for item in prior["inputs"]])
+        attempts = [item.get("attempt", 0) for _path, item in receipts if item.get("work_id") == receipt["work_id"]]
+        operations = [dict(item) for item in prior["operations"]]
+        if slot != "worker-d" and {item["kind"] for item in operations}.isdisjoint({"apply-reference-corrections"}):
+            operations.append({"kind": "apply-reference-corrections"})
+        wave.append(validate_job_manifest({**prior, "attempt": max(attempts) + 1,
+            "runtime_deployment": dict(runtime_deployment), "source_revision": native["sha256"],
+            "inputs": inputs, "dependencies": [] if slot != "worker-d" else list(prior["dependencies"]),
+            "operations": operations}))
+    return plan_production_wave(wave)
 
 
 def validate_visual_critique(value: dict) -> dict:

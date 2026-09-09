@@ -17,6 +17,7 @@ from asset_production import (
     fan_in_assembly_job,
     create_run_ledger,
     plan_production_wave,
+    prepare_correction_wave,
     run_asset_production_job,
     stage_volume_inputs,
     summarize_efficiency,
@@ -62,6 +63,15 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('scene.render.engine = "BLENDER_EEVEE"', driver)
         self.assertNotIn('scene.render.engine = "BLENDER_EEVEE_NEXT"', driver)
         self.assertIn('scene.world = bpy.data.worlds.new("asset-review-world")', driver)
+        self.assertIn("def isolate_worker_ownership", driver)
+        self.assertIn("def apply_reference_corrections", driver)
+        self.assertIn("reference correction batch matched no owned geometry", driver)
+        self.assertIn("def mount_railgun_to_mech", driver)
+
+    def test_manifest_accepts_bounded_reference_correction_operation(self):
+        manifest = job()
+        manifest["operations"].append({"kind": "apply-reference-corrections"})
+        self.assertIn({"kind": "apply-reference-corrections"}, validate_job_manifest(manifest)["operations"])
 
     def test_job_manifest_is_closed_and_has_a_stable_digest(self):
         checked = validate_job_manifest(job())
@@ -218,6 +228,24 @@ class AssetProductionTests(unittest.TestCase):
         self.assertEqual(assembly["dependencies"], ["1" * 64, "2" * 64, "3" * 64])
         self.assertIn({"kind": "assemble"}, assembly["operations"])
         self.assertEqual([item["media_type"] for item in assembly["inputs"]].count("image/png"), 1)
+
+    def test_correction_wave_advances_native_baselines_and_adds_real_patch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
+                    job("worker-c", "railgun"), job("worker-d", "core-kit")]
+            for index, item in enumerate(wave):
+                attempt = root / item["work_id"] / "attempt-0003"; attempt.mkdir(parents=True)
+                (attempt / "job.json").write_text(json.dumps(item))
+                native = {"volume_path": f"asset-production/run/{item['work_id']}/asset.blend",
+                          "bytes": 100 + index, "sha256": str(index + 1) * 64}
+                receipt = {"worker_slot": item["worker_slot"], "work_id": item["work_id"], "attempt": 3,
+                           "status": "completed", "artifacts": {"asset.blend": native}}
+                (attempt / "receipt.json").write_text(json.dumps(receipt))
+            corrected = prepare_correction_wave(root, {"source_sha": "c" * 40, "function_id": "fu-next"})
+            self.assertEqual([item["attempt"] for item in corrected], [4, 4, 4, 4])
+            self.assertTrue(all({"kind": "apply-reference-corrections"} in item["operations"] for item in corrected[:3]))
+            self.assertEqual(corrected[0]["inputs"][0]["sha256"], "1" * 64)
 
     def test_run_ledger_includes_every_attempt_and_keeps_acceptance_pending(self):
         wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
