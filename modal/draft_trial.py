@@ -28,7 +28,7 @@ from glb_source_importer import validate_glb
 from infrastructure import runtime
 from modal_volume_inputs import load_volume_inputs, validate_volume_input_manifest
 from asset_production import (create_run_ledger, run_asset_production_job as execute_asset_production_job,
-                              validate_critique_request, validate_job_manifest, validate_visual_critique)
+                              prepare_correction_wave, validate_critique_request, validate_job_manifest, validate_visual_critique)
 from asset_progress import build_dashboard, dashboard_bundle, evaluate_reference_progress
 
 RUNTIME = runtime()
@@ -375,6 +375,16 @@ def get_asset_progress_dashboard(run_id: str) -> dict:
     bundle = dashboard_bundle(run_root)
     volume.commit()
     return bundle
+
+
+@app.function(image=image, cpu=0.25, memory=512, timeout=120, retries=0,
+              max_containers=1, volumes={"/submissions": volume})
+def prepare_asset_correction_wave(run_id: str, runtime_deployment: dict) -> list[dict]:
+    """Build the next immutable defect-correction wave from cloud baselines."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", run_id or ""):
+        raise ValueError("invalid asset production run id")
+    volume.reload()
+    return prepare_correction_wave(SUBMISSIONS_ROOT / "asset-production" / run_id, runtime_deployment)
 
 def screenshot(path: Path) -> bytes:
     subprocess.run(["scrot", "-o", str(path)], check=True, capture_output=True, timeout=5)
