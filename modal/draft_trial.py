@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,8 @@ sys.path.insert(0, "/opt")
 from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, modal_volume_receipt, read_stable, sha256, validate_native, write_json_atomic
 from desktop_readiness import terminal_failure, wait_for_desktop
+from deterministic_encounter import MATERIAL_NAMES, recipe_digest, validate_recipe
+from glb_source_importer import validate_glb
 from infrastructure import runtime
 
 RUNTIME = runtime()
@@ -43,7 +46,13 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .add_local_file(HERE / "draft_support.py", "/opt/draft_support.py", copy=True)
          .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py", copy=True)
          .add_local_file(HERE / "desktop_readiness.py", "/opt/desktop_readiness.py", copy=True)
-         .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py", copy=True))
+         .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py", copy=True)
+         .add_local_file(HERE / "deterministic_encounter.py", "/opt/deterministic_encounter.py", copy=True)
+         .add_local_file(HERE / "encounter_worker_adapter.py", "/opt/encounter_worker_adapter.py", copy=True)
+         .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True))
+
+volume = modal.Volume.from_name(RUNTIME.volume_name)
+SUBMISSIONS_ROOT = Path("/submissions")
 
 
 @app.function(image=image, timeout=60, cpu=0.125, retries=0, max_containers=1)
@@ -65,7 +74,6 @@ def run_dispatch_probe(work_order: dict) -> dict:
         "input_id": input_id,
         "worker_id": input_id,
     }
-volume = modal.Volume.from_name(RUNTIME.volume_name)
 secret = modal.Secret.from_name(
     RUNTIME.openai_secret_name,
     required_keys=list(RUNTIME.openai_secret_keys),
@@ -79,6 +87,100 @@ part_leases = modal.Dict.from_name(
 
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _deterministic_artifact(path: Path) -> dict:
+    data = read_stable(path)
+    return {"bytes": len(data), "sha256": digest(data)}
+
+
+@app.function(image=image, cpu=4, memory=8192, timeout=8 * 60, retries=0, max_containers=1,
+              volumes={"/submissions": volume})
+def run_deterministic_recipe(job_id: str, recipe: dict, provenance: dict) -> dict:
+    """Build one generic recipe in Blender without a model API or secret.
+
+    This is separate from ``run_draft``: it mounts the private evidence Volume
+    but has no OpenAI secret and never calls the Responses API.  Hashes and
+    the provider receipt are produced in the Modal container after Blender
+    writes the native scene, self-contained GLB, and three staged PNG frames.
+    """
+    if not isinstance(job_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", job_id):
+        raise ValueError("deterministic recipe job_id must be a stable identifier")
+    checked_recipe = validate_recipe(recipe)
+    if not isinstance(provenance, dict) or set(provenance) - {"source_sha", "request_kind", "deployed_function_id"}:
+        raise ValueError("deterministic recipe provenance has an invalid shape")
+    source_sha = provenance.get("source_sha")
+    if not isinstance(source_sha, str) or not re.fullmatch(r"[a-f0-9]{40}", source_sha):
+        raise ValueError("deterministic recipe provenance needs an immutable source_sha")
+    if provenance.get("request_kind", "deterministic-encounter-recipe") != "deterministic-encounter-recipe":
+        raise ValueError("deterministic recipe provenance has an unsupported request_kind")
+    deployed_function_id = provenance.get("deployed_function_id")
+    if not isinstance(deployed_function_id, str) or not re.fullmatch(r"fu-[A-Za-z0-9]+", deployed_function_id):
+        raise ValueError("deterministic recipe provenance needs the deployed Modal function ID")
+    function_call_id, input_id = modal.current_function_call_id(), modal.current_input_id()
+    if not function_call_id or not input_id:
+        raise RuntimeError("Modal did not provide a call and input identity to the deterministic recipe")
+
+    volume.reload()
+    root = SUBMISSIONS_ROOT / job_id
+    root.mkdir(exist_ok=False)
+    output, frames = root / "output", root / "frames"
+    output.mkdir()
+    recipe_path = root / "recipe.json"
+    recipe_bytes = json.dumps(checked_recipe, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    recipe_path.write_bytes(recipe_bytes)
+    native = output / (checked_recipe["recipe_id"] + ".blend")
+    glb = output / (checked_recipe["recipe_id"] + ".glb")
+    command = ["/usr/local/bin/blender", "--background", "--factory-startup", "--disable-autoexec",
+               "--python", "/opt/deterministic_encounter.py", "--", "--recipe", str(recipe_path),
+               "--output", str(native), "--frames", str(frames), "--glb", str(glb)]
+    started = time.monotonic()
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=7 * 60, check=False)
+    execution = {
+        "engine": "blender-cli", "returncode": completed.returncode,
+        "duration_ms": round((time.monotonic() - started) * 1000),
+        "stdout_sha256": digest(completed.stdout.encode()), "stderr_sha256": digest(completed.stderr.encode()),
+    }
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip().replace("\n", " ")[:500]
+        raise RuntimeError("deterministic Blender recipe failed" + (": " + detail if detail else ""))
+    required_frames = {
+        "initial": frames / "000-initial.png",
+        "intermediate": frames / "010-appendages.png",
+        "final": frames / "020-final.png",
+    }
+    if not native.is_file() or not glb.is_file() or not all(path.is_file() for path in required_frames.values()):
+        raise RuntimeError("deterministic Blender recipe omitted a required native, GLB, or staged frame")
+    validate_native(read_stable(native))
+    glb_document = validate_glb(read_stable(glb), material_allowlist=list(MATERIAL_NAMES), extension_allowlist=[])
+    output_files = {path.name: _deterministic_artifact(path) for path in (native, glb)}
+    frame_files = {
+        label: (str(path.relative_to(root)), _deterministic_artifact(path))
+        for label, path in required_frames.items()
+    }
+    state = {
+        "format": "myth-maker.deterministic-modal-blender-receipt/v1",
+        "status": "completed", "job_id": job_id, "recipe_id": checked_recipe["recipe_id"],
+        "execution": execution,
+        "provenance": {
+            "source_sha": source_sha, "recipe_format": checked_recipe["format"],
+            "recipe_sha256": recipe_digest(checked_recipe), "deployed_function_id": deployed_function_id,
+            "openai_api_used": False,
+        },
+        "glb_validation": {
+            "format": "glb-2.0-self-contained", "node_count": len(glb_document.get("nodes", [])),
+            "material_names": [item.get("name") for item in glb_document.get("materials", [])],
+        },
+        "files": output_files,
+        "provider_receipt": modal_volume_receipt(
+            volume_name=RUNTIME.volume_name, job_id=job_id, app_name=RUNTIME.app_name,
+            environment=RUNTIME.environment, function_name="run_deterministic_recipe",
+            function_call_id=function_call_id, input_id=input_id, output_files=output_files,
+            blender_frames=frame_files),
+    }
+    write_json_atomic(root / "status.json", state)
+    volume.commit()
+    return state
 
 
 def image_item(data: bytes) -> dict:
