@@ -126,6 +126,9 @@ def apply_core_kit() -> None:
 def normalize_scene(job: dict) -> None:
     seen = set()
     for index, obj in enumerate(sorted(bpy.context.scene.objects, key=lambda item: item.name.lower())):
+        prior_work = str(obj.get("asset_production_work", ""))
+        if prior_work and prior_work != job["work_id"]:
+            obj["asset_source_lane"] = prior_work.rsplit("-", 1)[-1]
         base = slug(obj.name)
         name = base
         suffix = 2
@@ -276,17 +279,14 @@ def look_at(camera, target: Vector) -> None:
     camera.rotation_euler = (target - camera.location).to_track_quat("-Z", "Y").to_euler()
 
 
-def render_views(output: Path, views: list[str]) -> None:
+def render_views(output: Path, views: list[str], job: dict) -> None:
     meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
-    low, high = bounds(meshes)
-    center, size = (low + high) * 0.5, max((high - low).length, 1.0)
     camera_data = bpy.data.cameras.get("asset-review-camera") or bpy.data.cameras.new("asset-review-camera")
     camera = bpy.data.objects.get("asset-review-camera") or bpy.data.objects.new("asset-review-camera", camera_data)
     if camera.name not in bpy.context.scene.objects:
         bpy.context.scene.collection.objects.link(camera)
     bpy.context.scene.camera = camera
     camera_data.type = "ORTHO"
-    camera_data.ortho_scale = size * 0.72
     positions = {
         "full-body": (1.0, -1.45, 0.75), "gameplay-distance": (1.4, -2.2, 1.0),
         "first-person": (0.2, -1.0, 0.35), "front": (0, -1.8, 0.1),
@@ -307,14 +307,30 @@ def render_views(output: Path, views: list[str]) -> None:
     scene.world.color = (0.025, 0.03, 0.04)
     output.mkdir(parents=True, exist_ok=True)
     for view in views:
+        visible = meshes
+        if job["job_type"] == "kit-assembly" and view in {"full-body", "front", "side", "rear", "articulation"}:
+            visible = [obj for obj in meshes if obj.get("asset_source_lane") != "c"]
+        low, high = bounds(visible)
+        center, size = (low + high) * 0.5, max((high - low).length, 1.0)
+        camera_data.ortho_scale = size * 0.72
         direction = Vector(positions[view]).normalized()
+        if job["job_type"] == "railgun" and view == "side":
+            dimensions = high - low
+            longest = max(range(3), key=lambda axis: dimensions[axis])
+            direction = Vector((0, -1, 0)) if longest == 0 else Vector((1, 0, 0))
         camera.location = center + direction * size
         look_at(camera, center)
         if view == "charge-rest": scene.frame_set(1)
         if view == "charge-mid": scene.frame_set(max(1, scene.frame_end // 2))
         if view == "charge-full": scene.frame_set(max(1, scene.frame_end))
-        scene.render.filepath = str(output / f"{view}.png")
-        bpy.ops.render.render(write_still=True)
+        hidden = [obj for obj in meshes if obj not in visible]
+        prior_hidden = {obj.name: obj.hide_render for obj in hidden}
+        try:
+            for obj in hidden: obj.hide_render = True
+            scene.render.filepath = str(output / f"{view}.png")
+            bpy.ops.render.render(write_still=True)
+        finally:
+            for obj in hidden: obj.hide_render = prior_hidden[obj.name]
 
 
 def scene_manifest(job: dict) -> dict:
@@ -387,7 +403,7 @@ def main() -> int:
     if "animate" in kinds:
         ensure_charge_animation()
     if "render-review" in kinds:
-        render_views(output / "renders", job["review_views"])
+        render_views(output / "renders", job["review_views"], job)
     bpy.ops.wm.save_as_mainfile(filepath=str(output / "asset.blend"), compress=False)
     bpy.ops.export_scene.gltf(filepath=str(output / "asset.glb"), export_format="GLB",
                               export_animations=True, export_apply=False)

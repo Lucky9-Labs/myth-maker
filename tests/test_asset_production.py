@@ -67,6 +67,9 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn("def apply_reference_corrections", driver)
         self.assertIn("reference correction batch matched no owned geometry", driver)
         self.assertIn("def mount_railgun_to_mech", driver)
+        self.assertIn('obj["asset_source_lane"]', driver)
+        self.assertIn('obj.get("asset_source_lane") != "c"', driver)
+        self.assertIn('job["job_type"] == "railgun" and view == "side"', driver)
 
     def test_manifest_accepts_bounded_reference_correction_operation(self):
         manifest = job()
