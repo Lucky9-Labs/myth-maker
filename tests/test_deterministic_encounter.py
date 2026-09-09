@@ -12,7 +12,7 @@ import unittest
 
 
 MODAL_DIR = Path(__file__).parents[1] / "modal"
-WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "observed-modal-blender-demo.yml"
+WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "deploy.yml"
 sys.path.insert(0, str(MODAL_DIR))
 
 from deterministic_encounter import MATERIAL_NAMES, RECIPE_FORMAT, recipe_digest, validate_recipe
@@ -42,14 +42,15 @@ class DeterministicEncounterTests(unittest.TestCase):
 
     def test_observed_workflow_calls_the_secretless_function_and_retrieves_every_required_artifact(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
+        observer = workflow.split("  observed-deterministic-modal-blender:", 1)[1]
         worker = (MODAL_DIR / "draft_trial.py").read_text(encoding="utf-8")
         function = worker.split("def run_deterministic_recipe", 1)[1].split("def image_item", 1)[0]
         self.assertIn('FUNCTION_NAME = "run_deterministic_recipe"', (Path(__file__).parents[1] / "scripts" / "observed_modal_blender_demo.py").read_text())
-        self.assertNotIn("OPENAI_API_KEY", workflow)
-        self.assertIn("workflow_run:", workflow)
+        self.assertNotIn("OPENAI_API_KEY", observer)
+        self.assertIn("needs: [assert-deployment-input, modal]", observer)
         self.assertIn("CI-owned deployment", workflow)
-        self.assertIn("github.event.workflow_run.head_sha", workflow)
-        self.assertNotIn("modal deploy", workflow)
+        self.assertIn("needs.assert-deployment-input.outputs.source_sha", observer)
+        self.assertNotIn("workflow_run", observer)
         self.assertNotIn("secrets=[secret]", function)
         for filename in ("$WORK_ID.blend", "$WORK_ID.glb", "000-initial.png", "010-appendages.png", "020-final.png"):
             self.assertIn(filename, workflow)
