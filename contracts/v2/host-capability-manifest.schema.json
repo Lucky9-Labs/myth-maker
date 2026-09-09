@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://myth-maker.dev/contracts/v2/host-capability-manifest.schema.json",
+  "title": "HostCapabilityManifestV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "host_id", "host_build", "platform", "scripting_backend", "execution_kinds", "loaders", "contracts", "limits", "artifact_formats"],
+  "properties": {
+    "schema_version": { "const": "2" },
+    "host_id": { "$ref": "../v1/common.schema.json#/$defs/id" },
+    "host_build": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "platform": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "scripting_backend": { "enum": ["mono", "il2cpp"] },
+    "execution_kinds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["recipe", "runtime_asset", "managed_plugin", "remote_logic"] } },
+    "loaders": { "type": "array", "uniqueItems": true, "items": { "$ref": "../v1/common.schema.json#/$defs/semanticTag" } },
+    "contracts": { "type": "array", "uniqueItems": true, "items": { "$ref": "../v1/common.schema.json#/$defs/contractName" } },
+    "limits": { "$ref": "../v1/host-capability-manifest.schema.json#/properties/limits" },
+    "artifact_formats": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifactFormat" }
+    }
+  },
+  "$defs": {
+    "artifactFormat": {
+      "type": "object", "additionalProperties": false,
+      "required": ["media_type", "loader", "platform", "build"],
+      "properties": {
+        "media_type": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "loader": { "$ref": "../v1/common.schema.json#/$defs/semanticTag" },
+        "platform": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "build": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    }
+  }
+}

@@ -17,7 +17,12 @@
       "uniqueItems": true,
       "items": { "$ref": "../v1/common.schema.json#/$defs/semanticTag" }
     },
-    "host_capabilities": { "$ref": "../v1/host-capability-manifest.schema.json" },
+    "host_capabilities": {
+      "oneOf": [
+        { "$ref": "../v1/host-capability-manifest.schema.json" },
+        { "$ref": "host-capability-manifest.schema.json" }
+      ]
+    },
     "input_module_ids": {
       "type": "array",
       "uniqueItems": true,

@@ -89,3 +89,22 @@ append-only snapshot history is catalog revision descending, package revision
 descending, then package ID ascending. Declared platform/backend/execution/
 loader/contract requirements plus artifact-byte and actor scale limits must be
 present and fit the supplied host.
+
+## V2 runtime artifact negotiation
+
+The same endpoint accepts `schema_version: "2"` requests from a v2 host. Its
+closed host manifest adds `artifact_formats`, where each entry names the exact
+`media_type`, `loader`, `platform`, and `build` the player can load. The v2
+catalog and receipt publish one or more immutable runtime artifacts per module.
+Every candidate carries an HTTPS URI, lowercase SHA-256, byte length, media
+type, and its supported platform/build/loader tuples.
+
+The coordinator selects a candidate only when all of the following match: the
+module requirements, an advertised host format, the host's platform and build,
+and the host byte limit. The selected v2 manifest preserves the candidate's
+compatibility tuple and signs canonical JSON before `signature` with the same
+Ed25519 key ID, `package-discovery-ed25519-v1`. A target/build or digest mismatch
+produces `no_accepted_compatible_package`; it never substitutes another format.
+`application/vnd.unity.assetbundle` is the Unity AssetBundle media type. GLB
+hosts continue using the unchanged v1 `model/gltf-binary` request and manifest
+contracts.

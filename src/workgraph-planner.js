@@ -458,18 +458,25 @@ function uniqueTags(values) {
 }
 
 function validCapabilities(value) {
-  const fields = new Set(["schema_version", "host_id", "host_build", "platform", "scripting_backend", "execution_kinds", "loaders", "contracts", "limits"]);
+  const fields = new Set(["schema_version", "host_id", "host_build", "platform", "scripting_backend", "execution_kinds", "loaders", "contracts", "limits", "artifact_formats"]);
   const executions = new Set(["recipe", "runtime_asset", "managed_plugin", "remote_logic"]);
   const contract = /^[a-z][a-z0-9_.-]{0,95}\.v[1-9][0-9]*$/;
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some((key) => !fields.has(key))
-    || value.schema_version !== "1" || !ID.test(value.host_id)
+    || !["1", "2"].includes(value.schema_version) || (value.schema_version === "1" && "artifact_formats" in value) || !ID.test(value.host_id)
     || typeof value.host_build !== "string" || value.host_build.length < 1 || value.host_build.length > 128
     || typeof value.platform !== "string" || value.platform.length < 1 || value.platform.length > 64
     || !["mono", "il2cpp"].includes(value.scripting_backend)
     || !Array.isArray(value.execution_kinds) || value.execution_kinds.length === 0
     || !value.execution_kinds.every((kind) => executions.has(kind)) || new Set(value.execution_kinds).size !== value.execution_kinds.length
     || !uniqueTags(value.loaders) || !Array.isArray(value.contracts) || !value.contracts.every((name) => contract.test(name))
-    || new Set(value.contracts).size !== value.contracts.length) return false;
+    || new Set(value.contracts).size !== value.contracts.length
+    || (value.schema_version === "2" && (!Array.isArray(value.artifact_formats) || !value.artifact_formats.length
+      || !value.artifact_formats.every((format) => format && typeof format === "object" && !Array.isArray(format)
+        && Object.keys(format).length === 4 && ["media_type", "loader", "platform", "build"].every((key) => key in format)
+        && typeof format.media_type === "string" && format.media_type.length > 0 && format.media_type.length <= 128
+        && SEMANTIC_TAG.test(format.loader) && typeof format.platform === "string" && format.platform.length > 0 && format.platform.length <= 64
+        && typeof format.build === "string" && format.build.length > 0 && format.build.length <= 128)
+      || new Set(value.artifact_formats.map((format) => JSON.stringify(format))).size !== value.artifact_formats.length))) return false;
   const limitFields = new Set(["memory_mb", "preload_seconds", "artifact_bytes", "actors"]);
   const limits = value.limits;
   return Boolean(limits) && typeof limits === "object" && !Array.isArray(limits)

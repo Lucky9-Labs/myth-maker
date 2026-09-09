@@ -511,7 +511,7 @@ export class EncounterCoordinator {
         ? { value: prior.response, status: 200 }
         : { value: { error: "idempotency_key_reused_with_different_request" }, status: 409 };
       const encounter = await storage.get("encounter");
-      const noPackage = noPackageResponse(expectedEncounterId || encounter?.encounter_id || "unknown-encounter", value.request_id);
+      const noPackage = noPackageResponse(expectedEncounterId || encounter?.encounter_id || "unknown-encounter", value.request_id, value.schema_version);
       if (!encounter || (expectedEncounterId && encounter.encounter_id !== expectedEncounterId) || !encounter.discoverable_package) {
         await storage.put(discoveryKey(value.idempotency_key), { fingerprint: requestFingerprint, response: noPackage });
         return { value: noPackage, status: 200 };
@@ -536,11 +536,12 @@ export class EncounterCoordinator {
         catalogRevision: record.catalog_revision,
         assemblyReceipt: record.assembly_receipt,
         request: value,
+        hostCapabilities: value.host_capabilities,
         signingPrivateKey: this.env.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY,
         issuedAt: new Date().toISOString(),
       });
       if (!manifest) return { value: { error: "package_discovery_signing_unavailable" }, status: 503 };
-      const responseValue = { schema_version: "1", status: "selected", manifest };
+      const responseValue = { schema_version: value.schema_version, status: "selected", manifest };
       await storage.put(discoveryKey(value.idempotency_key), { fingerprint: requestFingerprint, response: responseValue });
       return { value: responseValue, status: 200 };
     });
