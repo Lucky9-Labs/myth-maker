@@ -95,7 +95,8 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertIn('.add_local_file(HERE / "install_blender.sh", "/opt/install_blender.sh", copy=True)', text)
         self.assertIn('.run_commands(\n             "/bin/sh /opt/install_blender.sh")', text)
         self.assertNotIn("modal.Image.debian_slim", text)
-        self.assertIn('"infrastructure.py", "/opt/infrastructure.py"', text)
+        self.assertIn('"infrastructure.py", "/opt/infrastructure.py", copy=True', text)
+        self.assertIn('"draft_support.py", "/opt/draft_support.py", copy=True', text)
         self.assertNotIn("create_if_missing=True", text)
         self.assertNotIn("bpy.", text)
 

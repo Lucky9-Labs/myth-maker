@@ -35,12 +35,15 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
              "/bin/sh /opt/install_blender.sh")
          .pip_install("openai>=2,<3", "Pillow>=10,<12", "pyautogui>=0.9.54,<1")
          .apt_install("xdotool", "openbox", "x11-utils", "tesseract-ocr")
-         .add_local_file(HERE / "draft_prompt.md", "/opt/draft_prompt.md")
-         .add_local_file(HERE / "draft_resume.md", "/opt/draft_resume.md")
-         .add_local_file(HERE / "draft_support.py", "/opt/draft_support.py")
-         .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py")
-         .add_local_file(HERE / "desktop_readiness.py", "/opt/desktop_readiness.py")
-         .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py"))
+         # These are import-time runtime dependencies.  `copy=True` makes
+         # them immutable image layers; non-copy local-file mounts are not
+         # available when Modal imports the deployed function service.
+         .add_local_file(HERE / "draft_prompt.md", "/opt/draft_prompt.md", copy=True)
+         .add_local_file(HERE / "draft_resume.md", "/opt/draft_resume.md", copy=True)
+         .add_local_file(HERE / "draft_support.py", "/opt/draft_support.py", copy=True)
+         .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py", copy=True)
+         .add_local_file(HERE / "desktop_readiness.py", "/opt/desktop_readiness.py", copy=True)
+         .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py", copy=True))
 
 
 @app.function(image=image, timeout=60, cpu=0.125, retries=0, max_containers=1)
