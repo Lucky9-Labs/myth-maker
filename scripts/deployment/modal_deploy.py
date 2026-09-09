@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 from datetime import datetime, timezone
 
@@ -82,23 +81,11 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
     return {"volume": volume.object_id, "dict": lease_dict.object_id}
 
 
-def emit_deploy_failure(error: subprocess.CalledProcessError) -> None:
-    """Keep the provider's original deploy failure visible without leaking CI secrets."""
-    output = "\n".join(str(value) for value in (error.stdout, error.stderr, error.output) if value)
-    for name in REQUIRED_CREDENTIALS:
-        value = os.environ.get(name)
-        if value:
-            output = output.replace(value, f"[{name} redacted]")
-    if output:
-        print(f"Modal deploy failed:\n{output}", file=sys.stderr, end="" if output.endswith("\n") else "\n")
-
-
 def deploy_app(environment: str) -> None:
-    try:
-        run("modal", "deploy", "--env", environment, "modal/draft_trial.py", capture=True)
-    except subprocess.CalledProcessError as error:
-        emit_deploy_failure(error)
-        raise
+    # `modal image logs` is not available in the pinned CLI. Stream the build
+    # during its supported deploy command so the CI run retains the provider's
+    # failure cause without any post-failure credential or API workaround.
+    run("modal", "deploy", "--stream-logs", "--env", environment, "modal/draft_trial.py")
 
 
 def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:

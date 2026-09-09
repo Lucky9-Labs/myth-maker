@@ -1,6 +1,5 @@
 import importlib.util
 from pathlib import Path
-import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -24,16 +23,9 @@ class ModalDeployTest(unittest.TestCase):
         secret_call = next(call for call in run.call_args_list if call.args[:3] == ("modal", "secret", "create"))
         self.assertIn("--force", secret_call.args)
 
-    def test_failed_modal_deploy_preserves_original_output_without_unsupported_image_command(self):
-        error = subprocess.CalledProcessError(
-            1,
-            ("modal", "deploy"),
-            output="Image build for im-abc123 failed.",
-            stderr="provider error top-secret",
+    def test_deploy_streams_image_build_logs_through_the_supported_cli(self):
+        with patch.object(modal_deploy, "run") as run:
+            modal_deploy.deploy_app("dev")
+        run.assert_called_once_with(
+            "modal", "deploy", "--stream-logs", "--env", "dev", "modal/draft_trial.py",
         )
-        with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "top-secret"}, clear=False), patch.object(modal_deploy.sys, "stderr") as stderr:
-            modal_deploy.emit_deploy_failure(error)
-        rendered = "".join(str(call.args[0]) for call in stderr.write.call_args_list)
-        self.assertIn("im-abc123", rendered)
-        self.assertNotIn("MODAL_TOKEN", rendered)
-        self.assertNotIn("top-secret", rendered)
