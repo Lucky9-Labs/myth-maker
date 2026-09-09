@@ -9,7 +9,7 @@ The foundation has three bounded ownership areas:
 
 - **Cloudflare:** the ingress Worker identity, `EncounterCoordinator` Durable
   Object binding, its preserved `v1` SQLite migration, plain configuration, and
-  the names of two Worker secrets.
+  the names of its ingress, dispatcher, and package-discovery signing secrets.
 - **Railway:** an opt-in project, an isolated environment, and an intentionally
   empty dispatcher service. A separate opt-in maps the non-secret v1/Modal
   variables onto that service once a real source is attached. The source/image

@@ -52,6 +52,8 @@ def application_contract(environment: str = "dev") -> dict:
             "required_secret_names": [
                 "AGENT_INGRESS_TOKEN",
                 "WORK_DISPATCH_TOKEN",
+                "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY",
+                "CATALOG_ACCEPTANCE_TOKEN",
             ],
             "required_plain_configuration": [
                 "WORK_DISPATCH_URL",
@@ -101,6 +103,8 @@ def application_contract(environment: str = "dev") -> dict:
                 "CLOUDFLARE_API_TOKEN",
                 "TF_VAR_agent_ingress_token",
                 "TF_VAR_work_dispatch_token",
+                "TF_VAR_package_discovery_signing_private_key",
+                "TF_VAR_catalog_acceptance_token",
                 "TF_VAR_railway_token",
                 "MODAL_TOKEN_ID",
                 "MODAL_TOKEN_SECRET",

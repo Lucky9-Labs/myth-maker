@@ -1,4 +1,13 @@
 import { freezeEncounterPackage } from "./encounter-package-assembler.js";
+import {
+  acceptedAssemblyReceipt,
+  acceptedCatalogRevision,
+  compatibleFrozenPackage,
+  createSignedManifest,
+  noPackageResponse,
+  selectNewestCompatible,
+  validDiscoveryRequest,
+} from "./package-discovery.js";
 
 const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._-]{8,128}$/;
@@ -190,12 +199,18 @@ function authorized(request, env) {
   return Boolean(env.AGENT_INGRESS_TOKEN) && request.headers.get("authorization") === `Bearer ${env.AGENT_INGRESS_TOKEN}`;
 }
 
+function catalogAuthorized(request, env) {
+  return Boolean(env.CATALOG_ACCEPTANCE_TOKEN) && request.headers.get("x-catalog-acceptance-token") === env.CATALOG_ACCEPTANCE_TOKEN;
+}
+
 async function requestBody(request) {
   try { return await request.json(); } catch { return null; }
 }
 
 function workKey(workId) { return `work:${workId}`; }
 function eventKey(workId) { return `events:${workId}`; }
+function catalogKey(catalogRevisionId) { return `catalog:${catalogRevisionId}`; }
+function discoveryKey(idempotencyKey) { return `package-discovery:${idempotencyKey}`; }
 
 function workSummary(work) {
   return {
@@ -249,6 +264,7 @@ export class WorkDispatcherAdapter {
 export class EncounterCoordinator {
   constructor(state, env) {
     this.state = state;
+    this.env = env;
     this.dispatcher = new WorkDispatcherAdapter(env);
     this.dispatches = new Map();
   }
@@ -440,6 +456,10 @@ export class EncounterCoordinator {
       const candidate = value?.package;
       if (!validPlayablePackage(candidate) || !["ready", "frozen"].includes(candidate.state)) return { value: { error: "invalid_playable_encounter_package" }, status: 400 };
       if (candidate.encounter_id !== encounter.encounter_id) return { value: { error: "package_encounter_mismatch" }, status: 409 };
+      if (!ID.test(value?.catalog_revision_id || "")) return { value: { error: "catalog_revision_not_found" }, status: 400 };
+      const catalogRevision = await storage.get(catalogKey(value.catalog_revision_id));
+      const assemblyReceipt = await acceptedAssemblyReceipt(value?.assembly_receipt);
+      if (!catalogRevision || !assemblyReceipt) return { value: { error: "invalid_accepted_assembly_receipt" }, status: 400 };
       let freezeResult;
       try {
         freezeResult = candidate.state === "ready"
@@ -449,10 +469,82 @@ export class EncounterCoordinator {
         freezeResult = null;
       }
       if (!freezeResult) return { value: { error: "invalid_playable_encounter_package" }, status: 400 };
-      await storage.put("encounter", { ...encounter, state: "frozen", freeze_result: freezeResult });
+      if (!(await compatibleFrozenPackage({ packageRecord: candidate, catalogRevision, assemblyReceipt, hostCapabilities: value?.host_capabilities }))) {
+        return { value: { error: "package_catalog_assembly_mismatch" }, status: 409 };
+      }
+      await storage.put("encounter", {
+        ...encounter,
+        state: "frozen",
+        freeze_result: freezeResult,
+        discoverable_package: { package_record: freezeResult, assembly_package_record: candidate, catalog_revision: catalogRevision, assembly_receipt: assemblyReceipt },
+      });
       return { value: freezeResult, status: 201 };
     });
     return response(frozen.value, frozen.status);
+  }
+
+  async recordCatalogRevision(value) {
+    const catalogRevision = await acceptedCatalogRevision(value?.catalog_revision);
+    if (!catalogRevision) return response({ error: "invalid_accepted_catalog_revision" }, 400);
+    const recorded = await this.transaction(async (storage) => {
+      const encounter = await storage.get("encounter");
+      if (!encounter) return { value: { error: "encounter_not_found" }, status: 404 };
+      if (encounter.state === "frozen") return { value: { error: "encounter_frozen", encounter_id: encounter.encounter_id }, status: 409 };
+      if (catalogRevision.encounter_id !== encounter.encounter_id) return { value: { error: "catalog_encounter_mismatch" }, status: 409 };
+      const prior = await storage.get(catalogKey(catalogRevision.catalog_revision_id));
+      if (prior) return prior.catalog_sha256 === catalogRevision.catalog_sha256
+        ? { value: { catalog_revision: prior, idempotent_replay: true }, status: 200 }
+        : { value: { error: "catalog_revision_id_reused_with_different_revision" }, status: 409 };
+      await storage.put(catalogKey(catalogRevision.catalog_revision_id), catalogRevision);
+      return { value: { catalog_revision: catalogRevision }, status: 201 };
+    });
+    return response(recorded.value, recorded.status);
+  }
+
+  async discoverPackage(value, expectedEncounterId = undefined) {
+    if (!validDiscoveryRequest(value)) return response({ error: "invalid_package_discovery_request" }, 400);
+    if (!this.env.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY) return response({ error: "package_discovery_signing_unavailable" }, 503);
+    const requestFingerprint = await fingerprint(value);
+    const discovered = await this.transaction(async (storage) => {
+      const prior = await storage.get(discoveryKey(value.idempotency_key));
+      if (prior) return prior.fingerprint === requestFingerprint
+        ? { value: prior.response, status: 200 }
+        : { value: { error: "idempotency_key_reused_with_different_request" }, status: 409 };
+      const encounter = await storage.get("encounter");
+      const noPackage = noPackageResponse(expectedEncounterId || encounter?.encounter_id || "unknown-encounter", value.request_id);
+      if (!encounter || (expectedEncounterId && encounter.encounter_id !== expectedEncounterId) || !encounter.discoverable_package) {
+        await storage.put(discoveryKey(value.idempotency_key), { fingerprint: requestFingerprint, response: noPackage });
+        return { value: noPackage, status: 200 };
+      }
+      const candidates = encounter.discoverable_packages || [encounter.discoverable_package];
+      const compatibleCandidates = await Promise.all(candidates.map(async (record) => ({
+        ...record,
+        compatible: record.package_record.state === "frozen" && await compatibleFrozenPackage({
+          packageRecord: record.assembly_package_record,
+          catalogRevision: record.catalog_revision,
+          assemblyReceipt: record.assembly_receipt,
+          hostCapabilities: value.host_capabilities,
+        }),
+      })));
+      const record = selectNewestCompatible(compatibleCandidates);
+      if (!record) {
+        await storage.put(discoveryKey(value.idempotency_key), { fingerprint: requestFingerprint, response: noPackage });
+        return { value: noPackage, status: 200 };
+      }
+      const manifest = await createSignedManifest({
+        packageRecord: record.package_record,
+        catalogRevision: record.catalog_revision,
+        assemblyReceipt: record.assembly_receipt,
+        request: value,
+        signingPrivateKey: this.env.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY,
+        issuedAt: new Date().toISOString(),
+      });
+      if (!manifest) return { value: { error: "package_discovery_signing_unavailable" }, status: 503 };
+      const responseValue = { schema_version: "1", status: "selected", manifest };
+      await storage.put(discoveryKey(value.idempotency_key), { fingerprint: requestFingerprint, response: responseValue });
+      return { value: responseValue, status: 200 };
+    });
+    return response(discovered.value, discovered.status);
   }
 
   async fetch(request) {
@@ -460,7 +552,9 @@ export class EncounterCoordinator {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/status") return response(await this.encounterStatus());
     if (request.method === "POST" && url.pathname === "/work-items") return this.submit(await requestBody(request));
+    if (request.method === "POST" && url.pathname === "/catalog-revisions") return this.recordCatalogRevision(await requestBody(request));
     if (request.method === "POST" && url.pathname === "/freeze") return this.freeze(await requestBody(request));
+    if (request.method === "POST" && url.pathname === "/package-discoveries") return this.discoverPackage(await requestBody(request), request.headers.get("x-encounter-id") || undefined);
     const eventMatch = url.pathname.match(/^\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/events$/);
     if (eventMatch && request.method === "POST") return this.appendEvent(eventMatch[1], await requestBody(request));
     if (eventMatch && request.method === "GET") {
@@ -479,8 +573,10 @@ export default {
     const workMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/work-items$/);
     const eventMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/work-items\/([a-z0-9][a-z0-9-]{0,63})\/events$/);
     const freezeMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/freeze$/);
+    const catalogMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/catalog-revisions$/);
+    const discoveryMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})\/package-discoveries$/);
     const statusMatch = url.pathname.match(/^\/v1\/encounters\/([a-z0-9][a-z0-9-]{0,63})$/);
-    const encounterId = workMatch?.[1] || eventMatch?.[1] || freezeMatch?.[1] || statusMatch?.[1];
+    const encounterId = workMatch?.[1] || eventMatch?.[1] || freezeMatch?.[1] || catalogMatch?.[1] || discoveryMatch?.[1] || statusMatch?.[1];
     if (!encounterId) return response({ error: "not_found" }, 404);
     const coordinator = env.ENCOUNTER_COORDINATOR.get(env.ENCOUNTER_COORDINATOR.idFromName(encounterId));
     if (workMatch && request.method === "POST") {
@@ -497,6 +593,18 @@ export default {
       try { requestValue = JSON.parse(requestText); } catch { requestValue = null; }
       if (requestValue?.package?.encounter_id !== undefined && requestValue.package.encounter_id !== encounterId) return response({ error: "encounter_path_mismatch" }, 409);
       return coordinator.fetch("https://encounter-coordinator/freeze", { method: "POST", headers: { "content-type": "application/json" }, body: requestText });
+    }
+    if (catalogMatch && request.method === "POST") {
+      if (!catalogAuthorized(request, env)) return response({ error: "catalog_acceptance_unauthorized" }, 401);
+      const requestText = await request.text();
+      let requestValue;
+      try { requestValue = JSON.parse(requestText); } catch { requestValue = null; }
+      if (requestValue?.catalog_revision?.encounter_id !== encounterId) return response({ error: "encounter_path_mismatch" }, 409);
+      return coordinator.fetch("https://encounter-coordinator/catalog-revisions", { method: "POST", headers: { "content-type": "application/json" }, body: requestText });
+    }
+    if (discoveryMatch && request.method === "POST") {
+      const requestText = await request.text();
+      return coordinator.fetch("https://encounter-coordinator/package-discoveries", { method: "POST", headers: { "content-type": "application/json", "x-encounter-id": encounterId }, body: requestText });
     }
     if (statusMatch && request.method === "GET") return coordinator.fetch("https://encounter-coordinator/status");
     return response({ error: "not_found" }, 404);
