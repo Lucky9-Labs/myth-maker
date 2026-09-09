@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "volume_name": "myth-maker-encounter-submissions",
+  "input_root": "draft-gui-kraken-concept-body-source-a4/inputs",
+  "files": {
+    "source_scene.blend": { "sha256": "7fbc0055dd2f702b19c267c122ea8129c7166d3fb63bc1500b10210e516edb9f", "bytes": 117395 },
+    "structure_reference.png": { "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008", "bytes": 2780422 },
+    "component_reference.png": { "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008", "bytes": 2780422 },
+    "primary_artwork.png": { "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008", "bytes": 2780422 },
+    "concept_reference.png": { "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008", "bytes": 2780422 }
+  }
+}

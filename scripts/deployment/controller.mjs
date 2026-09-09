@@ -33,7 +33,7 @@ export const providerDefinitions = Object.freeze({
   }),
   railway: Object.freeze({
     secretNames: ["RAILWAY_TOKEN", ...RAILWAY_RUNTIME_SECRET_BINDINGS],
-    requiredFiles: ["Dockerfile", "railway.toml", "src/railway-server.js", "src/modal-bridge-backend.js", "modal/railway_modal_bridge.py"],
+    requiredFiles: ["Dockerfile", "railway.toml", "src/railway-server.js", "src/modal-bridge-backend.js", "modal/railway_modal_bridge.py", "modal/modal_volume_inputs.py", "modal/kraken_input_manifest.json"],
     preview: null,
     deploy: ["railway", ["up", "--ci", "--detach"]],
   }),

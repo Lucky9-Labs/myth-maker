@@ -6,7 +6,7 @@ import unittest
 
 MODAL_DIR = Path(__file__).parents[1] / "modal"
 sys.path.insert(0, str(MODAL_DIR))
-from modal_dispatch_backend import ModalDraftBackend
+from modal_dispatch_backend import ModalDraftBackend, ModalVolumeDraftBackend
 
 
 def work_order(attempt=2):
@@ -31,6 +31,25 @@ def inputs():
 
 
 class ModalDraftBackendTests(unittest.TestCase):
+    def test_volume_backend_passes_only_manifest_references_to_modal(self):
+        captured = {}
+        manifest = {"schema_version": "1", "volume_name": "volume", "input_root": "job/inputs", "files": {
+            name: {"sha256": "a" * 64, "bytes": 1} for name in inputs()
+        }}
+
+        def invoke(*args):
+            captured["args"] = args
+            return {"status": "failed", "error": "bounded-test"}
+
+        backend = ModalVolumeDraftBackend(project_id="myth-maker", manifest=manifest,
+                                          provenance={"source": "test"}, invoke=invoke,
+                                          cloud_execution_enabled=True)
+        result = backend.run(work_order())
+        self.assertEqual(captured["args"][0]["work_id"], "tideglass-body-source")
+        self.assertEqual(captured["args"][1], manifest)
+        self.assertFalse(any(isinstance(value, bytes) for value in captured["args"]))
+        self.assertEqual([event["kind"] for event in result.events], ["accepted", "started", "failed"])
+
     def test_preflight_is_dry_run_and_derives_the_existing_entrypoint_arguments(self):
         backend = ModalDraftBackend(project_id="myth-maker", inputs=inputs(), provenance={"source": "test"})
 

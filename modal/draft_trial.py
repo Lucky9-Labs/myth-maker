@@ -26,6 +26,7 @@ from desktop_readiness import terminal_failure, wait_for_desktop
 from deterministic_encounter import MATERIAL_NAMES, recipe_digest, validate_recipe
 from glb_source_importer import validate_glb
 from infrastructure import runtime
+from modal_volume_inputs import load_volume_inputs, validate_volume_input_manifest
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -49,7 +50,8 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py", copy=True)
          .add_local_file(HERE / "deterministic_encounter.py", "/opt/deterministic_encounter.py", copy=True)
          .add_local_file(HERE / "encounter_worker_adapter.py", "/opt/encounter_worker_adapter.py", copy=True)
-         .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True))
+         .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True)
+         .add_local_file(HERE / "modal_volume_inputs.py", "/opt/modal_volume_inputs.py", copy=True))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
 SUBMISSIONS_ROOT = Path("/submissions")
@@ -294,6 +296,39 @@ def run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, project_i
               baseline_score: int = 0, baseline_source: str = "explicit_incremental_self_score",
               prior_model_self_score: int = -1) -> dict:
     """Atomic per-component cloud ownership; never steal a lease or retry automatically."""
+    return _run_draft_entry(job_id, inputs, provenance, project_id, part, resume_job, checkpoint_id,
+                            feedback, reviewed_score, resume_artifact, resume_sha256, incremental,
+                            baseline_score, baseline_source, prior_model_self_score)
+
+
+@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=16 * 60,
+              retries=0, max_containers=4, secrets=[secret], volumes={"/submissions": volume})
+def run_draft_from_volume_manifest(work_order: dict, manifest: dict, provenance: dict,
+                                   project_id: str) -> dict:
+    """Resolve immutable inputs inside Modal, then enter the existing GUI-only worker."""
+    checked = validate_volume_input_manifest(manifest, expected_volume=RUNTIME.volume_name)
+    volume.reload()
+    inputs = load_volume_inputs(checked, SUBMISSIONS_ROOT, expected_volume=RUNTIME.volume_name)
+    work_id, attempt = work_order.get("work_id"), work_order.get("attempt")
+    if not isinstance(work_id, str) or not isinstance(attempt, int) or isinstance(attempt, bool):
+        raise ValueError("volume draft work order needs stable work_id and attempt")
+    job_id = f"draft-gui-{work_id}-a{attempt}"
+    invocation_provenance = dict(provenance)
+    invocation_provenance["encounter_work_order"] = {
+        "work_id": work_id, "encounter_id": work_order.get("encounter_id"),
+        "lane": work_order.get("lane"), "attempt": attempt,
+    }
+    invocation_provenance["input_manifest"] = checked
+    return _run_draft_entry(job_id, inputs, invocation_provenance, project_id, work_id,
+                            feedback=work_order.get("instruction", ""))
+
+
+def _run_draft_entry(job_id: str, inputs: dict[str, bytes], provenance: dict, project_id: str,
+                     part: str, resume_job: str = "", checkpoint_id: str = "", feedback: str = "",
+                     reviewed_score: float = -1, resume_artifact: str = "", resume_sha256: str = "",
+                     incremental: bool = False, baseline_score: int = 0,
+                     baseline_source: str = "explicit_incremental_self_score",
+                     prior_model_self_score: int = -1) -> dict:
     native_name(project_id)
     native_name(part)
     lease_key = project_id + ":" + part

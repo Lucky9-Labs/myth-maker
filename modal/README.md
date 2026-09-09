@@ -145,6 +145,12 @@ workgraphs keep it false. Runtime credentials, spend limits, volume access, and
 GUI-output validation remains separate operational checks; the local example is not
 evidence that Modal is deployable or that a Blender candidate is accepted.
 
+The deployed Railway bridge uses `ModalVolumeDraftBackend` instead. It passes a
+small closed manifest to `run_draft_from_volume_manifest`, which loads the five
+inputs from the private Modal Volume and verifies every recorded byte length and
+SHA-256 before entering the same GUI-only draft implementation. The checked-in
+Kraken manifest is demo data; the manifest schema remains encounter-generic.
+
 ## Automated-policy GLB importer sidecar
 
 `glb_source_importer.py` implements that next, deliberately narrow seam. It
