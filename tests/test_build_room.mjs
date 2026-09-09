@@ -290,7 +290,7 @@ test("encounter-scoped observer ingress admits only the matching remote worker a
     assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}/workers`)).status, 200);
     const workers = await (await fetch(`${base}/api/encounters/${run.ids.encounterId}/workers`)).json();
     assert.deepEqual(workers.workers.find((worker) => worker.work_id === "kraken-mantle"), {
-      work_id: "kraken-mantle", lane: "body.mantle", depends_on_work_ids: [], worker_id: "modal-kraken-mantle",
+      work_id: "kraken-mantle", lane: "body.mantle", deadline_at: "2026-09-08T12:30:00.000Z", depends_on_work_ids: [], worker_id: "modal-kraken-mantle",
       component: "kraken-mantle", attempt: 2, lease_id: "lease-observed", desktop_identity: "modal-desktop-observed",
       status: "running", lifecycle_state: "progress", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "modal_remote",
     });
