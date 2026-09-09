@@ -16,6 +16,7 @@ const workers = {
   "kraken-tentacle-01": { port: 16082, component: "kraken-tentacle-01", role: "one complete numbered tentacle with T01_Root and T01_Tip" },
   "kraken-tentacle-02": { port: 16083, component: "kraken-tentacle-02", role: "one complete numbered tentacle with a distinct upward sweep" },
   "kraken-tentacle-03": { port: 16084, component: "kraken-tentacle-03", role: "one complete numbered tentacle with a distinct defensive curl" },
+  "kraken-tentacle-04": { port: 16085, component: "kraken-tentacle-04", role: "one complete numbered tentacle with a long lateral reach" },
   "kraken-assembly": { port: 16090, component: "kraken-assembly", role: "serialized derivative assembly; links immutable mantle and tentacle sources only" },
 };
 
