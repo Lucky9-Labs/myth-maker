@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
-from asset_progress import build_dashboard, completed_developments
+from asset_progress import build_dashboard, completed_developments, production_observability
 
 class AssetProgressTests(unittest.TestCase):
     def _attempt(self, root, work, attempt, job_type, status="completed"):
@@ -13,6 +13,7 @@ class AssetProgressTests(unittest.TestCase):
         data = render.read_bytes(); relative = f"renders/{render.name}"
         receipt = {"status": status, "work_id": work, "attempt": attempt, "job_type": job_type,
             "execution": {"completed_at": f"2026-09-09T00:0{attempt}:00+00:00", "duration_ms": attempt * 10},
+            "input_hashes": ["a" * 64], "output_hashes": [hashlib.sha256(data).hexdigest()],
             "artifacts": {relative: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}}}
         (path / "receipt.json").write_text(json.dumps(receipt))
 
@@ -33,4 +34,20 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual(manifest["assets"]["railgun"]["gif"]["frames"], 4)
             with Image.open(gif) as image: self.assertEqual(image.n_frames, 4)
             self.assertIn('content="300"', (root / "observability" / "index.html").read_text())
+
+    def test_reports_five_minute_patches_and_measured_model_usage(self):
+        from datetime import datetime, timezone
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            self._attempt(root, "mech", 5, "mech-structure")
+            critique = root / "review" / "critique-attempt-0001"; critique.mkdir(parents=True)
+            (critique / "receipt.json").write_text(json.dumps({"provider": {"model": "gpt-6-astra"},
+                "duration_ms": 99, "model_usage": {"provenance": "measured", "input_tokens": 100,
+                "cached_input_tokens": 25, "output_tokens": 20}, "critique": {"defects": []}}))
+            observed = production_observability(root, datetime(2026, 9, 9, 0, 6, tzinfo=timezone.utc))
+            self.assertEqual(len(observed["patches_last_5m"]), 1)
+            astra = next(row for row in observed["models"] if row["model"] == "gpt-6-astra")
+            self.assertEqual(astra["total_tokens"], 120)
+            luna = next(row for row in observed["models"] if row["model"] == "gpt-5.6-luna")
+            self.assertEqual(luna["provenance"], "unavailable")
 if __name__ == "__main__": unittest.main()
