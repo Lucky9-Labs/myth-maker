@@ -3,7 +3,8 @@ from pathlib import Path
 from PIL import Image
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
-from asset_progress import build_dashboard, completed_developments, production_observability
+from asset_progress import (build_dashboard, completed_developments, production_observability,
+                            reference_evaluation_inputs, validate_reference_evaluation)
 
 class AssetProgressTests(unittest.TestCase):
     def _attempt(self, root, work, attempt, job_type, status="completed"):
@@ -16,6 +17,11 @@ class AssetProgressTests(unittest.TestCase):
             "input_hashes": ["a" * 64], "output_hashes": [hashlib.sha256(data).hexdigest()],
             "artifacts": {relative: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}}}
         (path / "receipt.json").write_text(json.dumps(receipt))
+        reference = path / "inputs" / "reference.png"; reference.parent.mkdir()
+        Image.new("RGB", (32, 24), (5, 6, 7)).save(reference); ref_data = reference.read_bytes()
+        (path / "job.json").write_text(json.dumps({"inputs": [{"path": "frozen/reference.png",
+            "staged_name": "reference.png", "media_type": "image/png", "bytes": len(ref_data),
+            "sha256": hashlib.sha256(ref_data).hexdigest()}]}))
 
     def test_selects_only_latest_four_completed_verified_revisions(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -50,4 +56,15 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual(astra["total_tokens"], 120)
             luna = next(row for row in observed["models"] if row["model"] == "gpt-5.6-luna")
             self.assertEqual(luna["provenance"], "unavailable")
+
+    def test_reference_score_is_calculated_from_closed_rubric(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"; self._attempt(root, "mech", 1, "mech-structure")
+            inputs = reference_evaluation_inputs(root); revision = inputs["mech"]["developments"][0]["render_sha256"]
+            criteria = {"silhouette": 80, "proportions": 60, "component_geometry": 50,
+                        "material_identity": 90, "detail_readability": 40, "fit": 100}
+            checked = validate_reference_evaluation({"format": "myth-maker.asset-reference-evaluation/v1",
+                "evaluations": [{"asset_id": "mech", "render_sha256": revision, "criteria": criteria,
+                    "confidence": .8, "observable_delta": "Baseline.", "blocking_visual_defects": []}]}, inputs)
+            self.assertEqual(checked["evaluations"][0]["weighted_score"], 67)
 if __name__ == "__main__": unittest.main()

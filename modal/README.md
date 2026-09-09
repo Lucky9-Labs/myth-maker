@@ -58,6 +58,16 @@ python3 scripts/fetch_asset_progress_dashboard.py --environment dev \
 Open `output/asset-progress/index.html`; it refreshes on the same five-minute
 cadence. Each frame includes the job type, attempt, and abbreviated render hash.
 
+Before each snapshot, `evaluate_asset_reference_progress` compares every unseen
+mech and railgun revision with its frozen reference through one bounded Astra
+request. The runtime validates the closed response and calculates a stable
+weighted score: silhouette 30%, proportions 25%, component geometry 20%,
+material identity 10%, detail readability 10%, and fit 5%. Evaluation receipts
+are content-addressed by the reference and candidate render hashes, preventing
+repeat model spend while the asset set is unchanged. The dashboard plots these
+scores over time and derives positive quality gain per 1,000 measured tokens
+and per cloud compute minute. Missing Codex task telemetry remains unavailable.
+
 `draft_trial.py` is the initial bounded worker for one encounter component. It
 runs Blender 5.2.1 in a headful virtual desktop (`Xvfb` + Openbox), sends desktop
 screenshots to Astra through the Responses API computer tool, validates returned
