@@ -472,8 +472,7 @@ const PAGE = String.raw`<!doctype html>
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
 </style>
 <body>
-  <header class="masthead"><div><h1>Myth Maker / Build Room</h1><p class="muted">Compose a playable encounter from observed pieces.</p></div><span class="quiet">D0 assembly surface</span></header>
-  <form id="submit" class="composer"><label for="prompt">What should this encounter do?<textarea id="prompt" required placeholder="Describe the encounter to assemble…"></textarea></label><div class="form-actions"><label><input id="generate-asset" type="checkbox" checked> Include local render</label><label><input id="high-fanout" type="checkbox"> High-fanout compile</label><label>Deadline <input id="deadline-seconds" type="number" min="1" max="86400" value="1800"> sec</label><label><input id="freeze-current-package" type="checkbox"> Freeze current package</label><button>Assemble encounter</button></div></form>
+  <header class="masthead"><div><h1>Myth Maker / Build Room</h1><p class="muted">Read-only live evidence for coordinator-admitted encounters.</p></div><span class="quiet">D0 observation surface</span></header>
   <main id="empty">Preparing assembly table…</main>
   <script><!-- client --></script>
 </body>
@@ -490,26 +489,12 @@ const CLIENT_SCRIPT = String.raw`
     local_process: "Local process receipt (observed)",
     local_blender_cli: "Local Blender CLI evidence (observed)",
     local_blender_cli_failed: "Local Blender CLI failure (observed local process)",
+    local_concept_art: "Local concept-art file (observed)",
+    local_demo_capture: "Local browser demo capture (observed)",
     adapter_reported: "Coordinator/dispatcher report (unverified)",
     modal_remote: "Modal remote receipt (observed)",
     blender_window: "Blender window/screenshot/stream (observed)",
   };
-
-  document.querySelector("#submit").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const prompt = document.querySelector("#prompt").value;
-    const response = await fetch("/api/encounters", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt, generate_asset: document.querySelector("#generate-asset").checked, compile_profile: document.querySelector("#high-fanout").checked ? "high_fanout" : "standard", deadline_seconds: Number(document.querySelector("#deadline-seconds").value), freeze_current_package: document.querySelector("#freeze-current-package").checked }),
-    });
-    const run = await response.json();
-    if (!response.ok) return alert(run.error);
-    active = run.ids.encounterId;
-    activeRequest = run.ids.requestId;
-    history.pushState({}, "", "/?build=" + encodeURIComponent(run.ids.requestId));
-    render(run);
-    watch(active);
-    document.querySelector("#prompt").value = "";
-  });
 
   function esc(value) { const node = document.createElement("div"); node.textContent = String(value ?? ""); return node.innerHTML; }
   function json(value) { return esc(JSON.stringify(value, null, 2)); }
@@ -558,7 +543,7 @@ const CLIENT_SCRIPT = String.raw`
       loopNode("Coordinator / planner", plannerStatus, "<span>local orchestration</span>", run ? "request projected" : "awaiting request", Boolean(run)),
       loopNode("Blender body" + (revisionOne ? " · r" + revisionOne.revision : ""), blenderStatus, revisionOne ? "<img data-role=\"observed-thumbnail\" src=\"" + esc(revisionOne.thumbnail_url) + "\" alt=\"Observed local render for body revision " + esc(revisionOne.revision) + "\">" : "<span>no candidate yet</span>", revisionOne ? "local CLI candidate" : "body-source lane", Boolean(revisionOne)),
       loopNode("Immutable catalog" + (revisionOne ? " · r" + revisionOne.revision : ""), catalogStatus, revisionOne ? "<span class=\"glyph\" aria-hidden=\"true\">◆</span>" : "<span>no asset receipt</span>", revisionOne ? "asset revision recorded" : "awaiting artifact", Boolean(revisionOne)),
-      loopNode(hasRevisionTwo ? "Next revision / Blender · r2" : "Request next revision", revisionStatus, hasRevisionTwo ? "<img src=\"" + esc(revisionTwo.thumbnail_url) + "\" alt=\"Observed local render for body revision 2\">" : "<span>bounded local upgrade</span>", hasRevisionTwo ? "Blender revision observed" : run && run.upgrade?.active ? "worker running" : "ready after package r1", hasRevisionTwo || Boolean(run && run.upgrade?.active)),
+      loopNode(hasRevisionTwo ? "Coordinator revision / Blender · r2" : "Coordinator revision state", revisionStatus, hasRevisionTwo ? "<img src=\"" + esc(revisionTwo.thumbnail_url) + "\" alt=\"Observed local render for body revision 2\">" : "<span>no coordinator-admitted revision</span>", hasRevisionTwo ? "Blender revision observed" : run && run.upgrade?.active ? "coordinator work in progress" : "no revision admitted", hasRevisionTwo || Boolean(run && run.upgrade?.active)),
       loopNode("Catalog asset" + (revisionTwo ? " · r" + revisionTwo.revision : " · r2"), revisionTwo ? "completed" : "pending", revisionTwo ? "<span class=\"glyph\" aria-hidden=\"true\">◆</span>" : "<span>awaiting revision 2</span>", revisionTwo ? "immutable revision" : "no asset receipt", hasRevisionTwo),
       loopNode("Package assembler" + (packageRevision ? " · r" + packageRevision.revision : ""), packageStatus, packageRevision ? "<span class=\"glyph\" aria-hidden=\"true\">✦</span>" : "<span>no package receipt</span>", packageRevision ? packageFrozen ? "local package frozen" : "local package selected" : "awaiting compatible candidate", Boolean(packageRevision)),
       loopNode("Unity judge", unityStatus, "<span>no host receipt</span>", unityReceipt ? "host acceptance not observed" : "no package receipt", false),
@@ -579,7 +564,7 @@ const CLIENT_SCRIPT = String.raw`
   function buildCard(build) { return "<a class=\"build-link\" href=\"" + esc(build.navigation_url) + "\"><strong>" + esc(build.terminal ? "Completed assembly" : "Active assembly") + "</strong><br><span class=\"quiet\">" + esc(build.encounter_id) + "</span></a>"; }
   function renderDashboard(index) {
     const builds = index.active.concat(index.recent_terminal);
-    main.innerHTML = assembly() + (builds.length ? "<details class=\"drawer\"><summary>Open a recent assembly</summary><div class=\"build-list\">" + builds.map(buildCard).join("") + "</div></details>" : "<p class=\"empty-note\">No assemblies yet. A local render is optional and remains local evidence only.</p>");
+    main.innerHTML = assembly() + (builds.length ? "<details class=\"drawer\"><summary>Open an observed encounter</summary><div class=\"build-list\">" + builds.map(buildCard).join("") + "</div></details>" : "<p class=\"empty-note\">No coordinator-admitted encounters have been observed yet.</p>");
   }
   function render(run) {
     main.innerHTML = assembly(run) + details(run);
@@ -613,6 +598,6 @@ if (process.argv[1] && new URL(import.meta.url).pathname === process.argv[1]) {
   const port = Number(process.env.BUILD_ROOM_PORT || 4173);
   const statePath = process.env.BUILD_ROOM_STATE_PATH || ".build-room-state.json";
   const room = loadBuildRoom(statePath);
-  createBuildRoomServer({ room, persist: (nextRoom) => persistBuildRoom(statePath, nextRoom) })
+  createBuildRoomServer({ room, persist: (nextRoom) => persistBuildRoom(statePath, nextRoom), coordinatorAuthorized: trustedCoordinator })
     .listen(port, "127.0.0.1", () => console.log(`Myth Maker build room: http://127.0.0.1:${port}`));
 }
