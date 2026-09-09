@@ -26,7 +26,7 @@ class AssetProgressTests(unittest.TestCase):
     def test_selects_only_latest_four_completed_verified_revisions(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run-one"
-            for attempt in range(1, 6): self._attempt(root, "mech", attempt, "mech-structure")
+            for attempt in range(1, 6): self._attempt(root, "mech", attempt, "kit-assembly")
             self._attempt(root, "railgun", 1, "railgun", "failed")
             values = completed_developments(root)
             self.assertEqual([item["attempt"] for item in values["mech"]], [2, 3, 4, 5])
@@ -59,7 +59,7 @@ class AssetProgressTests(unittest.TestCase):
 
     def test_reference_score_is_calculated_from_closed_rubric(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "run-one"; self._attempt(root, "mech", 1, "mech-structure")
+            root = Path(temporary) / "run-one"; self._attempt(root, "mech", 1, "kit-assembly")
             inputs = reference_evaluation_inputs(root); revision = inputs["mech"]["developments"][0]["render_sha256"]
             criteria = {"silhouette": 80, "proportions": 60, "component_geometry": 50,
                         "material_identity": 90, "detail_readability": 40, "fit": 100}
