@@ -108,8 +108,14 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
 def emit_failed_image_logs(error: subprocess.CalledProcessError) -> None:
     """Surface only the failed image layer after the provider redacts credentials."""
     output = "\n".join(str(value) for value in (error.stdout, error.stderr, error.output) if value)
+    for credential in REQUIRED_CREDENTIALS:
+        value = os.environ.get(credential)
+        if value:
+            output = output.replace(value, "[REDACTED]")
     match = IMAGE_ID.search(output)
     if not match:
+        if output:
+            print(f"Modal deploy failed before reporting an image ID:\n{output}", file=sys.stderr, end="")
         return
     image_id = match.group(0)
     logs = subprocess.run(
