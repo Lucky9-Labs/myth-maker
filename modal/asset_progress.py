@@ -10,9 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ASSETS = {
-    "mech": {"job_types": {"mech-structure", "mech-armor"}, "views": ("full-body", "front", "gameplay-distance")},
+    "mech": {"job_types": {"kit-assembly", "final-validation"}, "views": ("full-body", "front", "gameplay-distance")},
     "railgun": {"job_types": {"railgun"}, "views": ("side", "gameplay-distance", "full-body")},
-    "assembly": {"job_types": {"kit-assembly", "final-validation"}, "views": ("full-body", "gameplay-distance", "grip")},
 }
 RUBRIC = {"silhouette": 0.30, "proportions": 0.25, "component_geometry": 0.20,
           "material_identity": 0.10, "detail_readability": 0.10, "fit": 0.05}
@@ -30,9 +29,9 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
             job = _read_json(item["render"].parents[2] / "job.json")
             if not job:
                 continue
-            for artifact in job.get("inputs", []):
-                if artifact.get("media_type") not in {"image/png", "image/jpeg"}:
-                    continue
+            artifacts = [artifact for artifact in job.get("inputs", []) if artifact.get("media_type") in {"image/png", "image/jpeg"}]
+            artifacts.sort(key=lambda artifact: asset_id not in (artifact.get("staged_name", "") + artifact.get("path", "")).lower())
+            for artifact in artifacts:
                 candidate = item["render"].parents[2] / "inputs" / artifact.get("staged_name", Path(artifact["path"]).name)
                 try:
                     data = candidate.read_bytes()
