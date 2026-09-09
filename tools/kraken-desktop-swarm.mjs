@@ -14,6 +14,8 @@ const image = "mech-local-blender:5.2.1-trial-20260907";
 const workers = {
   "kraken-mantle-core": { port: 16081, component: "kraken-mantle-core", role: "central mantle/head and Mount_T01 through Mount_T08" },
   "kraken-tentacle-01": { port: 16082, component: "kraken-tentacle-01", role: "one complete numbered tentacle with T01_Root and T01_Tip" },
+  "kraken-tentacle-02": { port: 16083, component: "kraken-tentacle-02", role: "one complete numbered tentacle with a distinct upward sweep" },
+  "kraken-tentacle-03": { port: 16084, component: "kraken-tentacle-03", role: "one complete numbered tentacle with a distinct defensive curl" },
   "kraken-assembly": { port: 16090, component: "kraken-assembly", role: "serialized derivative assembly; links immutable mantle and tentacle sources only" },
 };
 
