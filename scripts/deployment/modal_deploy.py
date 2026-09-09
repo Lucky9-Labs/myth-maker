@@ -23,6 +23,9 @@ VOLUME_NAME = "myth-maker-encounter-submissions"
 DICT_NAME = "myth-maker-encounter-component-leases"
 SECRET_NAME = "myth-maker-encounter-openai"
 PROBE_FUNCTION = "run_dispatch_probe"
+ASSET_PRODUCTION_FUNCTION = "run_asset_production_job"
+ASSET_CRITIQUE_FUNCTION = "run_asset_visual_critique"
+ASSET_LEDGER_FUNCTION = "record_asset_production_run"
 REQUIRED_CREDENTIALS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY")
 IMAGE_ID = re.compile(r"\bim-[A-Za-z0-9]+\b")
 # The initial image pull/import can outlive the short CLI request cadence. Keep
@@ -154,9 +157,15 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
 
     draft = modal.Function.from_name(APP_NAME, "run_draft", environment_name=environment)
     probe = modal.Function.from_name(APP_NAME, PROBE_FUNCTION, environment_name=environment)
+    production = modal.Function.from_name(APP_NAME, ASSET_PRODUCTION_FUNCTION, environment_name=environment)
+    critique = modal.Function.from_name(APP_NAME, ASSET_CRITIQUE_FUNCTION, environment_name=environment)
+    ledger = modal.Function.from_name(APP_NAME, ASSET_LEDGER_FUNCTION, environment_name=environment)
     draft.hydrate()
     probe.hydrate()
-    if not draft.object_id or not probe.object_id:
+    production.hydrate()
+    critique.hydrate()
+    ledger.hydrate()
+    if not draft.object_id or not probe.object_id or not production.object_id or not critique.object_id or not ledger.object_id:
         raise RuntimeError("Modal function verification did not resolve provider function IDs")
 
     work_id = "ci-modal-probe"
@@ -179,12 +188,17 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     return {
         "deployment_id": app_id,
         "version_id": version_id,
-        "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id],
+        "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id,
+                         production.object_id, critique.object_id, ledger.object_id],
         "health": {
             "status": "healthy",
             "environment": environment,
             "app_id": app_id,
             "run_draft_function_id": draft.object_id,
+            "asset_production_function_id": production.object_id,
+            "asset_critique_function_id": critique.object_id,
+            "asset_ledger_function_id": ledger.object_id,
+            "max_asset_production_containers": 4,
             "verified_secret_name": SECRET_NAME,
             "dedicated_secret_verified": True,
         },

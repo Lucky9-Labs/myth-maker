@@ -22,6 +22,9 @@ class ModalRuntime:
     function_name: str = "run_draft"
     volume_function_name: str = "run_draft_from_volume_manifest"
     deterministic_recipe_function_name: str = "run_deterministic_recipe"
+    asset_production_function_name: str = "run_asset_production_job"
+    asset_critique_function_name: str = "run_asset_visual_critique"
+    asset_ledger_function_name: str = "record_asset_production_run"
     volume_name: str = "myth-maker-encounter-submissions"
     lease_dict_name: str = "myth-maker-encounter-component-leases"
     openai_secret_name: str = "myth-maker-encounter-openai"
@@ -95,6 +98,17 @@ def application_contract(environment: str = "dev") -> dict:
             "artifacts": ["native-blend", "validated-glb", "initial-png", "intermediate-png", "final-png"],
             "rule": "The recipe is bounded generic construction data; named demos are caller-owned data, not runtime schema.",
         },
+        "asset_production": {
+            "format": "myth-maker.asset-production-job/v1",
+            "function_name": config.asset_production_function_name,
+            "critique_function_name": config.asset_critique_function_name,
+            "ledger_function_name": config.asset_ledger_function_name,
+            "execution_boundary": "cloud-only-blender",
+            "max_containers": 4,
+            "worker_slots": ["worker-a", "worker-b", "worker-c", "worker-d"],
+            "checkpoint_store": config.volume_name,
+            "assembly_authority": "worker-d",
+        },
         "connections": [
             {
                 "from": "cloudflare.WORK_DISPATCH_URL",
@@ -133,7 +147,8 @@ def application_contract(environment: str = "dev") -> dict:
 
 def check_local_files() -> list[str]:
     root = Path(__file__).resolve().parent
-    required = [root / "draft_trial.py", root / "draft_support.py"]
+    required = [root / "draft_trial.py", root / "draft_support.py",
+                root / "asset_production.py", root / "asset_production_blender.py"]
     return [str(path) for path in required if not path.is_file()]
 
 
