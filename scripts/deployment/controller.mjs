@@ -357,7 +357,7 @@ function cloudflareCommand(args, options = {}) {
   });
 }
 
-function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOutput) {
+export function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOutput) {
   let deployments;
   let versions;
   try {
@@ -367,8 +367,22 @@ function currentCloudflareVersionId(deploymentsOutput, versionsOutput, deployOut
     throw new Error("Cloudflare did not return JSON deployment and version receipts");
   }
   const deploymentList = Array.isArray(deployments) ? deployments : deployments?.deployments;
-  const active = deploymentList?.[0]?.versions?.filter((version) => version?.percentage === 100);
-  const versionId = active?.length === 1 ? active[0].version_id : null;
+  // Wrangler lists deployments oldest-to-newest. Select the newest complete
+  // traffic allocation rather than assuming array index zero is current.
+  const active = (deploymentList ?? [])
+    .map((deployment, index) => {
+      const versionsAtFullTraffic = deployment?.versions?.filter((version) => version?.percentage === 100);
+      const createdAt = Date.parse(deployment?.created_on ?? "");
+      return {
+        versionId: versionsAtFullTraffic?.length === 1 ? versionsAtFullTraffic[0].version_id : null,
+        createdAt: Number.isFinite(createdAt) ? createdAt : -1,
+        index,
+      };
+    })
+    .filter(({ versionId }) => UUID.test(versionId ?? ""))
+    .sort((left, right) => left.createdAt - right.createdAt || left.index - right.index)
+    .at(-1);
+  const versionId = active?.versionId;
   const deployVersionId = deployOutput.match(/Current Version ID:\s*([0-9a-f-]{36})/i)?.[1];
   const versionList = Array.isArray(versions) ? versions : versions?.versions;
   if (!UUID.test(versionId ?? "") || !UUID.test(deployVersionId ?? "") || versionId !== deployVersionId

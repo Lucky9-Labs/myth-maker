@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   assertDeploymentRequest,
   createReceipt,
+  currentCloudflareVersionId,
   deploymentConcurrencyGroup,
   parseCloudflareDeploymentEvidence,
   parseModalDeploymentEvidence,
@@ -139,6 +140,20 @@ test("Cloudflare receipts require the deployed current Worker version and bound 
   })]) {
     assert.throws(() => parseCloudflareDeploymentEvidence(output), /Cloudflare deployment evidence/);
   }
+});
+
+test("Cloudflare deployment receipt selects the newest full-traffic Wrangler deployment", () => {
+  const oldVersion = "1b2c3d4e-1234-4567-8abc-1234567890ab";
+  const currentVersion = "2c3d4e5f-2345-4567-8abc-1234567890ab";
+  const deployments = JSON.stringify([
+    { created_on: "2026-09-09T01:27:01.000Z", versions: [{ version_id: oldVersion, percentage: 100 }] },
+    { created_on: "2026-09-09T01:27:09.000Z", versions: [{ version_id: currentVersion, percentage: 100 }] },
+  ]);
+  const versions = JSON.stringify([{ id: oldVersion }, { id: currentVersion }]);
+  assert.equal(
+    currentCloudflareVersionId(deployments, versions, `Current Version ID: ${currentVersion}`),
+    currentVersion,
+  );
 });
 
 test("the live Cloudflare URL must route directly to the Worker whose version is receipted", () => {
