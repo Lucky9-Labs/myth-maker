@@ -1,0 +1,28 @@
+{
+    "receipt_kind": "unity_glb_render.v1",
+    "glb_path": "/Users/lucky/.codex/worktrees/9170/myth-maker/evidence/build-room-kraken-high-fanout-stress.json.artifacts/261fc2b0-1cf2-4a17-8d1f-b10b97b8ff42/wg-8340e6fcb9c609d3ddc8281669373364/runtime/737cff2c5eff32728e03c6c3de46fe82dcf3027bb92c1abf133cf63f7d177e94.glb",
+    "glb_sha256": "737cff2c5eff32728e03c6c3de46fe82dcf3027bb92c1abf133cf63f7d177e94",
+    "generator": "Khronos glTF Blender I/O v5.2.40",
+    "animation_name": "encounter-appendage-sway-r1",
+    "animation_sample_seconds": [
+        0.0416666679084301,
+        0.2261904925107956,
+        0.410714328289032,
+        0.5952380895614624,
+        0.7797619700431824,
+        0.9642857909202576,
+        1.148809552192688,
+        1.3333333730697632
+    ],
+    "frames": [
+        "kraken-unity-frame-00.png",
+        "kraken-unity-frame-01.png",
+        "kraken-unity-frame-02.png",
+        "kraken-unity-frame-03.png",
+        "kraken-unity-frame-04.png",
+        "kraken-unity-frame-05.png",
+        "kraken-unity-frame-06.png",
+        "kraken-unity-frame-07.png"
+    ],
+    "evidence_scope": "Unity Editor Camera.Render of the accepted local GLB; not a remote Blender worker receipt or a player-runtime acceptance."
+}
