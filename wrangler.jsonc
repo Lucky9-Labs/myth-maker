@@ -3,6 +3,9 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-09-08",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": ["AGENT_INGRESS_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY"]
+  },
   "durable_objects": {
     "bindings": [
       {
