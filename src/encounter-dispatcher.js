@@ -148,7 +148,7 @@ function clone(value) { return value === undefined ? undefined : structuredClone
  * receiver is deliberately a closed-v1 compatibility lane.  Do not silently
  * upgrade a v1 order: the Python Modal adapter consumes this exact envelope.
  */
-function assertDispatchWorkOrder(order) {
+export function assertDispatchWorkOrder(order) {
   if (order?.schema_version === "1") return assertV1WorkOrder(order);
   return assertEncounterWorkOrder(order);
 }

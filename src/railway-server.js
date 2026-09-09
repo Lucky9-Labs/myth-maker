@@ -15,7 +15,13 @@ const eventSink = createCoordinatorEventSink({
   coordinatorUrl: requireEnv("COORDINATOR_URL"),
   ingressToken: requireEnv("AGENT_INGRESS_TOKEN"),
 });
-const dispatch = createRailwayDispatchHandler({ dispatcher, dispatchToken: requireEnv("WORK_DISPATCH_TOKEN"), eventSink });
+const dispatch = createRailwayDispatchHandler({
+  dispatcher,
+  dispatchToken: requireEnv("WORK_DISPATCH_TOKEN"),
+  eventSink,
+  defer: true,
+  onBackgroundError: (message) => console.error(message),
+});
 
 await mkdir(dirname(receiptPath), { recursive: true });
 try { await dispatcher.recoverDeliveries(eventSink); }

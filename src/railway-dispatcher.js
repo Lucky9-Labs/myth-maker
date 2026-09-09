@@ -1,4 +1,4 @@
-import { EventDeliveryError, InvalidWorkerEventsError } from "./encounter-dispatcher.js";
+import { assertDispatchWorkOrder, EventDeliveryError, InvalidWorkerEventsError } from "./encounter-dispatcher.js";
 
 /**
  * HTTP adapter for the Railway control-plane service.
@@ -8,7 +8,7 @@ import { EventDeliveryError, InvalidWorkerEventsError } from "./encounter-dispat
  * injected dispatcher. Production Railway wiring must provide a receipt store
  * that survives restarts; `Map` is intentionally only the local/test default.
  */
-export function createRailwayDispatchHandler({ dispatcher, dispatchToken, eventSink } = {}) {
+export function createRailwayDispatchHandler({ dispatcher, dispatchToken, eventSink, defer = false, onBackgroundError = console.error } = {}) {
   if (!dispatcher || typeof dispatcher.dispatchWorkOrder !== "function") {
     throw new TypeError("Railway handler needs an EncounterDispatcher");
   }
@@ -29,13 +29,26 @@ export function createRailwayDispatchHandler({ dispatcher, dispatchToken, eventS
     if (!suppliedWorkId || suppliedWorkId !== workOrder?.work_id) {
       return response({ error: "work_id_header_mismatch" }, 409);
     }
-    try {
+    const dispatchAndFlush = async () => {
       const dispatched = await dispatcher.dispatchWorkOrder(workOrder);
       // The coordinator's event IDs are idempotent. Replaying a stored receipt
       // after an interrupted callback is therefore safe, and posting serially
       // preserves the per-worker sequence required by its state machine.
       await dispatcher.flush(workOrder.work_id, eventSink);
       return response(dispatched, dispatched.deduplicated ? 200 : 202);
+    };
+    if (defer) {
+      // A Cloudflare Durable Object cannot process this callback while it is
+      // still awaiting its outbound dispatch request. Validate before the
+      // acknowledgement, then persist the receipt and deliver its ordered
+      // outbox after the coordinator has committed the queued work item.
+      try { assertDispatchWorkOrder(workOrder); }
+      catch (error) { return response({ error: "invalid_work_order", detail: error.message }, 400); }
+      void dispatchAndFlush().catch((error) => onBackgroundError(`Railway dispatch ${workOrder.work_id}: ${error.message || error}`));
+      return response({ work_id: workOrder.work_id, status: "accepted" }, 202);
+    }
+    try {
+      return await dispatchAndFlush();
     } catch (error) {
       // This exposes only the downstream HTTP status, never a token or event
       // payload, but makes a live outbox failure diagnosable from Railway's
