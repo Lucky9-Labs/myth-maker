@@ -39,7 +39,8 @@ the verified GitHub PR head commits, not their merge commits: #92
 `2c65385b0ac5bb9c9ca0601f45e700d1f499c94d`, #97
 `2e27a1419fdfe005a28fc3bcbaa162a4f8c01993`, #98
 `426b1b9e887a492aceba0f5d35d1b5c653dfed52`, and #99
-`1560bab7e441b7bc18d2f636c5e74beeac56ef82`.
+`1560bab7e441b7bc18d2f636c5e74beeac56ef82`. Myth Maker PR #100 is merged at
+`22e994b9f21eb439d515905d1b244a4b63cd651d`.
 
 **Modal input and deterministic artifact evidence are real, bounded proofs.**
 PR #94 resolves the draft's inputs from the immutable Modal-volume manifest,
@@ -50,51 +51,40 @@ the generated `.blend`, GLB, and all three frames (initial, appendages, and
 final). This proves those exact Modal-volume bytes and the three-stage output;
 it does not prove that a human-visible Blender GUI replay completed.
 
-**The exact Unity runtime artifact is publicly available and independently
-verifiable.** The macOS Mono AssetBundle is
+**The exact Unity runtime artifact is publicly available, signed, and
+independently verifiable.** The macOS Mono AssetBundle is
 [`5094518ad5b3de581b971d5fa22625e5efb1e86d9798ede8eadc9bc716dbb839.bundle`](https://myth-maker-dev-dispatcher-dev.up.railway.app/v2/artifacts/5094518ad5b3de581b971d5fa22625e5efb1e86d9798ede8eadc9bc716dbb839.bundle).
 Its public HTTPS response is `application/vnd.unity.assetbundle`, carries the
 same SHA-256 in `Digest`, and has `Content-Length: 374813`. The signed discovery
-proof is scoped to encounter
-`encounter-modal-x11-proof-20260909-13`; it is the encounter identity to retain
-when joining the selected artifact, catalog/assembly evidence, and host proof.
+proof is scoped to encounter `encounter-modal-x11-proof-20260909-13`, verified
+against manifest `discovery-unity-59ef3fb8ebfa4c8ca50855cc53f88056` with key
+`package-discovery-ed25519-v1`. Those stable IDs bind the selected artifact,
+catalog/assembly evidence, and host proof.
 
-**The host combat spine is merged.** Mech PR #47, “Add generic verified
-encounter combat spine,” merged at head
-`a1ddb9a106901a282ad68011d1f71b5d559ff03b` (merge
-`da9b446c98ea4b1132658d4688af9c8707f9e7e4`). It provides the generic session,
-critical damage, three readable attacks, objective/restart behavior, and a
-fixture-bound first-person proof-capture seam. This is a combat-spine result,
-not yet the joined remote encounter proof.
+**The signed remote encounter completed the live Unity proof path.** Mech PR
+#48 is merged at `aa79d5e8accd54ade632bdae43acdcee8813ee19`. Its joined run
+loaded the signed artifact above and recorded 92,736 visible non-background
+pixels, critical damage of 25, player HP of 92, and both victory and restart.
+This is the player-facing first-person encounter proof for the retained
+encounter identity, manifest, signing key, and artifact hash.
 
-### In progress
+**Custom GUI readiness now passes.** The suffix18 replay persisted three
+visible Blender frames, each 752,214 bytes with SHA-256
+`fbdbea7a9a88820b9f95a341d998613647f87743fe2ea7ecb90e5e57e3b527a6`.
+This is visible Blender-frame persistence evidence, rather than only an X11
+diagnostic or a renderer substitute.
 
-**Custom GUI replay diagnostics are narrowed, not passed.** The post-#98
-custom replay suffix16 reached `accepted` / `started` / `failed` with the owned
-X11 display, empty `WAYLAND_DISPLAY`, a private mode-0700 XDG runtime, and a
-Blender X11 connection. Across all 44 readiness samples it found zero visible
-Blender-class windows. PR #99 keeps that fail-closed rule and records a bounded
-X11 root-window tree plus up to eight non-visible Blender-class candidates and
-their bounded identity properties. This is a durable diagnostic state, not
-visual GUI success.
+### Blocked / separately required
 
-**Mech PR #48 has a local visible renderer result but is not merged.** Its
-current open head is `38e0589b691742a1afc3e4f63276891b21efc2e2`. The explicit
-local 960x720 render has 164,694 non-background pixels, which is renderer
-evidence for that checkout. It is not evidence that the same selected signed
-remote artifact completed the player-facing encounter path.
+**Custom AI modeling cannot start with the available credential.** A local call
+to `/v1/responses` returns HTTP 401 `invalid_api_key` before actions begin. A
+Responses-API-capable credential is required. A successful `/v1/models` call,
+if one is available, is not sufficient evidence that custom AI modeling can
+run.
 
-### Blocked / required join
-
-The remaining D0-level proof is one signed-remote joined run: preserve the
-`encounter-modal-x11-proof-20260909-13` discovery selection, independently
-refetch the exact public AssetBundle above, load it in the Mech proof path, and
-capture the resulting first-person gameplay/render evidence under the same
-stable IDs and hashes. Until that run exists, do not claim remote package
-admission plus host loading/rendering as an end-to-end player proof. Separately,
-the custom Modal GUI replay remains blocked on finding exactly one visible
-Blender-class X11 window; PR #99's bounded diagnostics are the current evidence
-needed to resolve that failure without weakening the visibility requirement.
+**Cloudflare redeployment has a distinct credential dependency.** Redeploy
+token 9109 remains separately required for a new Cloudflare deployment. The
+existing route works; that does not satisfy the redeployment credential gate.
 
 ## D0 — Core demo target
 
