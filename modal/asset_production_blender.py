@@ -241,6 +241,8 @@ def render_views(output: Path, views: list[str]) -> None:
     scene.render.resolution_y = 640
     scene.render.resolution_percentage = 100
     scene.render.image_settings.file_format = "PNG"
+    if scene.world is None:
+        scene.world = bpy.data.worlds.new("asset-review-world")
     scene.world.color = (0.025, 0.03, 0.04)
     output.mkdir(parents=True, exist_ok=True)
     for view in views:
