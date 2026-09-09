@@ -115,7 +115,9 @@ class AssetProductionTests(unittest.TestCase):
             source.write_bytes(b"BLENDER" + b"x" * 64)
             (volume / "ingest" / "reference.png").write_bytes(b"PNG-reference")
 
+            calls = []
             def fake_run(command, **_kwargs):
+                calls.append(command)
                 output = Path(command[command.index("--output-root") + 1])
                 (output / "renders").mkdir(parents=True)
                 (output / "asset.blend").write_bytes(b"BLENDER" + b"y" * 64)
@@ -133,6 +135,7 @@ class AssetProductionTests(unittest.TestCase):
             )
             self.assertEqual(receipt["status"], "completed")
             self.assertEqual(receipt["execution"]["runtime"], "modal")
+            self.assertIn("--python-exit-code", calls[0])
             self.assertEqual(set(receipt["artifacts"]), {
                 "asset.blend", "asset.glb", "fit-report.json", "scene-manifest.json", "core-kit-manifest.json",
                 "renders/full-body.png", "renders/gameplay-distance.png",

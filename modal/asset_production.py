@@ -397,6 +397,7 @@ def run_asset_production_job(value: dict, volume_root: Path, submissions_root: P
     started = time.monotonic()
     command = [
         blender, "--background", "--factory-startup", "--disable-autoexec",
+        "--python-exit-code", "1",
         "--python", "/opt/asset_production_blender.py", "--",
         "--job", str(manifest_path), "--inputs", str(inputs), "--output-root", str(output),
     ]
@@ -408,6 +409,8 @@ def run_asset_production_job(value: dict, volume_root: Path, submissions_root: P
         "stdout_sha256": hashlib.sha256(completed.stdout.encode()).hexdigest(),
         "stderr_sha256": hashlib.sha256(completed.stderr.encode()).hexdigest(),
     }
+    (root / "stdout.log").write_text(completed.stdout, encoding="utf-8")
+    (root / "stderr.log").write_text(completed.stderr, encoding="utf-8")
     receipt = {
         "format": "myth-maker.asset-production-receipt/v1",
         "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
