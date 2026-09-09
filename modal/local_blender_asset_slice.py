@@ -57,10 +57,18 @@ mat=bpy.data.materials.new("standard")
 mat.diffuse_color=(0.055,0.38,0.50,1)
 mat.metallic=0.12
 mat.roughness=0.34
+mat.use_nodes=True
+mat.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value=(0.055,0.38,0.50,1)
+mat.node_tree.nodes.get("Principled BSDF").inputs["Metallic"].default_value=0.12
+mat.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value=0.34
 accent=bpy.data.materials.new("standard-accent")
 accent.diffuse_color=(0.08,0.82,0.74,1)
 accent.metallic=0.05
 accent.roughness=0.28
+accent.use_nodes=True
+accent.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value=(0.08,0.82,0.74,1)
+accent.node_tree.nodes.get("Principled BSDF").inputs["Metallic"].default_value=0.05
+accent.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value=0.28
 origin=bpy.data.objects.new("encounter-origin",None)
 bpy.context.collection.objects.link(origin)
 bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, location=(0,0,0.45))
