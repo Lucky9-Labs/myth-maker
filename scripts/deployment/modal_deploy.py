@@ -47,6 +47,22 @@ def has_named_resource(resources: list[dict], name: str) -> bool:
     return any(item.get("Name") == name or item.get("name") == name for item in resources)
 
 
+def item_value(item: dict, legacy_key: str, current_key: str) -> str | None:
+    value = item.get(legacy_key, item.get(current_key))
+    return value if isinstance(value, str) else None
+
+
+def deployed_app(apps: list[dict]) -> dict | None:
+    """Find the app across Modal CLI JSON field-name revisions."""
+    return next(
+        (item for item in apps
+         if item_value(item, "Description", "description") == APP_NAME
+         and item_value(item, "State", "state") == "deployed"
+         and item_value(item, "App ID", "app_id")),
+        None,
+    )
+
+
 def ensure_environment(environment: str) -> None:
     environments = json_command("modal", "environment", "list", "--json")
     if not any(item.get("name") == environment for item in environments):
@@ -119,11 +135,13 @@ def deploy_app(environment: str) -> None:
 def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     deploy_app(environment)
     apps = json_command("modal", "app", "list", "--env", environment, "--json")
-    app = next((item for item in apps if item.get("Description") == APP_NAME and item.get("State") == "deployed"), None)
-    if not app or not isinstance(app.get("App ID"), str):
+    app = deployed_app(apps)
+    app_id = item_value(app, "App ID", "app_id") if app else None
+    if not app_id:
         raise RuntimeError("Modal deployment did not produce an observable deployed app")
-    history = json_command("modal", "app", "history", app["App ID"], "--env", environment, "--json")
-    if not history or not isinstance(history[0].get("Version"), str):
+    history = json_command("modal", "app", "history", app_id, "--env", environment, "--json")
+    version_id = item_value(history[0], "Version", "version") if history else None
+    if not version_id:
         raise RuntimeError("Modal deployment did not produce an observable app version")
 
     import modal
@@ -153,13 +171,13 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     if not all(isinstance(dispatch[key], str) and dispatch[key] for key in ("function_call_id", "function_id", "input_id", "worker_id")):
         raise RuntimeError("Modal probe receipt omitted provider-issued call, input, or worker identity")
     return {
-        "deployment_id": app["App ID"],
-        "version_id": history[0]["Version"],
+        "deployment_id": app_id,
+        "version_id": version_id,
         "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id],
         "health": {
             "status": "healthy",
             "environment": environment,
-            "app_id": app["App ID"],
+            "app_id": app_id,
             "run_draft_function_id": draft.object_id,
             "verified_secret_name": SECRET_NAME,
             "dedicated_secret_verified": True,

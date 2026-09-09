@@ -24,6 +24,14 @@ class ModalDeployTest(unittest.TestCase):
         secret_call = next(call for call in run.call_args_list if call.args[:3] == ("modal", "secret", "create"))
         self.assertIn("--force", secret_call.args)
 
+    def test_app_observation_accepts_current_lowercase_cli_json_keys(self):
+        app = modal_deploy.deployed_app([
+            {"app_id": "ap-old", "description": modal_deploy.APP_NAME, "state": "stopped"},
+            {"app_id": "ap-current", "description": modal_deploy.APP_NAME, "state": "deployed"},
+        ])
+        self.assertEqual(modal_deploy.item_value(app, "App ID", "app_id"), "ap-current")
+        self.assertEqual(modal_deploy.item_value({"version": "v-current"}, "Version", "version"), "v-current")
+
     def test_resource_bootstrap_accepts_current_lowercase_cli_json_keys(self):
         with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
             modal_deploy.ensure_named_resources("dev")
