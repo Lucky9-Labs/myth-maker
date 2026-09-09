@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import {
   BuildRoom,
@@ -348,10 +351,42 @@ test("the Build Room page includes the evidence-driven revision loop and keeps i
   await once(server, "listening");
   try {
     const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
-    for (const expected of ["loop-flow", "Coordinator / planner", "Coordinator revision state", "Unity judge", "Concept-first gate", "Material", "Arena", "Deadline timer", "Component", "Selected", "Rejected", "Fallback", "Build details and evidence"]) {
+    for (const expected of ["loop-flow", "Coordinator / planner", "Coordinator revision state", "Unity judge", "Concept-first gate", "Material", "Arena", "Deadline timer", "Component", "Selected", "Rejected", "Fallback", "Production lineage", "Request → workers", "Fresh artifacts", "Catalog acceptance", "Assembly receipt", "Evidence tier", "Build details and evidence"]) {
       assert.match(page, new RegExp(expected));
     }
     assert.doesNotMatch(page, /id="submit"|Request next revision|\/upgrades/);
+  } finally {
+    server.close();
+  }
+});
+
+test("a generated build projects receipt-backed generic production lineage", async () => {
+  const artifactRoot = await mkdtemp(path.join(tmpdir(), "myth-maker-lineage-"));
+  const server = createBuildRoomServer({ artifactRoot });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const submitted = await (await fetch(`${base}/api/encounters`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "Generic lineage proof", generate_asset: true, idempotency_key: "generic-lineage-proof-001" }),
+    })).json();
+    const final = await eventually(
+      async () => (await (await fetch(`${base}/api/encounters/${submitted.ids.encounterId}`)).json()),
+      (value) => value.production_lineage?.assembly_receipt,
+    );
+    const lineage = final.production_lineage;
+    assert.equal(lineage.request_id, submitted.ids.requestId);
+    assert.ok(lineage.work_orders.every((work) => work.work_id && work.worker_id && work.evidence_kind));
+    assert.equal(lineage.artifact_revisions.length, 1);
+    assert.match(lineage.artifact_revisions[0].artifacts.blend.path, /\.blend$/);
+    assert.match(lineage.artifact_revisions[0].artifacts.glb.path, /\.glb$/);
+    assert.match(lineage.artifact_revisions[0].artifacts.frame.path, /\.png$/);
+    assert.equal(lineage.catalog_acceptance[0].evidence, "local_sqlite_record");
+    assert.equal(lineage.catalog_acceptance[0].runtime_acceptance_state, "candidate");
+    assert.equal(lineage.selected_package.package_id, lineage.assembly_receipt.package_id);
+    assert.equal(lineage.selected_package.revision, lineage.assembly_receipt.package_revision);
+    assert.ok(lineage.evidence_tier.includes("local_blender_cli"));
   } finally {
     server.close();
   }

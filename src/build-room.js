@@ -175,6 +175,7 @@ export class BuildRoom {
       },
       upgrade: { ...run.upgrade },
       topology: topology(run, this.catalogProjection, this.now()),
+      production_lineage: productionLineage(run),
     };
   }
 
@@ -526,6 +527,37 @@ function workerStatus(kind) {
   if (kind === "failed" || kind === "cancelled") return "failed";
   if (kind === "accepted") return "accepted";
   return "running";
+}
+
+function productionLineage(run) {
+  const artifacts = revisions(run.artifacts);
+  const packages = revisions(run.packages);
+  const selectedPackage = packages.at(-1) || null;
+  const observedKinds = [...new Set(run.events.map((event) => event.evidence.kind))].sort();
+  return {
+    request_id: run.ids.requestId,
+    encounter_id: run.ids.encounterId,
+    work_orders: [...run.workGraph.values()].sort((a, b) => a.work_id.localeCompare(b.work_id)).map((work) => ({
+      work_id: work.work_id,
+      worker_id: work.worker_id,
+      lane: work.lane,
+      component: work.component,
+      depends_on_work_ids: [...work.depends_on_work_ids],
+      status: work.status,
+      evidence_kind: work.evidence_kind,
+    })),
+    artifact_revisions: artifacts,
+    revision_counts: {
+      artifacts: artifacts.length,
+      packages: packages.length,
+      catalog_assets: artifacts.filter((artifact) => artifact.catalog_acceptance?.asset).length,
+      catalog_animations: artifacts.filter((artifact) => artifact.catalog_acceptance?.animation).length,
+    },
+    catalog_acceptance: artifacts.flatMap((artifact) => Object.values(artifact.catalog_acceptance || {}).filter(Boolean)),
+    selected_package: selectedPackage,
+    assembly_receipt: selectedPackage?.assembly_receipt || null,
+    evidence_tier: observedKinds,
+  };
 }
 
 function buildSummary(run) {
