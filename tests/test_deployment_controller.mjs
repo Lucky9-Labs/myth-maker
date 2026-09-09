@@ -228,6 +228,10 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(terraformFoundation, /reviewed\.tfplan/);
   assert.match(terraformFoundation, /deployment_receipt_facts/);
   assert.match(terraformFoundation, /id-token: write/);
+  assert.match(terraformFoundation, /TF_VAR_package_discovery_signing_private_key: \$\{\{ secrets\.PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY \}\}/);
+  assert.match(terraformFoundation, /TF_VAR_catalog_acceptance_token: \$\{\{ secrets\.CATALOG_ACCEPTANCE_TOKEN \}\}/);
+  assert.match(terraformFoundation, /TF_VAR_railway_token: \$\{\{ secrets\.RAILWAY_TOKEN \}\}/);
+  assert.doesNotMatch(terraformFoundation, /secrets\.TF_VAR_(?:package_discovery_signing_private_key|catalog_acceptance_token|railway_token)/);
 
   const preview = JSON.parse(execFileSync(
     "ruby",
