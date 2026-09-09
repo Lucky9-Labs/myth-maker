@@ -26,7 +26,7 @@ class _App(_Chain):
 
 class _Factory:
     @classmethod
-    def debian_slim(cls, *_args, **_kwargs):
+    def from_registry(cls, *_args, **_kwargs):
         return _Chain()
 
     @classmethod

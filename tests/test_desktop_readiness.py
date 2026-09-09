@@ -6,10 +6,25 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, healthy_observation, recognizable_blender_ui, window_geometry
+from desktop_readiness import DesktopProbe, StartupUnready, bounded_poll, healthy_observation, recognizable_blender_ui, terminal_failure, window_geometry
 
 
 class DesktopReadinessTests(unittest.TestCase):
+    def test_terminal_failure_preserves_the_original_runtime_or_startup_cause(self):
+        startup = terminal_failure(StartupUnready("desktop did not become ready"))
+        runtime = terminal_failure(RuntimeError("provider authentication failed"))
+        self.assertEqual(startup, {
+            "status": "blocked",
+            "stop_reason": "startup_unready",
+            "error": "desktop did not become ready",
+            "desktop_readiness_report": "startup-readiness.json",
+        })
+        self.assertEqual(runtime, {
+            "status": "failed",
+            "stop_reason": "runtime_error",
+            "error": "provider authentication failed",
+        })
+
     def healthy(self):
         return {"processes": [{"pid": 1, "exit_code": None}, {"pid": 2, "exit_code": None}, {"pid": 3, "exit_code": None}],
                 "x_ready": True, "window_identity_verified": True, "onscreen": True, "nonblank": True,
