@@ -31,7 +31,7 @@ Store only the indicated CLI credentials in the environment that needs them:
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
 | Cloudflare adapter | None while Terraform remains the sole Worker/binding authority |
-| Railway adapter | None while no verified Railway deploy/acknowledgement command exists |
+| Railway adapter | `RAILWAY_TOKEN`; the executor installs the pinned Railway CLI, uploads the exact trusted source revision to the configured service/environment, and polls for a `SUCCESS` deployment receipt |
 | Modal adapter | None until a documented machine-readable deploy/health query seam exists |
 
 The environment boundary lives in the shared executor, before any credential is
@@ -86,14 +86,15 @@ machine-readable deploy/health query seam in this controller, so it is skipped.
 If enabled later, success must require parsed deployment ID, version ID, named
 resources, and healthy status—never a command exit code alone.
 
-Current release status is intentionally conservative. The merged
-`src/railway-dispatcher.js` supplies an in-repository work-graph dispatcher, but
-it is not yet a deployable Railway entrypoint/configuration and has no
-production durable receipt store or live verification endpoint. Worker version
-promotion is therefore blocked, Railway produces an unavailable skipped receipt,
-and Cloudflare produces a skipped receipt. None of those stages is presented as
-a completed provider deployment until Railway can prove a durable
-`x-work-id` acknowledgement and the provider receipts contain live evidence.
+The Railway receiver is a Docker-deployed Node HTTP service. It stores receipts
+and its serial event outbox on the service's mounted `/data` volume, validates
+the coordinator bearer token and stable `x-work-id`, and calls the deployed
+Modal function by its named app/function identity. Its service configuration
+must provide the two coordinator tokens plus `MODAL_INPUT_PACKAGE_BASE64` before
+an end-to-end work order can be admitted; those values are never emitted in a
+CI receipt or application response. The Railway provider receipt is successful
+only after its deployment list reports `SUCCESS`; that alone is not a
+coordinator-to-dispatcher acknowledgement or a Modal worker receipt.
 
 ## Receipts and build-room consumption
 

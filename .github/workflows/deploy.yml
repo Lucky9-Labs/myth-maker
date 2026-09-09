@@ -75,6 +75,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  railway:
+    # This pre-existing dispatcher has a reconciled service identity and a
+    # mounted receipt volume. Its immutable source upload is independently
+    # CI-owned; the broader gate below still controls Worker promotion.
+    needs: assert-deployment-input
+    uses: ./.github/workflows/provider-railway.yml
+    secrets: inherit
+    with:
+      environment: ${{ inputs.environment || 'dev' }}
+      source_sha: ${{ needs.assert-deployment-input.outputs.source_sha }}
   modal:
     needs: assert-deployment-input
     # Keep this job in the top-level workflow. GitHub resolves Environment

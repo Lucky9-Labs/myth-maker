@@ -338,6 +338,66 @@ test("Railway control-plane handler matches Cloudflare's stable x-work-id delive
   assert.equal(unauthorized.status, 401);
 });
 
+test("Railway accepts the exact closed-v1 Modal work order without a v2 production-gate rewrite", async () => {
+  const order = {
+    schema_version: "1", work_id: "modal-v1-body-source", encounter_id: "modal-v1-encounter", lane: "body-source",
+    deadline_at: "2026-09-09T12:00:00Z", requested_provides: ["encounter.body.source"], input_module_ids: [], depends_on_work_ids: [], attempt: 1,
+    instruction: "Draft one bounded body source.", host_capabilities: hostCapabilities,
+  };
+  const forwarded = [];
+  const handler = createRailwayDispatchHandler({
+    dispatcher: new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }) }), dispatchToken: "dispatch",
+    eventSink: { append: async (_workId, event) => forwarded.push(event) },
+  });
+  const result = await handler(new Request("https://railway.example/v1/dispatch", {
+    method: "POST", headers: { authorization: "Bearer dispatch", "content-type": "application/json", "x-work-id": order.work_id }, body: JSON.stringify(order),
+  }));
+  assert.equal(result.status, 202);
+  assert.deepEqual(forwarded.map((event) => event.sequence), [0, 1, 2]);
+});
+
+test("Railway reports only the downstream callback status when receipt delivery fails", async () => {
+  const order = planEncounterWork(fixture).work_orders[0];
+  const handler = createRailwayDispatchHandler({
+    dispatcher: new EncounterDispatcher({ backend: new LocalWorkerBackend({ workDurationMs: 1 }) }), dispatchToken: "dispatch",
+    eventSink: { append: async () => { throw new Error("coordinator returned 401"); } },
+  });
+  const result = await handler(new Request("https://railway.example/v1/dispatch", {
+    method: "POST", headers: { authorization: "Bearer dispatch", "content-type": "application/json", "x-work-id": order.work_id }, body: JSON.stringify(order),
+  }));
+  assert.equal(result.status, 502);
+  assert.match((await result.json()).detail, /coordinator returned 401/);
+});
+
+test("Railway acknowledges before its deferred callback re-enters a coordinator", async () => {
+  const order = {
+    schema_version: "1", work_id: "modal-v1-deferred", encounter_id: "modal-v1-encounter", lane: "body-source",
+    deadline_at: "2026-09-09T12:00:00Z", requested_provides: ["encounter.body.source"], input_module_ids: [], depends_on_work_ids: [], attempt: 1,
+    instruction: "Draft one bounded body source.", host_capabilities: hostCapabilities,
+  };
+  let release, completed;
+  const delivered = new Promise((resolve) => { completed = resolve; });
+  const handler = createRailwayDispatchHandler({
+    dispatcher: new EncounterDispatcher({ backend: { async launch(received) {
+      await new Promise((resolve) => { release = resolve; });
+      const worker_id = "modal-draft";
+      return { worker_id, events: [
+        { schema_version: "1", event_id: "evt-deferred-accepted", work_id: received.work_id, encounter_id: received.encounter_id, worker_id, sequence: 0, occurred_at: "2026-09-08T20:00:00.000Z", kind: "accepted" },
+        { schema_version: "1", event_id: "evt-deferred-completed", work_id: received.work_id, encounter_id: received.encounter_id, worker_id, sequence: 1, occurred_at: "2026-09-08T20:00:00.001Z", kind: "completed" },
+      ] };
+    } } }),
+    dispatchToken: "dispatch",
+    eventSink: { append: async (_workId, event) => { if (event.sequence === 1) completed(); } },
+    defer: true,
+  });
+  const response = await handler(new Request("https://railway.example/v1/dispatch", {
+    method: "POST", headers: { authorization: "Bearer dispatch", "content-type": "application/json", "x-work-id": order.work_id }, body: JSON.stringify(order),
+  }));
+  assert.equal(response.status, 202);
+  release();
+  await delivered;
+});
+
 test("dispatcher stores terminal failed receipts instead of relaunching stable work", async () => {
   const order = planEncounterWork(fixture).work_orders[0];
   let launches = 0;

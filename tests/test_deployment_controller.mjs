@@ -83,7 +83,7 @@ test("legacy all-provider readiness remains fail-closed while Modal has its own 
   });
   assert.deepEqual(releaseReadiness({ environment: "dev", deploymentReady: true }), {
     ready: false,
-    reason: "provider deploy commands are unavailable: cloudflare, railway",
+    reason: "provider deploy commands are unavailable: cloudflare",
   });
 });
 
@@ -119,7 +119,7 @@ test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
 
-test("an unsupported Railway deployment is skipped rather than presented as a preview or success", () => {
+test("a Railway preview stays non-mutating while deployment requires GitHub context", () => {
   assert.throws(
     () => validateProviderRequest({ eventName: "pull_request", mode: "deploy", provider: "railway", environment: "dev" }),
   );
@@ -213,6 +213,7 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(deployWorkflow, /modal:\n\s+needs: assert-deployment-input/);
   assert.match(deployWorkflow, /MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
   assert.doesNotMatch(deployWorkflow, /uses: \.\/\.github\/workflows\/provider-modal\.yml/);
+  assert.match(deployWorkflow, /railway:[\s\S]*?secrets: inherit/);
   assert.match(deployWorkflow, /id-token: write/);
   assert.match(executor, /myth-maker-deploy-\$\{\{ inputs\.provider \}\}-\$\{\{ inputs\.environment \}\}/);
   assert.match(executor, /cancel-in-progress: false/);

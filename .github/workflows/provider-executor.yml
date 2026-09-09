@@ -52,14 +52,18 @@ jobs:
         env:
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           RESULT: ${{ runner.temp }}/provider-result.json
-      - name: Record unavailable Railway deployment without injecting credentials
+      - name: Deploy and verify the Railway HTTP dispatcher
         id: railway
         if: inputs.provider == 'railway'
         env:
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           RESULT: ${{ runner.temp }}/provider-result.json
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
         run: |
           set -euo pipefail
+          npm install --global @railway/cli@4.16.1
           node scripts/deployment/controller.mjs deploy --provider railway --environment "$DEPLOYMENT_ENVIRONMENT" > "$RESULT"
           node -e 'const result = require(process.env.RESULT); process.stdout.write(`provider_status=${result.status}\n`)' >> "$GITHUB_OUTPUT"
       - name: Install the pinned Modal control-plane client
