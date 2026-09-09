@@ -27,6 +27,8 @@ from deterministic_encounter import MATERIAL_NAMES, recipe_digest, validate_reci
 from glb_source_importer import validate_glb
 from infrastructure import runtime
 from modal_volume_inputs import load_volume_inputs, validate_volume_input_manifest
+from asset_production import (plan_production_wave, run_asset_production_job as execute_asset_production_job,
+                              validate_critique_request, validate_job_manifest, validate_visual_critique)
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -52,6 +54,9 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .add_local_file(HERE / "encounter_worker_adapter.py", "/opt/encounter_worker_adapter.py", copy=True)
          .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True)
          .add_local_file(HERE / "modal_volume_inputs.py", "/opt/modal_volume_inputs.py", copy=True))
+image = (image
+         .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
+         .add_local_file(HERE / "asset_production_blender.py", "/opt/asset_production_blender.py", copy=True))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
 SUBMISSIONS_ROOT = Path("/submissions")
@@ -218,6 +223,99 @@ def image_item(data: bytes) -> dict:
         picture.convert("RGB").save(output, format="PNG")
     return {"type": "input_image", "image_url": "data:image/png;base64," + base64.b64encode(output.getvalue()).decode(), "detail": "original"}
 
+
+@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=16 * 60,
+              retries=0, max_containers=4, volumes={"/submissions": volume})
+def run_asset_production_job(job: dict) -> dict:
+    """Run one closed, immutable asset-production attempt entirely in Modal."""
+    checked = validate_job_manifest(job)
+    lease_key = "asset-production:" + checked["run_id"] + ":" + checked["worker_slot"]
+    lease_value = checked["work_id"] + ":a" + str(checked["attempt"])
+    if not part_leases.put(lease_key, lease_value, skip_if_exists=True):
+        raise RuntimeError("asset-production slot already claimed; reconcile it before dispatch")
+    try:
+        function_call_id, input_id = modal.current_function_call_id(), modal.current_input_id()
+        if not function_call_id or not input_id:
+            raise RuntimeError("Modal did not provide asset-production call and input identities")
+        volume.reload()
+        receipt = execute_asset_production_job(
+            checked, SUBMISSIONS_ROOT, SUBMISSIONS_ROOT / "asset-production",
+            "/usr/local/bin/blender", function_call_id=function_call_id, input_id=input_id,
+        )
+        volume.commit()
+        return receipt
+    finally:
+        if part_leases.get(lease_key) == lease_value:
+            part_leases.pop(lease_key)
+
+
+@app.local_entrypoint()
+def submit_asset_production_wave(manifest_path: str) -> None:
+    """Submit exactly four immutable jobs; every Blender process remains remote."""
+    wave = plan_production_wave(json.loads(Path(manifest_path).read_text(encoding="utf-8")))
+    receipts = list(run_asset_production_job.map(wave, order_outputs=False))
+    print(json.dumps(sorted(receipts, key=lambda item: item["worker_slot"]), indent=2, sort_keys=True))
+
+
+@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=6 * 60,
+              retries=0, max_containers=4, secrets=[secret], volumes={"/submissions": volume})
+def run_asset_visual_critique(request: dict) -> dict:
+    """Perform one bounded, evidence-only Astra review of cloud renders."""
+    checked = validate_critique_request(request)
+    volume.reload()
+    content = [{
+        "type": "input_text",
+        "text": (
+            "Review this assembled game asset only against observable production criteria: silhouette, "
+            "reference coherence, fit, articulation, weapon handling, animation readability, material "
+            "identity, export correctness, and performance-visible complexity. Return JSON only with "
+            "format myth-maker.asset-visual-critique/v1 and a defects array. Each defect requires "
+            "defect_id and component_id in lowercase kebab-case, evidence_view, observable_problem, "
+            "severity (blocking, nonblocking, or cosmetic), criterion, recommended_correction, and "
+            "confidence from 0 to 1. Do not invent hidden geometry defects. Cosmetic defects are backlog. "
+            "Prior dispositions: " + json.dumps(checked["prior_defects"], sort_keys=True)
+        ),
+    }]
+    for artifact in checked["artifacts"]:
+        path = (SUBMISSIONS_ROOT / artifact["path"]).resolve()
+        if not path.is_relative_to(SUBMISSIONS_ROOT.resolve()) or not path.is_file():
+            raise ValueError("critique artifact is unavailable: " + artifact["path"])
+        data = read_stable(path)
+        if len(data) != artifact["bytes"] or digest(data) != artifact["sha256"]:
+            raise ValueError("critique artifact hash mismatch: " + artifact["path"])
+        content.append({"type": "input_text", "text": "Evidence view: " + Path(artifact["path"]).stem})
+        content.append({"type": "input_image", "image_url": "data:image/png;base64," + base64.b64encode(data).decode()})
+    from openai import OpenAI
+    started = time.monotonic()
+    response = OpenAI().responses.create(
+        model=checked["model"], input=[{"role": "user", "content": content}],
+        reasoning={"effort": "high"}, max_output_tokens=5000, timeout=300,
+    )
+    if response.status != "completed" or not response.output_text:
+        raise RuntimeError("asset visual critique did not return a completed JSON result")
+    try:
+        critique = validate_visual_critique(json.loads(response.output_text))
+    except (json.JSONDecodeError, ValueError) as error:
+        raise RuntimeError("asset visual critique returned an invalid closed result") from error
+    usage = response.usage.model_dump() if response.usage else None
+    cached = ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens")
+    receipt = {
+        "format": "myth-maker.asset-critique-receipt/v1", "status": "completed",
+        "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
+        "provider": {"name": "openai", "model": checked["model"], "request_id": response.id},
+        "duration_ms": round((time.monotonic() - started) * 1000),
+        "model_usage": {
+            "provenance": "measured" if usage else "unavailable",
+            "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": cached,
+            "output_tokens": (usage or {}).get("output_tokens"),
+        },
+        "critique": critique,
+    }
+    root = SUBMISSIONS_ROOT / "asset-production" / checked["run_id"] / checked["work_id"]
+    root.mkdir(parents=True, exist_ok=False)
+    write_json_atomic(root / "receipt.json", receipt)
+    volume.commit()
+    return receipt
 
 def screenshot(path: Path) -> bytes:
     subprocess.run(["scrot", "-o", str(path)], check=True, capture_output=True, timeout=5)

@@ -14,6 +14,12 @@ SPEC.loader.exec_module(modal_deploy)
 
 
 class ModalDeployTest(unittest.TestCase):
+    def test_deployment_verifies_asset_production_and_critique_functions(self):
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn('ASSET_PRODUCTION_FUNCTION = "run_asset_production_job"', source)
+        self.assertIn('ASSET_CRITIQUE_FUNCTION = "run_asset_visual_critique"', source)
+        self.assertIn('"max_asset_production_containers": 4', source)
+
     def test_named_secret_is_force_refreshed_from_this_ci_run(self):
         with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"Name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
             modal_deploy.ensure_named_resources("dev")

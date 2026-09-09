@@ -1,5 +1,45 @@
 # Modal encounter-component runtime
 
+## Cloud asset-production loop
+
+`run_asset_production_job` is the production path for immutable Blender WIP.
+Unlike the GUI draft worker, it runs a closed, versioned Blender job without a
+model operating the desktop. Each call validates every input byte already in
+the private Volume, claims one of four stable worker slots, creates a fresh
+attempt directory, runs Blender 5.2.1, and commits a native file, GLB, fixed
+review renders, normalized scene manifest, fit report, and provider-bound
+receipt. Failed attempts remain in the Volume and are never retried implicitly.
+
+The four-slot contract is:
+
+- `worker-a`: mech structure and joints
+- `worker-b`: independently addressable mech armor
+- `worker-c`: railgun and charge animation
+- `worker-d`: the sole core-kit, assembly, and final-validation authority
+
+Submit a closed four-job JSON array after CI deployment has supplied the exact
+`run_asset_production_job` function ID:
+
+```sh
+modal run --env dev modal/draft_trial.py::submit_asset_production_wave --manifest-path wave.json
+```
+
+This command only validates and submits locally. Every Blender mutation,
+render, native save, and export occurs in Modal. Inputs must first be uploaded
+under a run-scoped Volume prefix with `modal volume put`; use a new prefix and
+never `--force` an existing WIP object.
+
+`run_asset_visual_critique` performs one evidence-only Astra pass over
+hash-verified PNGs already stored in the Volume. It records provider request ID,
+duration, and measured input/cached/output tokens. The closed response accepts
+blocking and nonblocking production defects while routing cosmetic suggestions
+to backlog. It does not edit geometry or imply visual acceptance.
+
+The run-level public ledger is
+[`contracts/v1/asset-production-run.schema.json`](../contracts/v1/asset-production-run.schema.json).
+Only the final Unity receipt and explicit visual acceptance may move a run to
+`accepted`; a completed Modal job is source evidence, not game acceptance.
+
 `draft_trial.py` is the initial bounded worker for one encounter component. It
 runs Blender 5.2.1 in a headful virtual desktop (`Xvfb` + Openbox), sends desktop
 screenshots to Astra through the Responses API computer tool, validates returned
