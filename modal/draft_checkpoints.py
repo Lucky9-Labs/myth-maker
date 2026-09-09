@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import tempfile
 import uuid
+from urllib.parse import quote
 
 from draft_support import validate_input_aliases, validate_input_names, native_name, validate_cloud_need
 
@@ -37,6 +38,58 @@ def write_json_atomic(path: Path, value: dict) -> None:
     temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
     temporary.write_text(json.dumps(value, indent=2), encoding="utf-8")
     os.replace(temporary, path)
+
+
+def modal_volume_receipt(*, volume_name: str, job_id: str, app_name: str,
+                         environment: str, function_name: str,
+                         function_call_id: str, input_id: str,
+                         output_files: dict, blender_frames: dict) -> dict:
+    """Describe provider-persisted draft evidence without making it public.
+
+    ``modal-volume://`` is an exact provider object address, not a downloadable
+    public URL.  Each byte digest is computed inside the Modal worker before
+    this receipt is committed to its private Volume.
+    """
+    for label, value in {
+        "volume_name": volume_name, "job_id": job_id, "app_name": app_name,
+        "environment": environment, "function_name": function_name,
+        "function_call_id": function_call_id, "input_id": input_id,
+    }.items():
+        if not isinstance(value, str) or not value or "/" in value:
+            raise ValueError(f"invalid provider receipt {label}")
+
+    def artifact(relative: str, metadata: dict) -> dict:
+        if (not isinstance(relative, str) or not relative or Path(relative).is_absolute()
+                or ".." in Path(relative).parts or not isinstance(metadata, dict)
+                or set(metadata) != {"bytes", "sha256"}
+                or not isinstance(metadata["bytes"], int) or metadata["bytes"] < 0
+                or not isinstance(metadata["sha256"], str)
+                or not re.fullmatch(r"[a-f0-9]{64}", metadata["sha256"])):
+            raise ValueError("invalid provider artifact receipt")
+        encoded = "/".join(quote(part, safe="._-") for part in Path(relative).parts)
+        return {
+            "uri": f"modal-volume://{volume_name}/{job_id}/{encoded}",
+            "bytes": metadata["bytes"],
+            "sha256": metadata["sha256"],
+        }
+
+    return {
+        "provider": "modal",
+        "app_name": app_name,
+        "environment": environment,
+        "function_name": function_name,
+        "function_call_id": function_call_id,
+        "input_id": input_id,
+        "volume_name": volume_name,
+        "output_artifacts": {
+            name: artifact("output/" + name, metadata)
+            for name, metadata in sorted(output_files.items())
+        },
+        "blender_window_frames": {
+            name: artifact(relative, metadata)
+            for name, (relative, metadata) in sorted(blender_frames.items())
+        },
+    }
 
 
 def handoff_text(state: dict) -> str:
