@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 FORMAT = "myth-maker.asset-production-job/v1"
 SLOTS = ("worker-a", "worker-b", "worker-c", "worker-d")
-JOB_TYPES = ("mech-structure", "mech-armor", "railgun", "kit-assembly", "final-validation")
+JOB_TYPES = ("mech-structure", "mech-armor", "railgun", "core-kit", "kit-assembly", "final-validation")
 OPERATIONS = (
     "normalize", "apply-core-kit", "assemble", "bind-rig", "animate",
     "render-review", "export-glb", "validate",
@@ -86,17 +86,6 @@ def validate_job_manifest(value: dict) -> dict:
     if len(set(basenames)) != len(basenames):
         raise ValueError("input artifact basenames must be unique inside the cloud job")
 
-    if (not isinstance(value["dependencies"], list)
-            or any(not isinstance(item, str) or not SHA256.fullmatch(item) for item in value["dependencies"])
-            or len(set(value["dependencies"])) != len(value["dependencies"])):
-        raise ValueError("asset production dependencies must be unique content hashes")
-    input_hashes = {item["sha256"] for item in inputs}
-    if not set(value["dependencies"]).issubset(input_hashes):
-        raise ValueError("asset production dependency hash is not present in immutable inputs")
-    if value["job_type"] == "kit-assembly" and "assemble" in {item["kind"] for item in value["operations"]}:
-        blend_hashes = {item["sha256"] for item in inputs if item["media_type"] == "application/x-blender"}
-        if set(value["dependencies"]) != blend_hashes:
-            raise ValueError("assembly dependencies must exactly match every Blender input hash")
     if (not isinstance(value["operations"], list) or not value["operations"]
             or any(not isinstance(item, dict) or set(item) != {"kind"} or item["kind"] not in OPERATIONS
                    for item in value["operations"])):
@@ -105,6 +94,17 @@ def validate_job_manifest(value: dict) -> dict:
     required_operations = {"normalize", "apply-core-kit", "render-review", "export-glb", "validate"}
     if not required_operations.issubset(operation_kinds):
         raise ValueError("asset production job omits a required cloud production operation")
+    if (not isinstance(value["dependencies"], list)
+            or any(not isinstance(item, str) or not SHA256.fullmatch(item) for item in value["dependencies"])
+            or len(set(value["dependencies"])) != len(value["dependencies"])):
+        raise ValueError("asset production dependencies must be unique content hashes")
+    input_hashes = {item["sha256"] for item in inputs}
+    if not set(value["dependencies"]).issubset(input_hashes):
+        raise ValueError("asset production dependency hash is not present in immutable inputs")
+    if value["job_type"] == "kit-assembly" and "assemble" in operation_kinds:
+        blend_hashes = {item["sha256"] for item in inputs if item["media_type"] == "application/x-blender"}
+        if set(value["dependencies"]) != blend_hashes:
+            raise ValueError("assembly dependencies must exactly match every Blender input hash")
     if (not isinstance(value["review_views"], list)
             or any(item not in VIEWS for item in value["review_views"])
             or len(set(value["review_views"])) != len(value["review_views"])):
@@ -165,10 +165,16 @@ def plan_production_wave(values: list[dict]) -> list[dict]:
     slots = [item["worker_slot"] for item in checked]
     if sorted(slots) != list(SLOTS):
         raise ValueError("production wave must occupy each of the four worker slots exactly once")
+    if len({item["run_id"] for item in checked}) != 1:
+        raise ValueError("production wave cannot mix run identities")
+    deployments = {(item["runtime_deployment"]["source_sha"], item["runtime_deployment"]["function_id"])
+                   for item in checked}
+    if len(deployments) != 1:
+        raise ValueError("production wave cannot mix runtime deployments")
     for item in checked:
         if item["job_type"] == "kit-assembly" and item["worker_slot"] != "worker-d":
             raise ValueError("worker-d is the sole assembly authority")
-        if item["worker_slot"] == "worker-d" and item["job_type"] not in {"kit-assembly", "final-validation"}:
+        if item["worker_slot"] == "worker-d" and item["job_type"] not in {"core-kit", "kit-assembly", "final-validation"}:
             raise ValueError("worker-d is reserved for kit assembly and validation")
     return sorted(checked, key=lambda item: SLOTS.index(item["worker_slot"]))
 
@@ -284,6 +290,7 @@ def fan_in_assembly_job(wave: list[dict], receipts: list[dict]) -> dict:
         operations.append({"kind": "assemble"})
     assembly = {
         **template,
+        "job_type": "kit-assembly",
         "attempt": template["attempt"] + 1,
         "source_revision": hashlib.sha256("".join(dependency_hashes).encode()).hexdigest(),
         "inputs": inputs,
@@ -293,7 +300,7 @@ def fan_in_assembly_job(wave: list[dict], receipts: list[dict]) -> dict:
     return validate_job_manifest(assembly)
 
 
-def create_run_ledger(wave: list[dict], receipts: list[dict]) -> dict:
+def create_run_ledger(wave: list[dict], receipts: list[dict], prior: dict | None = None) -> dict:
     checked_wave = plan_production_wave(wave)
     if not receipts:
         raise ValueError("asset production run ledger requires observed attempts")
@@ -301,6 +308,12 @@ def create_run_ledger(wave: list[dict], receipts: list[dict]) -> dict:
     source_revision = hashlib.sha256(
         "".join(sorted(item["source_revision"] for item in checked_wave)).encode()
     ).hexdigest()
+    prior_jobs = (prior or {}).get("jobs", [])
+    jobs = {(item["work_id"], item["attempt"], item["job_type"]): item for item in prior_jobs}
+    for receipt in receipts:
+        entry = job_ledger_entry(receipt)
+        jobs[(entry["work_id"], entry["attempt"], entry["job_type"])] = entry
+    all_jobs = list(jobs.values())
     summary = summarize_efficiency(receipts)
     return {
         "schema_version": "1", "run_id": first["run_id"], "project_id": "myth-maker",
@@ -314,7 +327,7 @@ def create_run_ledger(wave: list[dict], receipts: list[dict]) -> dict:
         "status": "failed" if any(item.get("status") == "failed" for item in receipts) else "running",
         "started_at": min(item.get("execution", {}).get("started_at", datetime.now(timezone.utc).isoformat()) for item in receipts),
         "completed_at": None,
-        "jobs": [job_ledger_entry(item) for item in receipts], "defects": [],
+        "jobs": all_jobs, "defects": list((prior or {}).get("defects", [])),
         "acceptance": {name: "pending" for name in
                        ("assembly", "rig", "animation", "export", "performance", "unity_runtime", "visual_review")},
         "measurement": {

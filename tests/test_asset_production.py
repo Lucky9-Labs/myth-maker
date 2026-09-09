@@ -81,7 +81,7 @@ class AssetProductionTests(unittest.TestCase):
             job("worker-a", "mech-structure"),
             job("worker-b", "mech-armor"),
             job("worker-c", "railgun"),
-            job("worker-d", "kit-assembly"),
+            job("worker-d", "core-kit"),
         ]
         wave = plan_production_wave(jobs)
         self.assertEqual([item["worker_slot"] for item in wave],
@@ -188,7 +188,7 @@ class AssetProductionTests(unittest.TestCase):
 
     def test_fan_in_assembly_binds_exact_component_output_hashes(self):
         wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
-                job("worker-c", "railgun"), job("worker-d", "kit-assembly")]
+                job("worker-c", "railgun"), job("worker-d", "core-kit")]
         receipts = []
         for index, item in enumerate(wave[:3]):
             digest = str(index + 1) * 64
@@ -197,12 +197,13 @@ class AssetProductionTests(unittest.TestCase):
                                                              "bytes": 100 + index, "sha256": digest}}})
         assembly = fan_in_assembly_job(wave, receipts)
         self.assertEqual(assembly["attempt"], 2)
+        self.assertEqual(assembly["job_type"], "kit-assembly")
         self.assertEqual(assembly["dependencies"], ["1" * 64, "2" * 64, "3" * 64])
         self.assertIn({"kind": "assemble"}, assembly["operations"])
 
     def test_run_ledger_includes_every_attempt_and_keeps_acceptance_pending(self):
         wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
-                job("worker-c", "railgun"), job("worker-d", "kit-assembly")]
+                job("worker-c", "railgun"), job("worker-d", "core-kit")]
         receipts = []
         for item in wave:
             receipts.append({
@@ -222,6 +223,9 @@ class AssetProductionTests(unittest.TestCase):
         self.assertEqual(len(ledger["jobs"]), 4)
         self.assertEqual(ledger["status"], "running")
         self.assertTrue(all(value == "pending" for value in ledger["acceptance"].values()))
+
+        later = create_run_ledger(wave, [receipts[0]], ledger)
+        self.assertEqual(len(later["jobs"]), 4)
 
 
 if __name__ == "__main__":

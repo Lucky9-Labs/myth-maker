@@ -291,6 +291,8 @@ def run_asset_visual_critique(request: dict) -> dict:
         raise RuntimeError("asset visual critique returned an invalid closed result") from error
     usage = response.usage.model_dump() if response.usage else None
     cached = ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens")
+    if usage is not None and cached is None:
+        cached = 0
     receipt = {
         "format": "myth-maker.asset-critique-receipt/v1", "status": "completed",
         "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
@@ -315,10 +317,13 @@ def run_asset_visual_critique(request: dict) -> dict:
               volumes={"/submissions": volume})
 def record_asset_production_run(wave: list[dict], receipts: list[dict]) -> dict:
     """Persist the closed run projection after observed cloud attempts."""
-    ledger = create_run_ledger(wave, receipts)
-    root = SUBMISSIONS_ROOT / "asset-production" / ledger["run_id"]
+    run_id = validate_job_manifest(wave[0])["run_id"]
+    root = SUBMISSIONS_ROOT / "asset-production" / run_id
     root.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(root / "run-ledger.json", ledger)
+    ledger_path = root / "run-ledger.json"
+    prior = json.loads(read_stable(ledger_path)) if ledger_path.is_file() else None
+    ledger = create_run_ledger(wave, receipts, prior)
+    write_json_atomic(ledger_path, ledger)
     volume.commit()
     return ledger
 

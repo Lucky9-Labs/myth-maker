@@ -16,10 +16,26 @@ from asset_production import fan_in_assembly_job, plan_production_wave
 from infrastructure import runtime
 
 
+def validate_deployment_receipt(receipt: dict, wave: list[dict], function_id: str, environment: str) -> None:
+    health = ((receipt.get("details") or {}).get("provider_evidence") or {}).get("health") or {}
+    if (receipt.get("format") != "myth-maker.deployment-receipt/v1"
+            or receipt.get("provider") != "modal" or receipt.get("status") != "success"
+            or receipt.get("environment") != environment):
+        raise RuntimeError("trusted Modal deployment receipt is not successful for this environment")
+    expected = {(item["runtime_deployment"]["source_sha"], item["runtime_deployment"]["function_id"])
+                for item in wave}
+    observed = (receipt.get("source_sha"), health.get("asset_production_function_id"))
+    if expected != {observed} or observed[1] != function_id:
+        raise RuntimeError("wave does not match the source and function proven by the deployment receipt")
+    if health.get("max_asset_production_containers") != 4:
+        raise RuntimeError("deployment receipt does not prove four-worker capacity")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", default="dev")
     parser.add_argument("--manifest", required=True)
+    parser.add_argument("--deployment-receipt", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     config = runtime(args.environment)
@@ -31,9 +47,8 @@ def main() -> int:
     production.hydrate()
     if not production.object_id:
         raise RuntimeError("deployed Modal asset-production function has no provider identity")
-    expected = {item["runtime_deployment"]["function_id"] for item in wave}
-    if expected != {production.object_id}:
-        raise RuntimeError("wave runtime deployment does not match the resolved Modal function")
+    deployment_receipt = json.loads(Path(args.deployment_receipt).read_text(encoding="utf-8"))
+    validate_deployment_receipt(deployment_receipt, wave, production.object_id, config.environment)
 
     calls = [production.spawn(item) for item in wave]
     receipts = [call.get(timeout=20 * 60) for call in calls]

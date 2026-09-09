@@ -168,6 +168,7 @@ def ensure_railgun_anchors() -> None:
     }
     for name in ANCHORS:
         obj = bpy.data.objects.get(name) or next((bpy.data.objects.get(alias) for alias in aliases.get(name, ()) if bpy.data.objects.get(alias)), None)
+        synthesized = obj is None
         if obj is None:
             obj = bpy.data.objects.new(name, None)
             bpy.context.scene.collection.objects.link(obj)
@@ -178,9 +179,11 @@ def ensure_railgun_anchors() -> None:
             obj = bpy.data.objects.new(name, None)
             bpy.context.scene.collection.objects.link(obj)
             obj.matrix_world = source.matrix_world.copy()
-        obj.empty_display_type = "ARROWS"
-        obj.empty_display_size = max((high - low).length * 0.025, 0.03)
-        obj.location = positions[name]
+        if obj.type == "EMPTY":
+            obj.empty_display_type = "ARROWS"
+            obj.empty_display_size = max((high - low).length * 0.025, 0.03)
+        if synthesized:
+            obj.location = positions[name]
         obj["asset_role"] = "attachment-anchor"
         obj["asset_core_kit"] = KIT_VERSION
 
