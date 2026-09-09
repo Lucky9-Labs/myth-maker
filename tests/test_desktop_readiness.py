@@ -13,7 +13,7 @@ class DesktopReadinessTests(unittest.TestCase):
     def test_isolated_x11_environment_cannot_inherit_wayland_selection(self):
         environment = {"WAYLAND_DISPLAY": "wayland-0", "XDG_SESSION_TYPE": "wayland", "KEEP": "yes"}
         configure_isolated_x11(environment, xauthority="/tmp/test.Xauthority")
-        self.assertNotIn("WAYLAND_DISPLAY", environment)
+        self.assertEqual(environment["WAYLAND_DISPLAY"], "")
         self.assertEqual(environment["XDG_SESSION_TYPE"], "x11")
         self.assertEqual(environment["GDK_BACKEND"], "x11")
         self.assertEqual(environment["DISPLAY"], ":99")
