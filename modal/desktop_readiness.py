@@ -147,19 +147,24 @@ class DesktopProbe:
             observation["x_ready"] = True
             if blender_pid is None:
                 return observation
-            # --all makes PID/class conjunctive, not xdotool's default OR.
-            ids = self.command(["xdotool", "search", "--all", "--onlyvisible", "--pid",
-                                str(blender_pid), "--class", "[Bb]lender"], deadline).decode().split()
+            # This private Xvfb display contains only the owned desktop. Blender
+            # may omit or rewrite _NET_WM_PID, so identity is a unique visible
+            # Blender-class window rather than launcher-PID equality.
+            ids = self.command(["xdotool", "search", "--onlyvisible", "--class",
+                                "[Bb]lender"], deadline).decode().split()
             observation["candidate_windows"] = ids
-            if not ids:
+            if len(ids) != 1:
+                observation["window_identity_verified"] = False
+                observation["window_identity_ambiguous"] = len(ids) > 1
                 return observation
             window = ids[0]
             props = self.command(["xprop", "-id", window, "_NET_WM_PID", "WM_CLASS", "WM_NAME"], deadline).decode(errors="replace")
             observation["window_id"] = window
             observation["window_properties"] = props[:2000]
+            observation["window_pid_matches_launcher"] = (
+                re.search(r"_NET_WM_PID\([^)]*\)\s*=\s*" + str(blender_pid) + r"\b", props) is not None)
             observation["window_identity_verified"] = (
-                re.search(r"_NET_WM_PID\([^)]*\)\s*=\s*" + str(blender_pid) + r"\b", props) is not None
-                and re.search(r'WM_CLASS\([^)]*\).*"[Bb]lender"', props) is not None)
+                re.search(r'WM_CLASS\([^)]*\).*"[Bb]lender"', props) is not None)
             info = self.command(["xwininfo", "-id", window], deadline).decode(errors="replace")
             geometry = window_geometry(info)
             observation["geometry"] = geometry

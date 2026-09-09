@@ -115,19 +115,35 @@ class DesktopReadinessTests(unittest.TestCase):
                     probe.command(["xdpyinfo"], 10)
                 self.assertEqual(run.call_count, 1)
 
-    def test_adapter_wrong_pid_or_class_cannot_admit_desktop(self):
+    def test_adapter_uses_unique_blender_class_without_requiring_launcher_pid(self):
         process = Mock(pid=42)
         process.poll.return_value = None
-        for props in (b'_NET_WM_PID(CARDINAL) = 43\nWM_CLASS(STRING) = "Blender", "Blender"',
-                      b'_NET_WM_PID(CARDINAL) = 42\nWM_CLASS(STRING) = "Other", "Other"'):
+        cases = (
+            (b'_NET_WM_PID(CARDINAL) = 43\nWM_CLASS(STRING) = "Blender", "Blender"', True),
+            (b'_NET_WM_PID(CARDINAL) = 42\nWM_CLASS(STRING) = "Other", "Other"', False),
+        )
+        for props, verified in cases:
             with self.subTest(props=props), tempfile.TemporaryDirectory() as directory:
                 probe = DesktopProbe(directory, [process], clock=lambda: 0)
                 probe.command = Mock(side_effect=[b"X11", b"123", props, b"unmapped"])
                 observation = probe.sample(60, blender_pid=42)
-                self.assertFalse(observation["window_identity_verified"])
+                self.assertEqual(observation["window_identity_verified"], verified)
+                self.assertEqual(observation["window_pid_matches_launcher"], b" = 42" in props)
                 self.assertFalse(healthy_observation(observation))
                 self.assertEqual(probe.command.call_args_list[1].args[0],
-                                 ["xdotool", "search", "--all", "--onlyvisible", "--pid", "42", "--class", "[Bb]lender"])
+                                 ["xdotool", "search", "--onlyvisible", "--class", "[Bb]lender"])
+
+    def test_adapter_rejects_ambiguous_blender_class_windows(self):
+        process = Mock(pid=42)
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as directory:
+            probe = DesktopProbe(directory, [process], clock=lambda: 0)
+            probe.command = Mock(side_effect=[b"X11", b"123 456"])
+            observation = probe.sample(60, blender_pid=42)
+            self.assertEqual(observation["candidate_windows"], ["123", "456"])
+            self.assertFalse(observation["window_identity_verified"])
+            self.assertTrue(observation["window_identity_ambiguous"])
+            self.assertFalse(healthy_observation(observation))
 
     def test_adapter_dead_process_does_not_run_capture_or_ocr(self):
         process = Mock(pid=42)
