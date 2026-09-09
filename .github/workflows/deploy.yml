@@ -149,6 +149,10 @@ jobs:
           if [[ "$PREFLIGHT_OUTCOME" == success && "$MODAL_OUTCOME" == success && "$MODAL_STATUS" == deployed ]]; then
             status=success
           fi
+          trusted_github_context=false
+          if [[ "$PREFLIGHT_OUTCOME" == success ]]; then
+            trusted_github_context=true
+          fi
           details="$(node -e '
             const fs = require("node:fs");
             let result = {};
@@ -166,7 +170,7 @@ jobs:
             --status "$status" \
             --started-at "${STARTED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
             --completed-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --verification "{\"trusted_github_context\":$([[ \"$PREFLIGHT_OUTCOME\" == success ]] && echo true || echo false),\"provider_command_outcome\":\"$MODAL_OUTCOME\",\"provider_result\":\"$MODAL_STATUS\"}" \
+            --verification "{\"trusted_github_context\":$trusted_github_context,\"provider_command_outcome\":\"$MODAL_OUTCOME\",\"provider_result\":\"$MODAL_STATUS\"}" \
             --details "$details" \
             --output "receipts/modal-$DEPLOYMENT_ENVIRONMENT.json"
       - name: Upload deployment receipt

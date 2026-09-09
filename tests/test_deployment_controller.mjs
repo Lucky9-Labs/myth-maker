@@ -307,11 +307,15 @@ test("Modal activation consumes environment secrets in the top-level deployment 
   const direct = workflow.jobs.modal;
   const steps = direct.steps;
   const modal = steps.find((step) => step.id === "modal").env;
-  const receipt = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt")).env;
+  const receiptStep = steps.find((step) => typeof step.name === "string" && step.name.startsWith("Write machine-readable Modal receipt"));
+  const receipt = receiptStep.env;
   assert.equal(direct.environment.name, "${{ inputs.environment || 'dev' }}");
   assert.equal(direct.concurrency.group, "myth-maker-deploy-modal-${{ inputs.environment || 'dev' }}");
   assert.deepEqual(Object.keys(modal).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_EVIDENCE_PATH", "MODAL_IMAGE_BUILDER_VERSION", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY", "RESULT"]);
   assert.match(JSON.stringify(modal), /secrets\.MODAL_TOKEN_ID/);
   assert.doesNotMatch(JSON.stringify(receipt), /TOKEN|OPENAI/);
   assert.deepEqual(Object.keys(receipt).sort(), ["DEPLOYMENT_ENVIRONMENT", "MODAL_OUTCOME", "MODAL_STATUS", "PREFLIGHT_OUTCOME", "RESULT", "SOURCE_SHA", "STARTED_AT"]);
+  assert.match(receiptStep.run, /trusted_github_context=false/);
+  assert.match(receiptStep.run, /if \[\[ "\$PREFLIGHT_OUTCOME" == success \]\]; then/);
+  assert.doesNotMatch(receiptStep.run, /\\"\$PREFLIGHT_OUTCOME\\"/);
 });
