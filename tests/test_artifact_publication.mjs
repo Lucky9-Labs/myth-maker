@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createRailwayArtifactHandler, createRailwayArtifactStore } from "../src/railway-artifact-store.js";
 import { verifyPublishedArtifact } from "../scripts/verify-published-artifact.mjs";
 import { verifySignedDiscoveryManifest } from "../scripts/verify-signed-discovery-manifest.mjs";
-import { assembleEncounterPackage } from "../src/encounter-package-assembler.js";
+import { assembleEncounterPackage, freezeEncounterPackage } from "../src/encounter-package-assembler.js";
 import { canonicalSha256 } from "../src/package-discovery.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -131,6 +131,60 @@ test("a v2 runtime artifact preserves caller-declared AssetBundle bytes, type, s
     formatCollision.host_compatibility.loader = "gltf-loader";
     formatCollision.extension = "glb";
     assert.equal((await handler(request(formatCollision))).status, 409, "a path cannot be relabelled as another format");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a frozen Unity AssetBundle bundle admits its exact accepted v2 evidence without changing its published bytes", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "myth-maker-artifact-"));
+  const origin = "https://artifacts.example.test";
+  const bytes = Buffer.from("exact-unity-admission-assetbundle-bytes\\0\\x01", "utf8");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const hostCapabilities = {
+    schema_version: "2", host_id: "unity-host", host_build: "unity-6000.6.0f1-macos", platform: "macos", scripting_backend: "il2cpp",
+    execution_kinds: ["runtime_asset"], loaders: ["unity.assetbundle"], contracts: ["encounter.module.v1"],
+    limits: { memory_mb: 512, preload_seconds: 30, artifact_bytes: 512, actors: 1 },
+    artifact_formats: [{ media_type: "application/vnd.unity.assetbundle", loader: "unity.assetbundle", platform: "macos", build: "unity-6000.6.0f1-macos" }],
+  };
+  const publishedArtifact = {
+    module_id: "generic-runtime-module", revision: 3, uri: `${origin}/v2/artifacts/${sha256}.bundle`, sha256,
+    media_type: "application/vnd.unity.assetbundle", byte_length: bytes.byteLength,
+    compatibility: { platforms: ["macos"], builds: ["unity-6000.6.0f1-macos"], loaders: ["unity.assetbundle"] },
+  };
+  const { module_id: _moduleId, revision: _revision, ...runtimeArtifact } = publishedArtifact;
+  const packageRecord = freezeEncounterPackage(assembleEncounterPackage({
+    host: { schema_version: "1", host_id: "unity-host", host_build: "unity-6000.6.0f1-macos", platform: "macos", scripting_backend: "il2cpp", execution_kinds: ["runtime_asset"], loaders: ["unity.assetbundle"], contracts: ["encounter.module.v1"], limits: { memory_mb: 512, preload_seconds: 30, artifact_bytes: 512, actors: 1 } },
+    encounterId: "unity-admission", packageId: "unity-admission-package", assembledAt: "2026-09-08T22:00:00.000Z",
+    baselineModules: [{ schema_version: "1", module_id: "generic-runtime-module", revision: 3, execution_kind: "runtime_asset", provides: ["combat.core"], requires: ["encounter.module.v1"], conflicts: [], compatibility: { host_contract_version: "1", platforms: ["macos"], scripting_backends: ["il2cpp"], bindings: { "unity.assetbundle": "1" } }, quality: { tier: 0, score: 1 }, artifact: { uri: `sha256:${sha256}`, sha256, media_type: "application/vnd.unity.assetbundle", byte_length: bytes.byteLength }, fallback_module_ids: [] }],
+  }).package, "2026-09-08T22:01:00.000Z");
+  const catalogUnsigned = {
+    schema_version: "2", catalog_revision_id: "unity-admission-catalog", encounter_id: "unity-admission", revision: 1, state: "accepted", created_at: "2026-09-08T22:02:00.000Z",
+    acceptance: { decision_id: "unity-catalog-decision", policy_id: "runtime-catalog-acceptance.v1", accepted_at: "2026-09-08T22:02:00.000Z" },
+    modules: [{ module_id: publishedArtifact.module_id, revision: publishedArtifact.revision, runtime_artifacts: [{ ...runtimeArtifact, uri: `https://accepted-source.example.test/runtime/${sha256}.bundle` }], compatibility: { platforms: ["macos"], scripting_backends: ["il2cpp"], execution_kinds: ["runtime_asset"], loaders: ["unity.assetbundle"], contracts: ["encounter.module.v1"], limits: { artifact_bytes: 512, actors: 1 } } }],
+  };
+  const catalog = { ...catalogUnsigned, catalog_sha256: await canonicalSha256(catalogUnsigned) };
+  const selectedModules = [{ module_id: publishedArtifact.module_id, revision: publishedArtifact.revision, runtime_artifacts: [runtimeArtifact] }];
+  const runtimeManifest = { schema_version: "2", profile: "runtime-artifact-manifest.v2", artifact_set_id: "unity-admission-artifacts", artifacts: selectedModules };
+  const receiptUnsigned = {
+    schema_version: "2", receipt_id: "unity-admission-receipt", encounter_id: "unity-admission", package_id: packageRecord.package_id, package_revision: packageRecord.revision, package_manifest_sha256: packageRecord.manifest_sha256, catalog_revision_id: catalog.catalog_revision_id, catalog_revision_sha256: catalog.catalog_sha256, assembled_at: "2026-09-08T22:03:00.000Z",
+    acceptance: { decision_id: "unity-assembly-decision", policy_id: "runtime-assembly-acceptance.v1", accepted_at: "2026-09-08T22:03:00.000Z" }, selected_modules: selectedModules,
+    runtime_artifact_manifest: { ...runtimeManifest, manifest_sha256: await canonicalSha256(runtimeManifest) },
+  };
+  const assemblyReceipt = { ...receiptUnsigned, receipt_sha256: await canonicalSha256(receiptUnsigned) };
+  const publication = {
+    schema_version: "2", publication_id: "unity-admission-publication", idempotency_key: "unity-admission-publish",
+    runtime_artifact: { module_id: publishedArtifact.module_id, revision: publishedArtifact.revision, source_artifact_uri: `sha256:${sha256}`, sha256, media_type: publishedArtifact.media_type, byte_length: publishedArtifact.byte_length, compatibility: publishedArtifact.compatibility },
+    host_compatibility: { platform: "macos", engine_build: "unity-6000.6.0f1-macos", scripting_backend: "il2cpp", loader: "unity.assetbundle" }, extension: "bundle", artifact_bytes_base64: bytes.toString("base64"),
+  };
+  let received;
+  const handler = createRailwayArtifactHandler({
+    store: createRailwayArtifactStore({ rootPath: root, publicOrigin: origin, clock: () => "2026-09-08T22:04:00.000Z" }), publicationToken: "publication-token",
+    coordinator: { async freezeAndDiscover(value) { received = value; return { schema_version: "2", status: "selected" }; } },
+  });
+  try {
+    const result = await handler(new Request(`${origin}/v2/encounter-artifact-publications`, { method: "POST", headers: { authorization: "Bearer publication-token", "content-type": "application/json" }, body: JSON.stringify({ schema_version: "2", publication, catalog_revision: catalog, package: packageRecord, assembly_receipt: assemblyReceipt, host_capabilities: hostCapabilities, discovery_request: { schema_version: "2", request_id: "unity-admission-discovery", idempotency_key: "unity-admission-discovery", host_capabilities: hostCapabilities } }) }));
+    assert.equal(result.status, 201);
+    assert.equal((await result.json()).publication.artifact.sha256, sha256);
+    assert.deepEqual(received.package, packageRecord);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

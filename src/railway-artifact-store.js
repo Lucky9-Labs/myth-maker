@@ -270,7 +270,8 @@ async function readJson(path) { try { return JSON.parse(await readFile(path, "ut
 function canonicalReceiptEquals(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
 function sameArtifact(left, right) { return left?.uri === right?.uri && left?.sha256 === right?.sha256 && left?.media_type === right?.media_type && left?.byte_length === right?.byte_length; }
 function sameRuntimeArtifact(left, right) { return sameArtifact(left, right) && left?.module_id === right?.module_id && left?.revision === right?.revision && JSON.stringify(left?.compatibility) === JSON.stringify(right?.compatibility); }
-function runtimeArtifactSelected(modules, artifact) { return modules.some((module) => module.module_id === artifact.module_id && module.revision === artifact.revision && module.runtime_artifacts?.some((candidate) => sameArtifact(candidate, artifact) && JSON.stringify(candidate.compatibility) === JSON.stringify(artifact.compatibility))); }
+function runtimeArtifactSelected(modules, artifact) { return modules.some((module) => module.module_id === artifact.module_id && module.revision === artifact.revision && module.runtime_artifacts?.some((candidate) => sameRuntimeArtifactContent(candidate, artifact))); }
+function sameRuntimeArtifactContent(left, right) { return left?.sha256 === right?.sha256 && left?.media_type === right?.media_type && left?.byte_length === right?.byte_length && JSON.stringify(left?.compatibility) === JSON.stringify(right?.compatibility); }
 async function expectOk(response) { if (!response?.ok) throw new Error("coordinator request failed"); return response.json(); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 function resolveRequiredPath(value, name) { if (typeof value !== "string" || !value) throw new TypeError(`${name} is required`); return resolve(value); }
