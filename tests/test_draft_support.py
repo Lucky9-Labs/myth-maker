@@ -91,6 +91,7 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertIn("lease_key = project_id + \":\" + part", text)
         self.assertIn("part_leases.get(lease_key) == job_id", text)
         self.assertIn('modal.Image.from_registry("python:3.12-slim-bookworm")', text)
+        self.assertIn('"xz-utils"', text)
         self.assertIn('.add_local_file(HERE / "install_blender.sh", "/opt/install_blender.sh", copy=True)', text)
         self.assertIn('.run_commands(\n             "/bin/sh /opt/install_blender.sh")', text)
         self.assertNotIn("modal.Image.debian_slim", text)

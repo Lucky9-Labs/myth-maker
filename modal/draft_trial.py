@@ -29,7 +29,7 @@ app = modal.App(RUNTIME.app_name)
 
 
 image = (modal.Image.from_registry("python:3.12-slim-bookworm")
-         .apt_install("ca-certificates", "curl", "git", "git-lfs", "libegl1", "libgl1", "libxkbcommon0", "openssh-client", "scrot", "tk", "x11-xserver-utils", "xvfb")
+         .apt_install("ca-certificates", "curl", "git", "git-lfs", "libegl1", "libgl1", "libxkbcommon0", "openssh-client", "scrot", "tk", "x11-xserver-utils", "xvfb", "xz-utils")
          .add_local_file(HERE / "install_blender.sh", "/opt/install_blender.sh", copy=True)
          .run_commands(
              "/bin/sh /opt/install_blender.sh")
