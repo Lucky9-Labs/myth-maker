@@ -19,7 +19,8 @@ class StartupUnready(RuntimeError):
 
 def configure_isolated_x11(environment, *, xauthority="/tmp/draft.Xauthority"):
     """Force GUI children onto the owned Xvfb display, independent of host hints."""
-    environment.pop("WAYLAND_DISPLAY", None)
+    # Blender treats an empty value as the explicit opt-out that forces X11.
+    environment["WAYLAND_DISPLAY"] = ""
     environment["XDG_SESSION_TYPE"] = "x11"
     environment["GDK_BACKEND"] = "x11"
     environment["DISPLAY"] = ":99"
