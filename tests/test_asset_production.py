@@ -57,6 +57,11 @@ def job(slot: str = "worker-a", kind: str = "mech-structure") -> dict:
 
 
 class AssetProductionTests(unittest.TestCase):
+    def test_blender_52_driver_uses_current_eevee_engine_name(self):
+        driver = (MODAL_DIR / "asset_production_blender.py").read_text(encoding="utf-8")
+        self.assertIn('scene.render.engine = "BLENDER_EEVEE"', driver)
+        self.assertNotIn('scene.render.engine = "BLENDER_EEVEE_NEXT"', driver)
+
     def test_job_manifest_is_closed_and_has_a_stable_digest(self):
         checked = validate_job_manifest(job())
         self.assertEqual(checked["worker_slot"], "worker-a")

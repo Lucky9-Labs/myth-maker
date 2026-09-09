@@ -235,7 +235,8 @@ def render_views(output: Path, views: list[str]) -> None:
         "charge-full": (0.8, -1.25, 0.45),
     }
     scene = bpy.context.scene
-    scene.render.engine = "BLENDER_EEVEE_NEXT"
+    # Blender 5.2 folds Eevee Next back under the BLENDER_EEVEE enum name.
+    scene.render.engine = "BLENDER_EEVEE"
     scene.render.resolution_x = 640
     scene.render.resolution_y = 640
     scene.render.resolution_percentage = 100
