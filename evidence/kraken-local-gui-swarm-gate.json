@@ -1,0 +1,68 @@
+{
+  "schema_version": "kraken-local-gui-swarm-gate.v1",
+  "evidence_tier": "local isolated Blender GUI checkpoints; not Modal/cloud, Unity, rigging, or full-Kraken acceptance",
+  "concept_reference": {
+    "path": "assets/concepts/kraken-observable-swarm-v1.png",
+    "sha256": "e71be0a3d053f7d72e531c892c8f7d4857194f5d70fd27c4eeecc9a1143ec008"
+  },
+  "workers": [
+    {
+      "worker_id": "kraken-mantle-core",
+      "component": "kraken-mantle-core",
+      "desktop_identity": "kraken-gui-kraken-mantle-core",
+      "container_id_prefix": "dd8bcbc353cd",
+      "checkpoint_sha256": "ae9c03ed29e1535984ec2f794269234c573c3ff2e0c66ed8cedcfd7f99b03205",
+      "gui_saved": true,
+      "gui_reopened": true,
+      "result": "early enlarged mantle/head silhouette only",
+      "gaps": ["eight mounts unverified", "unrigged", "not a complete Kraken"]
+    },
+    {
+      "worker_id": "kraken-tentacle-01",
+      "component": "kraken-tentacle-01",
+      "desktop_identity": "kraken-gui-kraken-tentacle-01",
+      "container_id_prefix": "6853da237f56",
+      "checkpoint_sha256": "bbdd154204e0b66d75bb9cde8bafa294c19e75ce85c9a53712257d26a72d5a79",
+      "gui_saved": true,
+      "gui_reopened": true,
+      "result": "rough segmented root-to-tip tentacle prototype",
+      "gaps": ["root/tip anchors unverified", "unrigged", "not assembly-ready"]
+    },
+    {
+      "worker_id": "kraken-tentacle-02",
+      "component": "kraken-tentacle-02",
+      "desktop_identity": "kraken-gui-kraken-tentacle-02",
+      "container_id_prefix": "8732715ba442",
+      "checkpoint_sha256": "480e1fc5abcf2fb4a5f2d56b8d2422206934c35d7268e00431e6c9059e6343f3",
+      "gui_saved": true,
+      "gui_reopened": true,
+      "result": "rough four-segment upward sweep",
+      "gaps": ["conical tip unverified", "unrigged", "not assembly-ready"]
+    },
+    {
+      "worker_id": "kraken-tentacle-03",
+      "component": "kraken-tentacle-03",
+      "desktop_identity": "kraken-gui-kraken-tentacle-03",
+      "container_id_prefix": "c0dc53d9821e",
+      "checkpoint_sha256": "6f1ecee0384e9bedbedf7ba04b98672c1eba95144aa55fae686fcac9708eec3d",
+      "gui_saved": true,
+      "gui_reopened": false,
+      "result": "rough disconnected defensive-curl prototype",
+      "gaps": ["reopen unverified", "unrigged", "not assembly-ready"]
+    }
+  ],
+  "serialized_assembly": {
+    "worker_id": "kraken-assembly",
+    "desktop_identity": "kraken-gui-kraken-assembly",
+    "container_id_prefix": "56772aad4bf7",
+    "input_checkpoints": [
+      "ae9c03ed29e1535984ec2f794269234c573c3ff2e0c66ed8cedcfd7f99b03205",
+      "bbdd154204e0b66d75bb9cde8bafa294c19e75ce85c9a53712257d26a72d5a79"
+    ],
+    "checkpoint_sha256": "1d2b9560dff3586f7e596c382726eb4831363c41bdc02fe62dcdb295b2dbe467",
+    "gui_saved": true,
+    "gui_reopened": true,
+    "result": "mantle with one appended rough tentacle",
+    "gaps": ["no eight-tentacle assembly", "no rigging", "no animation", "no Unity acceptance"]
+  }
+}
