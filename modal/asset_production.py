@@ -85,6 +85,10 @@ def validate_job_manifest(value: dict) -> dict:
     basenames = [item.get("staged_name", Path(item["path"]).name) for item in inputs]
     if len(set(basenames)) != len(basenames):
         raise ValueError("input artifact basenames must be unique inside the cloud job")
+    if value["job_type"] in {"mech-structure", "mech-armor", "railgun", "core-kit"}:
+        references = [item for item in inputs if item["media_type"] in {"image/png", "image/jpeg"}]
+        if not references:
+            raise ValueError("cloud modeling job requires an immutable reference image")
 
     if (not isinstance(value["operations"], list) or not value["operations"]
             or any(not isinstance(item, dict) or set(item) != {"kind"} or item["kind"] not in OPERATIONS
@@ -236,13 +240,13 @@ def summarize_efficiency(receipts: list[dict]) -> dict:
     def value(provenance: str, amount):
         return {"provenance": provenance, "value": amount}
 
-    def duration_for(job_type: str | None) -> float | None:
+    def duration_for(core_kit: bool) -> float | None:
         selected = [item.get("execution", {}).get("duration_ms") for item in receipts
-                    if (item.get("job_type") == "kit-assembly") == (job_type == "kit-assembly")]
+                    if (item.get("job_type") in {"core-kit", "kit-assembly"}) == core_kit]
         return sum(selected) if selected and all(isinstance(item, (int, float)) for item in selected) else None
 
-    core = duration_for("kit-assembly")
-    asset = duration_for(None)
+    core = duration_for(True)
+    asset = duration_for(False)
     summary = {
         "compute_ms": value("measured" if measured_durations else "unavailable",
                             sum(durations) if measured_durations else None),
@@ -314,7 +318,25 @@ def create_run_ledger(wave: list[dict], receipts: list[dict], prior: dict | None
         entry = job_ledger_entry(receipt)
         jobs[(entry["work_id"], entry["attempt"], entry["job_type"])] = entry
     all_jobs = list(jobs.values())
-    summary = summarize_efficiency(receipts)
+    aggregate_receipts = [{
+        "status": item["status"], "job_type": item["job_type"],
+        "execution": {"duration_ms": item["execution_ms"]["value"]
+                      if item["execution_ms"]["provenance"] == "measured" else None},
+        "measurement": {
+            "human_minutes": item["human_minutes"]["value"]
+                             if item["human_minutes"]["provenance"] == "measured" else None,
+            "model_usage": item["model_usage"],
+        },
+    } for item in all_jobs]
+    summary = summarize_efficiency(aggregate_receipts)
+    prior_started = (prior or {}).get("started_at")
+    observed_starts = [item.get("execution", {}).get("started_at") for item in receipts
+                       if item.get("execution", {}).get("started_at")]
+    start_candidates = ([prior_started] if prior_started else []) + observed_starts
+    started_at = min(start_candidates) if start_candidates else None
+    acceptance = {name: "pending" for name in
+                  ("assembly", "rig", "animation", "export", "performance", "unity_runtime", "visual_review")}
+    acceptance.update((prior or {}).get("acceptance", {}))
     return {
         "schema_version": "1", "run_id": first["run_id"], "project_id": "myth-maker",
         "asset_set_id": "raptor-mech-railgun", "source_revision": source_revision,
@@ -324,12 +346,12 @@ def create_run_ledger(wave: list[dict], receipts: list[dict], prior: dict | None
             "volume": "myth-maker-encounter-submissions",
             "lease_store": "myth-maker-encounter-component-leases", "max_containers": 4,
         },
-        "status": "failed" if any(item.get("status") == "failed" for item in receipts) else "running",
-        "started_at": min(item.get("execution", {}).get("started_at", datetime.now(timezone.utc).isoformat()) for item in receipts),
-        "completed_at": None,
+        "status": "failed" if any(item["status"] == "failed" for item in all_jobs)
+                  or (prior or {}).get("status") == "failed" else (prior or {}).get("status", "running"),
+        "started_at": started_at or datetime.now(timezone.utc).isoformat(),
+        "completed_at": (prior or {}).get("completed_at"),
         "jobs": all_jobs, "defects": list((prior or {}).get("defects", [])),
-        "acceptance": {name: "pending" for name in
-                       ("assembly", "rig", "animation", "export", "performance", "unity_runtime", "visual_review")},
+        "acceptance": acceptance,
         "measurement": {
             "elapsed_ms": {"provenance": "unavailable", "value": None},
             "compute_ms": summary["compute_ms"], "human_minutes": summary["human_minutes"],

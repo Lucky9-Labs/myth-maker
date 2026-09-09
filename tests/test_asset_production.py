@@ -25,13 +25,13 @@ from asset_production import (
 )
 
 
-def artifact(path: str, data: bytes) -> dict:
+def artifact(path: str, data: bytes, media_type: str = "application/x-blender") -> dict:
     import hashlib
     return {
         "path": path,
         "bytes": len(data),
         "sha256": hashlib.sha256(data).hexdigest(),
-        "media_type": "application/x-blender",
+        "media_type": media_type,
     }
 
 
@@ -46,7 +46,8 @@ def job(slot: str = "worker-a", kind: str = "mech-structure") -> dict:
         "job_type": kind,
         "source_revision": "a" * 64,
         "runtime_deployment": {"source_sha": "b" * 40, "function_id": "fu-proof"},
-        "inputs": [artifact("ingest/source.blend", source)],
+        "inputs": [artifact("ingest/source.blend", source),
+                   artifact("ingest/reference.png", b"PNG-reference", "image/png")],
         "dependencies": [],
         "operations": [{"kind": name} for name in
                        ("normalize", "apply-core-kit", "render-review", "export-glb", "validate")],
@@ -62,6 +63,10 @@ class AssetProductionTests(unittest.TestCase):
         self.assertEqual(manifest_digest(checked), manifest_digest(job()))
         with self.assertRaisesRegex(ValueError, "invalid shape"):
             validate_job_manifest({**job(), "quality_score": 7})
+        without_reference = job()
+        without_reference["inputs"] = without_reference["inputs"][:1]
+        with self.assertRaisesRegex(ValueError, "reference image"):
+            validate_job_manifest(without_reference)
 
     def test_volume_ingestion_verifies_every_immutable_byte(self):
         manifest = job()
@@ -70,6 +75,7 @@ class AssetProductionTests(unittest.TestCase):
             path = root / "ingest" / "source.blend"
             path.parent.mkdir()
             path.write_bytes(b"BLENDER" + b"x" * 64)
+            (root / "ingest" / "reference.png").write_bytes(b"PNG-reference")
             staged = stage_volume_inputs(manifest, root)
             self.assertEqual(staged[0]["sha256"], manifest["inputs"][0]["sha256"])
             path.write_bytes(b"BLENDER" + b"tampered" * 12)
@@ -107,6 +113,7 @@ class AssetProductionTests(unittest.TestCase):
             source = volume / "ingest" / "source.blend"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"BLENDER" + b"x" * 64)
+            (volume / "ingest" / "reference.png").write_bytes(b"PNG-reference")
 
             def fake_run(command, **_kwargs):
                 output = Path(command[command.index("--output-root") + 1])
@@ -144,6 +151,7 @@ class AssetProductionTests(unittest.TestCase):
             source = volume / "ingest" / "source.blend"
             source.parent.mkdir(parents=True)
             source.write_bytes(b"BLENDER" + b"x" * 64)
+            (volume / "ingest" / "reference.png").write_bytes(b"PNG-reference")
             failed = lambda *_args, **_kwargs: types.SimpleNamespace(returncode=3, stdout="", stderr="bad scene")
             receipt = run_asset_production_job(
                 manifest, volume, submissions, "/usr/local/bin/blender",
@@ -226,6 +234,8 @@ class AssetProductionTests(unittest.TestCase):
 
         later = create_run_ledger(wave, [receipts[0]], ledger)
         self.assertEqual(len(later["jobs"]), 4)
+        self.assertEqual(later["measurement"]["compute_ms"]["value"], 40)
+        self.assertEqual(later["started_at"], ledger["started_at"])
 
 
 if __name__ == "__main__":
