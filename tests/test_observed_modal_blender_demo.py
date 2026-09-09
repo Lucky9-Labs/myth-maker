@@ -24,12 +24,21 @@ verify = load("verify_observed_modal_artifacts")
 
 class ObservedModalDemoTests(unittest.TestCase):
     def test_kraken_is_only_a_closed_generic_recipe_instance(self):
-        recipe = demo.kraken_demo_recipe()
+        ids = demo.request_scoped_ids("modal-run-123-1")
+        recipe = demo.kraken_demo_recipe(ids["work_id"])
         self.assertEqual(recipe["format"], "myth-maker.deterministic-encounter-recipe/v1")
-        self.assertEqual(recipe["recipe_id"], "kraken-tentacled-demo")
+        self.assertEqual(recipe["recipe_id"], "encounter-body-modal-run-123-1")
         self.assertEqual(set(recipe), {"format", "recipe_id", "body", "appendages", "materials", "camera"})
         self.assertEqual(recipe["appendages"]["count"], 8)
         self.assertEqual(len(demo.recipe_digest(recipe)), 64)
+
+    def test_request_scoped_ids_are_generic_and_reject_unsafe_values(self):
+        self.assertEqual(demo.request_scoped_ids("modal-run-42-2"), {
+            "request_id": "modal-run-42-2", "encounter_id": "encounter-modal-run-42-2",
+            "work_id": "encounter-body-modal-run-42-2",
+        })
+        with self.assertRaisesRegex(ValueError, "stable request"):
+            demo.request_scoped_ids("Kraken-special-case")
 
     def test_verifier_requires_every_observed_provider_byte(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -51,11 +60,13 @@ class ObservedModalDemoTests(unittest.TestCase):
                 verify.verify(receipt_path, root)
 
     def test_deterministic_receipt_requires_glb_and_three_staged_frames(self):
-        recipe = demo.kraken_demo_recipe()
+        ids = demo.request_scoped_ids("modal-run-proof-1")
+        recipe = demo.kraken_demo_recipe(ids["work_id"])
         metadata = {name: {"uri": "modal-volume://proof/" + name, "bytes": 3, "sha256": "a" * 64}
                     for name in ("source", "glb", "initial", "intermediate", "final")}
         state = {
             "format": "myth-maker.deterministic-modal-blender-receipt/v1", "status": "completed",
+            "job_id": "deterministic-encounter-demo-1", "recipe_id": ids["work_id"],
             "execution": {"engine": "blender-cli"},
             "provenance": {"source_sha": "b" * 40, "recipe_sha256": demo.recipe_digest(recipe),
                            "deployed_function_id": "fu-proof", "openai_api_used": False},
@@ -71,18 +82,19 @@ class ObservedModalDemoTests(unittest.TestCase):
             },
             "provider_receipt": {
                 "provider": "modal", "function_name": "run_deterministic_recipe", "function_call_id": "fc-proof",
-                "output_artifacts": {"kraken-tentacled-demo.blend": metadata["source"], "kraken-tentacled-demo.glb": metadata["glb"]},
+                "output_artifacts": {ids["work_id"] + ".blend": metadata["source"], ids["work_id"] + ".glb": metadata["glb"]},
                 "blender_window_frames": {name: metadata[name] for name in ("initial", "intermediate", "final")},
             },
         }
         receipt = demo.public_terminal_receipt(state, source_sha="b" * 40,
-                                               job_id="deterministic-encounter-demo-1", recipe=recipe)
+                                               job_id="deterministic-encounter-demo-1", ids=ids, recipe=recipe)
         self.assertEqual(receipt["format"], "myth-maker.observed-modal-deterministic-demo/v1")
+        self.assertEqual(receipt["encounter_id"], ids["encounter_id"])
         self.assertEqual(receipt["worker_receipt"]["frame_validation"]["final"], {"width": 768, "height": 576})
         state["provenance"]["openai_api_used"] = True
         with self.assertRaisesRegex(RuntimeError, "non-use"):
             demo.public_terminal_receipt(state, source_sha="b" * 40,
-                                         job_id="deterministic-encounter-demo-1", recipe=recipe)
+                                         job_id="deterministic-encounter-demo-1", ids=ids, recipe=recipe)
 
 
 if __name__ == "__main__":
