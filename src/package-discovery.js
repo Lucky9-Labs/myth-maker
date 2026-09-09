@@ -125,7 +125,17 @@ function sameRuntimeArtifactModules(left, right) {
 }
 
 function sameRuntimeArtifacts(left, right) {
-  return left.length === right.length && left.every((artifact) => right.some((other) => canonicalJson(artifact) === canonicalJson(other)));
+  return left.length === right.length && left.every((artifact) => right.some((other) => sameRuntimeArtifactContent(artifact, other)));
+}
+
+// Catalog acceptance records the source locator; the assembly receipt records
+// the immutable public locator. Both locators may therefore differ after
+// publication while the byte identity and host-loadable representation remain
+// exactly the same.
+function sameRuntimeArtifactContent(left, right) {
+  return left?.sha256 === right?.sha256 && left?.media_type === right?.media_type
+    && left?.byte_length === right?.byte_length
+    && canonicalJson(left?.compatibility) === canonicalJson(right?.compatibility);
 }
 
 export async function compatibleFrozenPackage({ packageRecord, catalogRevision, assemblyReceipt, hostCapabilities }) {
