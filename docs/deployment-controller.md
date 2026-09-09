@@ -127,10 +127,11 @@ resources, and healthy status—never a command exit code alone.
 The Railway receiver is a Docker-deployed Node HTTP service. It stores receipts
 and its serial event outbox on the service's mounted `/data` volume, validates
 the coordinator bearer token and stable `x-work-id`, and calls the deployed
-Modal function by its named app/function identity. Its service configuration
-must provide the two coordinator tokens plus `MODAL_INPUT_PACKAGE_BASE64` before
-an end-to-end work order can be admitted; those values are never emitted in a
-CI receipt or application response. The Railway provider receipt is successful
+Modal function by its named app/function identity. Railway sends only the
+reviewed `modal/kraken_input_manifest.json`; Modal resolves its safe relative
+paths inside `myth-maker-encounter-submissions` and rejects any byte-length or
+SHA-256 mismatch before launching the GUI worker. Binary inputs never cross an
+environment-variable boundary. The Railway provider receipt is successful
 only after its deployment list reports `SUCCESS`; that alone is not a
 coordinator-to-dispatcher acknowledgement or a Modal worker receipt.
 

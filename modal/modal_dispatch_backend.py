@@ -92,3 +92,34 @@ class ModalDraftBackend:
         app_name = os.environ.get("MODAL_APP_NAME", "myth-maker-encounter-draft")
         function_name = os.environ.get("MODAL_FUNCTION_NAME", "run_draft")
         return modal.Function.from_name(app_name, function_name).remote
+
+
+class ModalVolumeDraftBackend:
+    """Invoke the deployed Modal worker with immutable references, never input bytes."""
+
+    def __init__(self, *, project_id: str, manifest: Mapping[str, Any], provenance: Mapping[str, Any],
+                 invoke: Callable[..., Mapping[str, Any]] | None = None, cloud_execution_enabled: bool = False):
+        if not isinstance(project_id, str) or not project_id:
+            raise ValueError("project_id is required for the existing draft entrypoint")
+        if not isinstance(manifest, Mapping) or not isinstance(provenance, Mapping):
+            raise ValueError("manifest and provenance must be mappings")
+        self.project_id = project_id
+        self.manifest = dict(manifest)
+        self.provenance = dict(provenance)
+        self._invoke = invoke
+        self.cloud_execution_enabled = cloud_execution_enabled
+
+    def run(self, work_order: Mapping[str, Any]) -> BlenderDraftRunResult:
+        if not self.cloud_execution_enabled:
+            raise PermissionError("Modal execution is disabled by backend policy; use preflight for dry-run")
+        invoke = self._invoke or self._load_volume_entrypoint()
+        runner = lambda order: invoke(dict(order), dict(self.manifest), dict(self.provenance), self.project_id)
+        return BlenderDraftWorkerAdapter("modal-draft", runner).run(work_order)
+
+    @staticmethod
+    def _load_volume_entrypoint() -> Callable[..., Mapping[str, Any]]:
+        import modal
+
+        app_name = os.environ.get("MODAL_APP_NAME", "myth-maker-encounter-draft")
+        function_name = os.environ.get("MODAL_VOLUME_FUNCTION_NAME", "run_draft_from_volume_manifest")
+        return modal.Function.from_name(app_name, function_name).remote

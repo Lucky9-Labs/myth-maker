@@ -6,44 +6,31 @@ contents nor Modal credentials are emitted to stdout/stderr.
 """
 from __future__ import annotations
 
-import base64
 import json
 import os
 import sys
+from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 
-from modal_dispatch_backend import REQUIRED_INPUTS, ModalDraftBackend
+from modal_dispatch_backend import ModalVolumeDraftBackend
 
 
-def input_package() -> dict[str, bytes]:
-    encoded = os.environ.get("MODAL_INPUT_PACKAGE_BASE64")
-    if not encoded:
-        raise ValueError("MODAL_INPUT_PACKAGE_BASE64 is not configured")
-    try:
-        value = json.loads(encoded)
-    except json.JSONDecodeError as error:
-        raise ValueError("MODAL_INPUT_PACKAGE_BASE64 is not JSON") from error
-    if not isinstance(value, Mapping) or set(value) != REQUIRED_INPUTS:
-        raise ValueError("MODAL_INPUT_PACKAGE_BASE64 must contain exactly the five draft inputs")
-    result: dict[str, bytes] = {}
-    for name, data in value.items():
-        if not isinstance(data, str):
-            raise ValueError("MODAL_INPUT_PACKAGE_BASE64 values must be base64 strings")
-        try:
-            result[name] = base64.b64decode(data, validate=True)
-        except ValueError as error:
-            raise ValueError("MODAL_INPUT_PACKAGE_BASE64 contains invalid base64") from error
-    return result
+def input_manifest() -> dict[str, Any]:
+    path = Path(os.environ.get("MODAL_INPUT_MANIFEST_PATH", "modal/kraken_input_manifest.json"))
+    value = json.loads(path.read_text())
+    if not isinstance(value, Mapping):
+        raise ValueError("Modal input manifest must be an object")
+    return dict(value)
 
 
 def main() -> int:
     try:
         request: Any = json.load(sys.stdin)
         order = request.get("work_order") if isinstance(request, Mapping) else None
-        backend = ModalDraftBackend(
+        backend = ModalVolumeDraftBackend(
             project_id=os.environ.get("MODAL_PROJECT_ID", "myth-maker"),
-            inputs=input_package(),
+            manifest=input_manifest(),
             provenance={"source": "railway-dispatcher", "modal_app": os.environ.get("MODAL_APP_NAME", "myth-maker-encounter-draft")},
             cloud_execution_enabled=os.environ.get("MODAL_CLOUD_EXECUTION_ENABLED") == "true",
         )

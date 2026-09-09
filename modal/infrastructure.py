@@ -20,6 +20,7 @@ class ModalRuntime:
     environment: str
     app_name: str = "myth-maker-encounter-draft"
     function_name: str = "run_draft"
+    volume_function_name: str = "run_draft_from_volume_manifest"
     deterministic_recipe_function_name: str = "run_deterministic_recipe"
     volume_name: str = "myth-maker-encounter-submissions"
     lease_dict_name: str = "myth-maker-encounter-component-leases"
@@ -77,6 +78,8 @@ def application_contract(environment: str = "dev") -> dict:
                 "MODAL_ADAPTER_CLASS": "BlenderDraftWorkerAdapter",
                 "MODAL_ADAPTER_RUNNER": "ModalDraftRunner",
                 "MODAL_FUNCTION_NAME": config.function_name,
+                "MODAL_VOLUME_FUNCTION_NAME": config.volume_function_name,
+                "MODAL_INPUT_MANIFEST_PATH": "modal/kraken_input_manifest.json",
                 "COORDINATOR_WORK_ID_HEADER": "x-work-id",
             },
             "receiver": {
@@ -100,8 +103,8 @@ def application_contract(environment: str = "dev") -> dict:
             },
             {
                 "from": "railway work order (schema_version 1)",
-                "to": "modal.BlenderDraftWorkerAdapter -> ModalDraftRunner -> run_draft.remote",
-                "rule": "The dispatcher must validate a v1 work order, then use the adapter to derive legacy run_draft arguments.",
+                "to": "modal.BlenderDraftWorkerAdapter -> run_draft_from_volume_manifest.remote",
+                "rule": "The dispatcher validates a v1 work order and passes only an immutable input manifest; Modal resolves and verifies bytes inside its mounted Volume.",
             },
         ],
         "ci_deployment_controller": {
