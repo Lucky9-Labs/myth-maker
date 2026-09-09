@@ -18,6 +18,7 @@ class ModalDeployTest(unittest.TestCase):
         source = MODULE_PATH.read_text(encoding="utf-8")
         self.assertIn('ASSET_PRODUCTION_FUNCTION = "run_asset_production_job"', source)
         self.assertIn('ASSET_CRITIQUE_FUNCTION = "run_asset_visual_critique"', source)
+        self.assertIn('ASSET_LEDGER_FUNCTION = "record_asset_production_run"', source)
         self.assertIn('"max_asset_production_containers": 4', source)
 
     def test_named_secret_is_force_refreshed_from_this_ci_run(self):

@@ -71,15 +71,18 @@ def validate_job_manifest(value: dict) -> dict:
     seen_paths = set()
     inputs = []
     for item in value["inputs"]:
-        _closed(item, {"path", "bytes", "sha256", "media_type"}, set(), "input artifact")
+        _closed(item, {"path", "bytes", "sha256", "media_type"}, {"staged_name"}, "input artifact")
         if (not _safe_relative(item["path"]) or item["path"] in seen_paths
                 or not isinstance(item["bytes"], int) or isinstance(item["bytes"], bool) or item["bytes"] < 1
                 or not isinstance(item["sha256"], str) or not SHA256.fullmatch(item["sha256"])
-                or not isinstance(item["media_type"], str) or not item["media_type"]):
+                or not isinstance(item["media_type"], str) or not item["media_type"]
+                or ("staged_name" in item and (not isinstance(item["staged_name"], str)
+                                                or Path(item["staged_name"]).name != item["staged_name"]
+                                                or not item["staged_name"]))):
             raise ValueError("input artifact has invalid identity")
         seen_paths.add(item["path"])
         inputs.append(dict(item))
-    basenames = [Path(item["path"]).name for item in inputs]
+    basenames = [item.get("staged_name", Path(item["path"]).name) for item in inputs]
     if len(set(basenames)) != len(basenames):
         raise ValueError("input artifact basenames must be unique inside the cloud job")
 
@@ -87,10 +90,21 @@ def validate_job_manifest(value: dict) -> dict:
             or any(not isinstance(item, str) or not SHA256.fullmatch(item) for item in value["dependencies"])
             or len(set(value["dependencies"])) != len(value["dependencies"])):
         raise ValueError("asset production dependencies must be unique content hashes")
+    input_hashes = {item["sha256"] for item in inputs}
+    if not set(value["dependencies"]).issubset(input_hashes):
+        raise ValueError("asset production dependency hash is not present in immutable inputs")
+    if value["job_type"] == "kit-assembly" and "assemble" in {item["kind"] for item in value["operations"]}:
+        blend_hashes = {item["sha256"] for item in inputs if item["media_type"] == "application/x-blender"}
+        if set(value["dependencies"]) != blend_hashes:
+            raise ValueError("assembly dependencies must exactly match every Blender input hash")
     if (not isinstance(value["operations"], list) or not value["operations"]
             or any(not isinstance(item, dict) or set(item) != {"kind"} or item["kind"] not in OPERATIONS
                    for item in value["operations"])):
         raise ValueError("asset production operations must use the closed core-kit vocabulary")
+    operation_kinds = {item["kind"] for item in value["operations"]}
+    required_operations = {"normalize", "apply-core-kit", "render-review", "export-glb", "validate"}
+    if not required_operations.issubset(operation_kinds):
+        raise ValueError("asset production job omits a required cloud production operation")
     if (not isinstance(value["review_views"], list)
             or any(item not in VIEWS for item in value["review_views"])
             or len(set(value["review_views"])) != len(value["review_views"])):
@@ -239,6 +253,80 @@ def summarize_efficiency(receipts: list[dict]) -> dict:
     return summary
 
 
+def job_ledger_entry(receipt: dict) -> dict:
+    """Project a provider receipt into the closed public run-ledger shape."""
+    names = ("work_id", "attempt", "worker_slot", "job_type", "status", "input_hashes",
+             "output_hashes", "queue_ms", "execution_ms", "model_usage", "human_minutes")
+    if not isinstance(receipt, dict) or any(name not in receipt for name in names):
+        raise ValueError("asset production receipt cannot populate the run ledger")
+    return {name: json.loads(json.dumps(receipt[name])) for name in names}
+
+
+def fan_in_assembly_job(wave: list[dict], receipts: list[dict]) -> dict:
+    """Create Worker D's next attempt from exact successful A-C native hashes."""
+    checked_wave = plan_production_wave(wave)
+    template = next(item for item in checked_wave if item["worker_slot"] == "worker-d")
+    by_slot = {item.get("worker_slot"): item for item in receipts}
+    component_receipts = []
+    for slot in SLOTS[:3]:
+        receipt = by_slot.get(slot)
+        native = (receipt or {}).get("artifacts", {}).get("asset.blend")
+        if not receipt or receipt.get("status") != "completed" or not native:
+            raise ValueError("fan-in assembly requires completed A-C native receipts")
+        component_receipts.append(native)
+    inputs = [{
+        "path": item["volume_path"], "bytes": item["bytes"], "sha256": item["sha256"],
+        "media_type": "application/x-blender", "staged_name": f"{SLOTS[index]}-asset.blend",
+    } for index, item in enumerate(component_receipts)]
+    dependency_hashes = [item["sha256"] for item in inputs]
+    operations = [dict(item) for item in template["operations"]]
+    if {item["kind"] for item in operations}.isdisjoint({"assemble"}):
+        operations.append({"kind": "assemble"})
+    assembly = {
+        **template,
+        "attempt": template["attempt"] + 1,
+        "source_revision": hashlib.sha256("".join(dependency_hashes).encode()).hexdigest(),
+        "inputs": inputs,
+        "dependencies": dependency_hashes,
+        "operations": operations,
+    }
+    return validate_job_manifest(assembly)
+
+
+def create_run_ledger(wave: list[dict], receipts: list[dict]) -> dict:
+    checked_wave = plan_production_wave(wave)
+    if not receipts:
+        raise ValueError("asset production run ledger requires observed attempts")
+    first = checked_wave[0]
+    source_revision = hashlib.sha256(
+        "".join(sorted(item["source_revision"] for item in checked_wave)).encode()
+    ).hexdigest()
+    summary = summarize_efficiency(receipts)
+    return {
+        "schema_version": "1", "run_id": first["run_id"], "project_id": "myth-maker",
+        "asset_set_id": "raptor-mech-railgun", "source_revision": source_revision,
+        "runtime_deployment": {
+            "provider": "modal", "source_sha": first["runtime_deployment"]["source_sha"],
+            "function_id": first["runtime_deployment"]["function_id"],
+            "volume": "myth-maker-encounter-submissions",
+            "lease_store": "myth-maker-encounter-component-leases", "max_containers": 4,
+        },
+        "status": "failed" if any(item.get("status") == "failed" for item in receipts) else "running",
+        "started_at": min(item.get("execution", {}).get("started_at", datetime.now(timezone.utc).isoformat()) for item in receipts),
+        "completed_at": None,
+        "jobs": [job_ledger_entry(item) for item in receipts], "defects": [],
+        "acceptance": {name: "pending" for name in
+                       ("assembly", "rig", "animation", "export", "performance", "unity_runtime", "visual_review")},
+        "measurement": {
+            "elapsed_ms": {"provenance": "unavailable", "value": None},
+            "compute_ms": summary["compute_ms"], "human_minutes": summary["human_minutes"],
+            "input_tokens": summary["input_tokens"], "cached_input_tokens": summary["cached_input_tokens"],
+            "output_tokens": summary["output_tokens"], "core_kit_ms": summary["core_kit_ms"],
+            "asset_specific_ms": summary["asset_specific_ms"],
+        },
+    }
+
+
 def _artifact_receipt(path: Path, relative: str) -> dict:
     data = path.read_bytes()
     return {"path": relative, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
@@ -257,7 +345,7 @@ def run_asset_production_job(value: dict, volume_root: Path, submissions_root: P
     if not function_call_id or not input_id:
         raise ValueError("cloud job requires provider call and input identities")
     stage_volume_inputs(checked, volume_root)
-    root = submissions_root / checked["run_id"] / checked["work_id"]
+    root = submissions_root / checked["run_id"] / checked["work_id"] / f"attempt-{checked['attempt']:04d}"
     if root.exists():
         raise ValueError("asset production attempt already exists; use a new explicit attempt")
     inputs, output = root / "inputs", root / "output"
@@ -265,7 +353,7 @@ def run_asset_production_job(value: dict, volume_root: Path, submissions_root: P
     output.mkdir()
     for item in checked["inputs"]:
         source = (volume_root / item["path"]).resolve()
-        destination = inputs / Path(item["path"]).name
+        destination = inputs / item.get("staged_name", Path(item["path"]).name)
         shutil.copyfile(source, destination)
         destination.chmod(0o444)
     manifest_path = root / "job.json"
@@ -300,7 +388,7 @@ def run_asset_production_job(value: dict, volume_root: Path, submissions_root: P
                         "failure": {"classification": "blender-execution-failed", "detail": detail},
                         "artifacts": {}})
     else:
-        required = ["asset.blend", "asset.glb", "scene-manifest.json", "fit-report.json"]
+        required = ["asset.blend", "asset.glb", "scene-manifest.json", "fit-report.json", "core-kit-manifest.json"]
         required.extend("renders/" + view + ".png" for view in checked["review_views"])
         missing = [relative for relative in required if not (output / relative).is_file()]
         if missing:
@@ -309,8 +397,25 @@ def run_asset_production_job(value: dict, volume_root: Path, submissions_root: P
                                         "detail": ", ".join(missing)}, "artifacts": {}})
         else:
             artifacts = {relative: _artifact_receipt(output / relative, relative) for relative in required}
+            for relative, artifact in artifacts.items():
+                artifact["volume_path"] = str(Path(submissions_root.name) / checked["run_id"]
+                                              / checked["work_id"] / f"attempt-{checked['attempt']:04d}"
+                                              / "output" / relative)
             if not (output / "asset.blend").read_bytes().startswith((b"BLENDER", b"\x28\xb5\x2f\xfd", b"\x1f\x8b")):
                 raise ValueError("cloud Blender output failed native format validation")
-            receipt.update({"status": "completed", "retry": "not-requested", "artifacts": artifacts})
+            fit = json.loads((output / "fit-report.json").read_text(encoding="utf-8"))
+            if fit.get("blocking"):
+                receipt.update({"status": "failed", "retry": "new-explicit-attempt-required",
+                                "failure": {"classification": "blocking-fit-validation",
+                                            "detail": "; ".join(fit["blocking"])}, "artifacts": artifacts})
+            else:
+                receipt.update({"status": "completed", "retry": "not-requested", "artifacts": artifacts})
+    receipt["input_hashes"] = sorted(item["sha256"] for item in checked["inputs"])
+    receipt["output_hashes"] = sorted(item["sha256"] for item in receipt["artifacts"].values())
+    receipt["queue_ms"] = {"provenance": "unavailable", "value": None}
+    receipt["execution_ms"] = {"provenance": "measured", "value": execution["duration_ms"]}
+    receipt["model_usage"] = checked["measurement"]["model_usage"]
+    receipt["human_minutes"] = {"provenance": checked["measurement"]["provenance"],
+                                "value": checked["measurement"]["human_minutes"]}
     (root / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True), encoding="utf-8")
     return receipt

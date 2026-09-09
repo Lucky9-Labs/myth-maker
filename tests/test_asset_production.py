@@ -13,6 +13,9 @@ sys.path.insert(0, str(MODAL_DIR))
 
 from asset_production import (
     manifest_digest,
+    job_ledger_entry,
+    fan_in_assembly_job,
+    create_run_ledger,
     plan_production_wave,
     run_asset_production_job,
     stage_volume_inputs,
@@ -45,7 +48,8 @@ def job(slot: str = "worker-a", kind: str = "mech-structure") -> dict:
         "runtime_deployment": {"source_sha": "b" * 40, "function_id": "fu-proof"},
         "inputs": [artifact("ingest/source.blend", source)],
         "dependencies": [],
-        "operations": [{"kind": "normalize"}],
+        "operations": [{"kind": name} for name in
+                       ("normalize", "apply-core-kit", "render-review", "export-glb", "validate")],
         "review_views": ["full-body", "gameplay-distance"],
         "measurement": {"human_minutes": 0, "provenance": "measured"},
     }
@@ -111,6 +115,7 @@ class AssetProductionTests(unittest.TestCase):
                 (output / "asset.glb").write_bytes(b"glTF" + b"z" * 64)
                 (output / "scene-manifest.json").write_text(json.dumps({"objects": []}))
                 (output / "fit-report.json").write_text(json.dumps({"blocking": []}))
+                (output / "core-kit-manifest.json").write_text(json.dumps({"version": "v1"}))
                 for view in manifest["review_views"]:
                     (output / "renders" / f"{view}.png").write_bytes(b"png")
                 return types.SimpleNamespace(returncode=0, stdout="cloud blender", stderr="")
@@ -122,10 +127,14 @@ class AssetProductionTests(unittest.TestCase):
             self.assertEqual(receipt["status"], "completed")
             self.assertEqual(receipt["execution"]["runtime"], "modal")
             self.assertEqual(set(receipt["artifacts"]), {
-                "asset.blend", "asset.glb", "fit-report.json", "scene-manifest.json",
+                "asset.blend", "asset.glb", "fit-report.json", "scene-manifest.json", "core-kit-manifest.json",
                 "renders/full-body.png", "renders/gameplay-distance.png",
             })
-            self.assertTrue((submissions / manifest["run_id"] / manifest["work_id"] / "receipt.json").is_file())
+            self.assertTrue((submissions / manifest["run_id"] / manifest["work_id"] / "attempt-0001" / "receipt.json").is_file())
+            self.assertEqual(set(job_ledger_entry(receipt)), {
+                "work_id", "attempt", "worker_slot", "job_type", "status", "input_hashes",
+                "output_hashes", "queue_ms", "execution_ms", "model_usage", "human_minutes",
+            })
 
     def test_failed_cloud_job_is_retained_without_automatic_retry(self):
         manifest = job()
@@ -176,6 +185,43 @@ class AssetProductionTests(unittest.TestCase):
         self.assertEqual(summary["core_kit_ms"]["value"], 800)
         self.assertEqual(summary["asset_specific_ms"]["value"], 1200)
         self.assertEqual(summary["input_tokens"], {"provenance": "unavailable", "value": None})
+
+    def test_fan_in_assembly_binds_exact_component_output_hashes(self):
+        wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
+                job("worker-c", "railgun"), job("worker-d", "kit-assembly")]
+        receipts = []
+        for index, item in enumerate(wave[:3]):
+            digest = str(index + 1) * 64
+            receipts.append({"status": "completed", "worker_slot": item["worker_slot"],
+                             "artifacts": {"asset.blend": {"volume_path": f"asset-production/run/{index}.blend",
+                                                             "bytes": 100 + index, "sha256": digest}}})
+        assembly = fan_in_assembly_job(wave, receipts)
+        self.assertEqual(assembly["attempt"], 2)
+        self.assertEqual(assembly["dependencies"], ["1" * 64, "2" * 64, "3" * 64])
+        self.assertIn({"kind": "assemble"}, assembly["operations"])
+
+    def test_run_ledger_includes_every_attempt_and_keeps_acceptance_pending(self):
+        wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
+                job("worker-c", "railgun"), job("worker-d", "kit-assembly")]
+        receipts = []
+        for item in wave:
+            receipts.append({
+                "work_id": item["work_id"], "attempt": 1, "worker_slot": item["worker_slot"],
+                "job_type": item["job_type"], "status": "completed", "input_hashes": [],
+                "output_hashes": [], "queue_ms": {"provenance": "unavailable", "value": None},
+                "execution_ms": {"provenance": "measured", "value": 10},
+                "execution": {"duration_ms": 10},
+                "model_usage": {"provenance": "unavailable", "input_tokens": None,
+                                "cached_input_tokens": None, "output_tokens": None},
+                "human_minutes": {"provenance": "measured", "value": 0},
+                "measurement": {"provenance": "measured", "human_minutes": 0,
+                                "model_usage": {"provenance": "unavailable", "input_tokens": None,
+                                                "cached_input_tokens": None, "output_tokens": None}},
+            })
+        ledger = create_run_ledger(wave, receipts)
+        self.assertEqual(len(ledger["jobs"]), 4)
+        self.assertEqual(ledger["status"], "running")
+        self.assertTrue(all(value == "pending" for value in ledger["acceptance"].values()))
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ from deterministic_encounter import MATERIAL_NAMES, recipe_digest, validate_reci
 from glb_source_importer import validate_glb
 from infrastructure import runtime
 from modal_volume_inputs import load_volume_inputs, validate_volume_input_manifest
-from asset_production import (plan_production_wave, run_asset_production_job as execute_asset_production_job,
+from asset_production import (create_run_ledger, run_asset_production_job as execute_asset_production_job,
                               validate_critique_request, validate_job_manifest, validate_visual_critique)
 
 RUNTIME = runtime()
@@ -249,14 +249,6 @@ def run_asset_production_job(job: dict) -> dict:
             part_leases.pop(lease_key)
 
 
-@app.local_entrypoint()
-def submit_asset_production_wave(manifest_path: str) -> None:
-    """Submit exactly four immutable jobs; every Blender process remains remote."""
-    wave = plan_production_wave(json.loads(Path(manifest_path).read_text(encoding="utf-8")))
-    receipts = list(run_asset_production_job.map(wave, order_outputs=False))
-    print(json.dumps(sorted(receipts, key=lambda item: item["worker_slot"]), indent=2, sort_keys=True))
-
-
 @app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=6 * 60,
               retries=0, max_containers=4, secrets=[secret], volumes={"/submissions": volume})
 def run_asset_visual_critique(request: dict) -> dict:
@@ -311,11 +303,24 @@ def run_asset_visual_critique(request: dict) -> dict:
         },
         "critique": critique,
     }
-    root = SUBMISSIONS_ROOT / "asset-production" / checked["run_id"] / checked["work_id"]
+    root = (SUBMISSIONS_ROOT / "asset-production" / checked["run_id"] / checked["work_id"]
+            / f"critique-attempt-{checked['attempt']:04d}")
     root.mkdir(parents=True, exist_ok=False)
     write_json_atomic(root / "receipt.json", receipt)
     volume.commit()
     return receipt
+
+
+@app.function(image=image, cpu=0.25, memory=512, timeout=60, retries=0, max_containers=1,
+              volumes={"/submissions": volume})
+def record_asset_production_run(wave: list[dict], receipts: list[dict]) -> dict:
+    """Persist the closed run projection after observed cloud attempts."""
+    ledger = create_run_ledger(wave, receipts)
+    root = SUBMISSIONS_ROOT / "asset-production" / ledger["run_id"]
+    root.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(root / "run-ledger.json", ledger)
+    volume.commit()
+    return ledger
 
 def screenshot(path: Path) -> bytes:
     subprocess.run(["scrot", "-o", str(path)], check=True, capture_output=True, timeout=5)

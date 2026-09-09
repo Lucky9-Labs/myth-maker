@@ -7,6 +7,7 @@ geometry process.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -18,6 +19,14 @@ from mathutils import Vector
 
 
 KIT_VERSION = "myth-maker.asset-core-kit/v1"
+KIT_PRIMITIVES = {
+    "panel-profile": {"bevel_ratio": 0.003, "bevel_segments": 2, "armor_role": "removable-armor"},
+    "joint-pivot": {"name_tokens": ["joint", "ankle", "elbow", "hip", "knee", "shoulder", "waist", "wrist"]},
+    "bilateral-chirality": {"left_tokens": ["-l", "left"], "right_tokens": ["-r", "right"]},
+    "weapon-anchors": {"names": ["weapon-root", "primary-grip", "support-grip", "muzzle", "bow-arm-left", "bow-arm-right"]},
+    "review-camera": {"projection": "orthographic", "resolution": [640, 640]},
+    "export": {"native": "uncompressed-blend", "runtime": "glb-2.0", "animations": True},
+}
 MATERIALS = {
     "structural": (0.035, 0.045, 0.055, 1.0),
     "armor-white": (0.72, 0.76, 0.78, 1.0),
@@ -80,6 +89,40 @@ def ensure_materials() -> None:
                     strength.default_value = 4.0
 
 
+def core_kit_manifest() -> dict:
+    primitives = []
+    for name, parameters in sorted(KIT_PRIMITIVES.items()):
+        encoded = json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()
+        primitives.append({"name": name, "parameters": parameters,
+                           "parameter_schema_sha256": hashlib.sha256(encoded).hexdigest()})
+    return {"format": KIT_VERSION, "primitives": primitives}
+
+
+def apply_core_kit() -> None:
+    ensure_materials()
+    joint_tokens = tuple(KIT_PRIMITIVES["joint-pivot"]["name_tokens"])
+    for obj in bpy.context.scene.objects:
+        name = obj.name.lower()
+        if name.endswith(("-l", ".l")) or "left" in name:
+            obj["chirality"] = "left"
+        elif name.endswith(("-r", ".r")) or "right" in name:
+            obj["chirality"] = "right"
+        if any(token in name for token in joint_tokens):
+            obj["mechanical_pivot"] = True
+        if obj.type != "MESH":
+            continue
+        role = obj.get("asset_role")
+        material_name = "armor-blue" if "blue" in name or "canopy" in name else "armor-white" if role == "removable-armor" else "structural"
+        if len(obj.data.materials) == 0:
+            obj.data.materials.append(bpy.data.materials[material_name])
+        if not any(modifier.type == "BEVEL" for modifier in obj.modifiers):
+            diagonal = max(obj.dimensions.length, 0.01)
+            modifier = obj.modifiers.new("asset-kit-bevel", "BEVEL")
+            modifier.width = diagonal * KIT_PRIMITIVES["panel-profile"]["bevel_ratio"]
+            modifier.segments = KIT_PRIMITIVES["panel-profile"]["bevel_segments"]
+            modifier.limit_method = "ANGLE"
+
+
 def normalize_scene(job: dict) -> None:
     seen = set()
     for index, obj in enumerate(sorted(bpy.context.scene.objects, key=lambda item: item.name.lower())):
@@ -117,16 +160,45 @@ def ensure_railgun_anchors() -> None:
         "bow-arm-left": Vector((low.x, high.y - (high.y-low.y)*0.12, center.z)),
         "bow-arm-right": Vector((high.x, high.y - (high.y-low.y)*0.12, center.z)),
     }
+    aliases = {
+        "primary-grip": ("socket-rearhand", "socket-rear-hand", "rear-hand"),
+        "support-grip": ("socket-supporthand", "socket-support-hand", "support-hand"),
+        "muzzle": ("socket-muzzle",), "weapon-root": ("raptorrailgun-root", "railgun-root"),
+        "bow-arm-left": ("bladel", "blade-l"), "bow-arm-right": ("blader", "blade-r"),
+    }
     for name in ANCHORS:
-        obj = bpy.data.objects.get(name)
+        obj = bpy.data.objects.get(name) or next((bpy.data.objects.get(alias) for alias in aliases.get(name, ()) if bpy.data.objects.get(alias)), None)
         if obj is None:
             obj = bpy.data.objects.new(name, None)
             bpy.context.scene.collection.objects.link(obj)
+        elif obj.name != name and obj.type == "EMPTY":
+            obj.name = name
+        elif obj.name != name:
+            source = obj
+            obj = bpy.data.objects.new(name, None)
+            bpy.context.scene.collection.objects.link(obj)
+            obj.matrix_world = source.matrix_world.copy()
         obj.empty_display_type = "ARROWS"
         obj.empty_display_size = max((high - low).length * 0.025, 0.03)
         obj.location = positions[name]
         obj["asset_role"] = "attachment-anchor"
         obj["asset_core_kit"] = KIT_VERSION
+
+
+def ensure_charge_animation() -> None:
+    if bpy.data.actions:
+        return
+    blades = [obj for obj in bpy.context.scene.objects if obj.name in {"bow-arm-left", "bow-arm-right"} or "blade" in obj.name]
+    if len(blades) < 2:
+        raise RuntimeError("railgun animation requested without two addressable bow arms")
+    for index, blade in enumerate(sorted(blades, key=lambda item: item.name)[:2]):
+        blade.rotation_mode = "XYZ"
+        base = blade.rotation_euler.copy()
+        for frame, offset in ((1, 0), (36, math.radians(15) * (-1 if index == 0 else 1)), (37, 0), (48, 0)):
+            blade.rotation_euler = base
+            blade.rotation_euler.z += offset
+            blade.keyframe_insert(data_path="rotation_euler", frame=frame)
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = 1, 48
 
 
 def bounds(objects: list) -> tuple[Vector, Vector]:
@@ -213,6 +285,12 @@ def fit_report(job: dict, manifest: dict) -> dict:
         missing = sorted(set(ANCHORS) - names)
         if missing:
             blockers.append("missing railgun anchors: " + ", ".join(missing))
+        if "animate" in {operation["kind"] for operation in job["operations"]} and not manifest["actions"]:
+            blockers.append("railgun animation operation produced no action")
+    if "bind-rig" in {operation["kind"] for operation in job["operations"]}:
+        pivots = [obj for obj in bpy.context.scene.objects if obj.get("mechanical_pivot")]
+        if not pivots and not any(item["type"] == "ARMATURE" for item in manifest["objects"]):
+            blockers.append("rig binding has neither an armature nor mechanical pivots")
     if not any(item["type"] == "MESH" for item in manifest["objects"]):
         blockers.append("scene has no mesh geometry")
     return {
@@ -229,15 +307,20 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     kinds = {operation["kind"] for operation in job["operations"]}
     load_sources(source_files(Path(args.inputs)), "assemble" in kinds or job["job_type"] == "kit-assembly")
-    ensure_materials()
     normalize_scene(job)
+    if "apply-core-kit" in kinds:
+        apply_core_kit()
     if job["job_type"] == "railgun" or "animate" in kinds:
         ensure_railgun_anchors()
-    render_views(output / "renders", job["review_views"])
+    if "animate" in kinds:
+        ensure_charge_animation()
+    if "render-review" in kinds:
+        render_views(output / "renders", job["review_views"])
     bpy.ops.wm.save_as_mainfile(filepath=str(output / "asset.blend"), compress=False)
     bpy.ops.export_scene.gltf(filepath=str(output / "asset.glb"), export_format="GLB",
                               export_animations=True, export_apply=False)
     manifest = scene_manifest(job)
+    (output / "core-kit-manifest.json").write_text(json.dumps(core_kit_manifest(), indent=2, sort_keys=True), encoding="utf-8")
     (output / "scene-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     (output / "fit-report.json").write_text(json.dumps(fit_report(job, manifest), indent=2, sort_keys=True), encoding="utf-8")
     return 0

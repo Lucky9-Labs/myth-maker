@@ -24,6 +24,7 @@ class ModalRuntime:
     deterministic_recipe_function_name: str = "run_deterministic_recipe"
     asset_production_function_name: str = "run_asset_production_job"
     asset_critique_function_name: str = "run_asset_visual_critique"
+    asset_ledger_function_name: str = "record_asset_production_run"
     volume_name: str = "myth-maker-encounter-submissions"
     lease_dict_name: str = "myth-maker-encounter-component-leases"
     openai_secret_name: str = "myth-maker-encounter-openai"
@@ -101,6 +102,7 @@ def application_contract(environment: str = "dev") -> dict:
             "format": "myth-maker.asset-production-job/v1",
             "function_name": config.asset_production_function_name,
             "critique_function_name": config.asset_critique_function_name,
+            "ledger_function_name": config.asset_ledger_function_name,
             "execution_boundary": "cloud-only-blender",
             "max_containers": 4,
             "worker_slots": ["worker-a", "worker-b", "worker-c", "worker-d"],

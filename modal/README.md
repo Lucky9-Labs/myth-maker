@@ -21,10 +21,13 @@ Submit a closed four-job JSON array after CI deployment has supplied the exact
 `run_asset_production_job` function ID:
 
 ```sh
-modal run --env dev modal/draft_trial.py::submit_asset_production_wave --manifest-path wave.json
+python3 scripts/submit_asset_production_wave.py \
+  --environment dev --manifest wave.json --output receipts.json
 ```
 
-This command only validates and submits locally. Every Blender mutation,
+This command resolves the deployed function and rejects a manifest whose
+function ID differs from the provider object. It only validates and submits
+locally. Every Blender mutation,
 render, native save, and export occurs in Modal. Inputs must first be uploaded
 under a run-scoped Volume prefix with `modal volume put`; use a new prefix and
 never `--force` an existing WIP object.
