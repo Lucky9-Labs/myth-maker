@@ -87,7 +87,7 @@ def public_terminal_receipt(state: dict, *, source_sha: str, job_id: str, recipe
         "recipe": recipe, "recipe_sha256": recipe_digest(recipe),
         "provider_receipt": provider, "worker_receipt": {
             "execution": state["execution"], "glb_validation": state["glb_validation"],
-            "provenance": state["provenance"],
+            "frame_validation": state["frame_validation"], "provenance": state["provenance"],
         },
     }
 
