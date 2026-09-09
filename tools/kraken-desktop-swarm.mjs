@@ -14,6 +14,7 @@ const image = "mech-local-blender:5.2.1-trial-20260907";
 const workers = {
   "kraken-mantle-core": { port: 16081, component: "kraken-mantle-core", role: "central mantle/head and Mount_T01 through Mount_T08" },
   "kraken-tentacle-01": { port: 16082, component: "kraken-tentacle-01", role: "one complete numbered tentacle with T01_Root and T01_Tip" },
+  "kraken-assembly": { port: 16090, component: "kraken-assembly", role: "serialized derivative assembly; links immutable mantle and tentacle sources only" },
 };
 
 function die(message) { throw new Error(message); }
@@ -105,7 +106,16 @@ function launchReserved({ workerId, root, baseline, concept, commit, dryRun }) {
     "--mount", `type=bind,src=${resolve(concept)},dst=/reference/concept.png,readonly`,
     "--env", "TMPDIR=/worker-tmp",
     "--user", `${process.getuid?.() ?? 1000}:${process.getgid?.() ?? 1000}`,
-    image, `/output/${basename(target)}`];
+  ];
+  if (workerId === "kraken-assembly") {
+    for (const part of ["kraken-mantle-core", "kraken-tentacle-01"]) {
+      const published = readRegistry(root).workers[part]?.source?.path;
+      if (!published || !existsSync(published)) die(`assembly requires published ${part} checkpoint`);
+      args.push("--mount", `type=bind,src=${resolve(published)},dst=/published/${part}.blend,readonly`);
+      reservation.depends_on = [...(reservation.depends_on || []), { worker_id: part, source_sha256: digest(published), mount: `/published/${part}.blend` }];
+    }
+  }
+  args.push(image, `/output/${basename(target)}`);
   const containerId = command("docker", args);
   reservation.container_id = containerId;
   reservation.state = "running";
@@ -131,6 +141,32 @@ function reconcile({ workerId, root }) {
     return registry.workers[workerId];
   });
 }
+function publish({ workerId, root }) {
+  return withRegistryLock(root, () => {
+    const registry = readRegistry(root);
+    const reservation = registry.workers[workerId];
+    if (!reservation) die(`no reservation for ${workerId}`);
+    if (!existsSync(reservation.source.path)) die(`checkpoint missing for ${workerId}`);
+    reservation.checkpoint = { path: reservation.source.path, sha256: digest(reservation.source.path), published_at: new Date().toISOString() };
+    reservation.state = "checkpointed";
+    writeRegistry(root, registry);
+    return reservation;
+  });
+}
+function stop({ workerId, root }) {
+  return withRegistryLock(root, () => {
+    const registry = readRegistry(root);
+    const reservation = registry.workers[workerId];
+    if (!reservation) die(`no reservation for ${workerId}`);
+    const labels = JSON.parse(command("docker", ["inspect", "--format", "{{json .Config.Labels}}", reservation.container_name]));
+    if (labels["org.myth-maker.kraken-swarm"] !== "true" || labels["org.myth-maker.worker-id"] !== workerId) die(`refusing to stop an unowned container for ${workerId}`);
+    command("docker", ["stop", reservation.container_name]);
+    reservation.state = "stopped";
+    reservation.stopped_at = new Date().toISOString();
+    writeRegistry(root, registry);
+    return reservation;
+  });
+}
 
 try {
   const { action, workerId, values } = parse(process.argv.slice(2));
@@ -139,7 +175,9 @@ try {
   if (action === "launch") result = launch({ workerId, root, baseline: values.baseline, concept: values.concept, commit: values.commit, dryRun: values["dry-run"] === "true" });
   else if (action === "inspect") result = inspect({ workerId, root });
   else if (action === "reconcile") result = reconcile({ workerId, root });
-  else die("usage: launch <worker-id> --baseline FILE --concept FILE [--root DIR] [--commit SHA] [--dry-run true] | inspect|reconcile <worker-id> [--root DIR]");
+  else if (action === "publish") result = publish({ workerId, root });
+  else if (action === "stop") result = stop({ workerId, root });
+  else die("usage: launch <worker-id> --baseline FILE --concept FILE [--root DIR] [--commit SHA] [--dry-run true] | inspect|reconcile|publish|stop <worker-id> [--root DIR]");
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 } catch (error) {
   process.stderr.write(`${error.message}\n`);

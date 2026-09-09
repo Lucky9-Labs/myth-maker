@@ -30,3 +30,5 @@ node tools/kraken-desktop-swarm.mjs inspect kraken-tentacle-01
 ```
 
 Passing infrastructure health alone is not a passed worker gate. Each assigned operator must inspect the correct noVNC desktop, make GUI-only changes, save through Blender's UI, emit before/after and final desktop views, then GUI-reopen the immutable checkpoint layout. A serialized integration worker owns the derivative assembly; these workers never write it.
+
+After both source workers have GUI-saved and GUI-reopened their checkpoints, record immutable checkpoint hashes before starting `kraken-assembly`. Its desktop receives the two part sources only as read-only `/published/*.blend` files. It may append/link them through Blender's GUI into its own derivative `.blend`, but it may not alter either source file.
