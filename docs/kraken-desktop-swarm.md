@@ -7,7 +7,7 @@ The two reservations are intentionally disjoint:
 - `kraken-mantle-core` owns only the mantle/head silhouette and eight named attachment empties, `Mount_T01` through `Mount_T08`.
 - `kraken-tentacle-01` owns one complete tentacle and its local anchors, `T01_Root`, `T01_Tip`, and `T01_AccentRail`.
 
-Each container receives a private writable source directory, HOME, temp directory, and a 127.0.0.1-only noVNC port. The exact concept image is read-only. Its baseline checkpoint is copied before launch, then the copy is the only `.blend` it may save.
+Each container receives owner-only private writable source, HOME, and temp directories, plus a 127.0.0.1-only noVNC port. The container runs as the host owner UID, so Blender can write its own paths while other local accounts cannot alter them. The exact concept image is read-only. Its baseline checkpoint is copied before launch, then the copy is the only `.blend` it may save.
 
 Launch the gate from a clean checkout with an immutable source checkpoint:
 

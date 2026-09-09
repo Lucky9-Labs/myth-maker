@@ -75,7 +75,9 @@ function launchReserved({ workerId, root, baseline, concept, commit, dryRun }) {
   mkdirSync(tempDir, { recursive: true });
   const target = resolve(sourceDir, `${workerId}.blend`);
   copyFileSync(baseline, target);
-  for (const path of [workerRoot, sourceDir, homeDir, tempDir]) chmodSync(path, 0o777);
+  // The container runs as the host UID, so owner-only paths remain writable by
+  // Blender while preventing another local account from altering a checkpoint.
+  for (const path of [workerRoot, sourceDir, homeDir, tempDir]) chmodSync(path, 0o700);
   const reservation = {
     worker_id: workerId,
     component: spec.component,
