@@ -38,8 +38,15 @@ The environment boundary lives in the shared executor, before any credential is
 passed to a command. Runtime secrets stay in their owning Terraform or provider
 seam and are never copied into an unrelated/no-op adapter. Do not use
 `secrets: inherit` in the dispatcher workflow. The Terraform foundation job
-additionally needs `TF_BACKEND_CONFIG` for the approved remote backend and
-the non-secret GitHub Environment variables described by
+additionally needs `TF_BACKEND_CONFIG` for the approved remote backend,
+`CLOUDFLARE_API_TOKEN`, and the provider/runtime secrets using their owning
+names: `RAILWAY_TOKEN`, `PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY`, and
+`CATALOG_ACCEPTANCE_TOKEN`. The workflow maps those names to Terraform inputs;
+do not duplicate them under `TF_VAR_*` GitHub secret names. Separately, the
+Unity/client verification handoff reads the non-secret dev environment variables
+`PACKAGE_DISCOVERY_SIGNING_PUBLIC_KEY_SPKI` and
+`PACKAGE_DISCOVERY_SIGNING_KEY_ID=package-discovery-ed25519-v1`; Terraform does
+not consume them. The job also uses the non-secret GitHub Environment variables described by
 `infra/terraform/variables.tf` (account/workspace IDs, dispatcher URL, and
 explicit `MANAGE_*` flags).
 
