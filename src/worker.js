@@ -348,7 +348,7 @@ export class EncounterCoordinator {
         const settled = current.status === "dispatching"
           ? (dispatched.ok
             ? { ...current, status: "queued", updated_at: new Date().toISOString() }
-            : { ...current, status: "blocked", updated_at: new Date().toISOString(), failure: { error_code: "work_dispatch_failed", retryable: true } })
+            : { ...current, status: "blocked", updated_at: new Date().toISOString(), failure: { error_code: dispatchFailureCode(dispatched), retryable: true } })
           : current;
         const status = dispatched.ok || settled.status !== "blocked" ? 202 : 502;
         const responseBody = { work_item: workSummary(settled) };
@@ -565,6 +565,12 @@ export class EncounterCoordinator {
     }
     return response({ error: "not_found" }, 404);
   }
+}
+
+function dispatchFailureCode(dispatched) {
+  return Number.isInteger(dispatched?.status) && dispatched.status >= 100 && dispatched.status <= 599
+    ? `work_dispatch_http_${dispatched.status}`
+    : "work_dispatch_failed";
 }
 
 export default {

@@ -550,7 +550,9 @@ test("a dispatch failure is durably replayed without a second external dispatch"
     assert.equal(first.status, 502);
     assert.equal(replay.status, 502);
     assert.equal(dispatches, 1);
-    assert.equal((await body(replay)).work_item.status, "blocked");
+    const blocked = (await body(replay)).work_item;
+    assert.equal(blocked.status, "blocked");
+    assert.deepEqual(blocked.failure, { error_code: "work_dispatch_http_503", retryable: true });
   } finally {
     globalThis.fetch = oldFetch;
   }
