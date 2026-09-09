@@ -14,6 +14,15 @@ SPEC.loader.exec_module(modal_deploy)
 
 
 class ModalDeployTest(unittest.TestCase):
+    def test_resource_bootstrap_accepts_current_lowercase_cli_json_keys(self):
+        resources = [
+            [{"name": modal_deploy.VOLUME_NAME}],
+            [{"name": modal_deploy.SECRET_NAME}],
+        ]
+        with patch.object(modal_deploy, "json_command", side_effect=resources), patch.object(modal_deploy, "run") as run:
+            modal_deploy.ensure_named_resources("dev")
+        run.assert_called_once_with("modal", "dict", "create", modal_deploy.DICT_NAME, "--env", "dev")
+
     def test_failed_modal_deploy_fetches_only_the_reported_image_build_logs(self):
         error = subprocess.CalledProcessError(
             1,

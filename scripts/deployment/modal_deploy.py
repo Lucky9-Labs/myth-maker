@@ -42,6 +42,11 @@ def json_command(*args: str) -> list[dict]:
     return parsed
 
 
+def has_named_resource(resources: list[dict], name: str) -> bool:
+    """Accept the documented CLI's legacy and current JSON display keys."""
+    return any(item.get("Name") == name or item.get("name") == name for item in resources)
+
+
 def ensure_environment(environment: str) -> None:
     environments = json_command("modal", "environment", "list", "--json")
     if not any(item.get("name") == environment for item in environments):
@@ -52,13 +57,13 @@ def ensure_environment(environment: str) -> None:
 
 
 def ensure_named_resources(environment: str) -> None:
-    if not any(item.get("Name") == VOLUME_NAME for item in json_command("modal", "volume", "list", "--env", environment, "--json")):
+    if not has_named_resource(json_command("modal", "volume", "list", "--env", environment, "--json"), VOLUME_NAME):
         run("modal", "volume", "create", VOLUME_NAME, "--env", environment)
     # Modal Dict creation is already a documented no-op when it exists.
     run("modal", "dict", "create", DICT_NAME, "--env", environment)
 
     secrets = json_command("modal", "secret", "list", "--env", environment, "--json")
-    if not any(item.get("Name") == SECRET_NAME for item in secrets):
+    if not has_named_resource(secrets, SECRET_NAME):
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as handle:
             handle.write(json.dumps({"OPENAI_API_KEY": os.environ["OPENAI_API_KEY"]}))
             secret_file = handle.name
@@ -84,7 +89,7 @@ def observed_resource_ids(environment: str) -> dict[str, str]:
 
 
 def emit_failed_image_logs(error: subprocess.CalledProcessError) -> None:
-    """Surface the provider's failed image layer without exposing credentials."""
+    """Surface only the failed image layer after the provider redacts credentials."""
     output = "\n".join(str(value) for value in (error.stdout, error.stderr, error.output) if value)
     match = IMAGE_ID.search(output)
     if not match:
