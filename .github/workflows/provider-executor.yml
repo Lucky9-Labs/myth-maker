@@ -69,7 +69,7 @@ jobs:
           python-version: '3.12'
       - name: Install Modal client for the CI-owned provider controller
         if: inputs.provider == 'modal'
-        run: python3 -m pip install --disable-pip-version-check 'modal==1.4.0'
+        run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
       - name: Bootstrap, deploy, verify, and observe one bounded Modal work order
         id: modal
         if: inputs.provider == 'modal'
