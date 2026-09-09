@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
 from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, modal_volume_receipt, read_stable, sha256, validate_native, write_json_atomic
-from desktop_readiness import terminal_failure, wait_for_desktop
+from desktop_readiness import configure_isolated_x11, terminal_failure, wait_for_desktop
 from deterministic_encounter import MATERIAL_NAMES, recipe_digest, validate_recipe
 from glb_source_importer import validate_glb
 from infrastructure import runtime
@@ -467,8 +467,7 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             (references / name).write_bytes(data)
     shots = root / "screenshots"
     shots.mkdir()
-    os.environ["DISPLAY"] = ":99"
-    os.environ["XAUTHORITY"] = "/tmp/draft.Xauthority"
+    configure_isolated_x11(os.environ)
     Path(os.environ["XAUTHORITY"]).touch(mode=0o600)
     processes = []
     process_logs = []

@@ -17,6 +17,15 @@ class StartupUnready(RuntimeError):
     pass
 
 
+def configure_isolated_x11(environment, *, xauthority="/tmp/draft.Xauthority"):
+    """Force GUI children onto the owned Xvfb display, independent of host hints."""
+    environment.pop("WAYLAND_DISPLAY", None)
+    environment["XDG_SESSION_TYPE"] = "x11"
+    environment["GDK_BACKEND"] = "x11"
+    environment["DISPLAY"] = ":99"
+    environment["XAUTHORITY"] = xauthority
+
+
 def receipt_error(error: Exception) -> str:
     """Return an operator-useful error without persisting credential fragments."""
     message = str(error)
