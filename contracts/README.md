@@ -19,6 +19,7 @@ The firm contracts are:
 | `PlayableEncounterPackage` | Assembler/host boundary | Names one immutable, compatible module selection that can be preloaded and frozen. |
 | `PackageDiscoveryManifest` | Cloudflare/host boundary | Pins a selected frozen package, accepted catalog/assembly evidence, remote GLB artifacts, and an Ed25519 signature. |
 | `PackageDiscoveryManifestV2` | Cloudflare/host boundary | Negotiates one immutable artifact representation per module against the host's declared media type, loader, platform, and build, then signs the selected set with Ed25519. |
+| `RuntimeArtifactPublicationV2` | Railway publisher/host boundary | Binds exact immutable runtime bytes to an allowlisted media type, safe content-addressed location, and concrete host selection tuple before public retrieval. |
 | `GlbAssemblyManifest` | GLB assembler/host boundary | Defines one hash-addressed, deterministic composite runtime asset assembled from independently accepted GLB fragments. |
 | `ConceptFirstAssetProductionGate` | Concept/worker/assembler boundary | Pins the immutable intent, art direction, concept reference, worker brief, asset revision, and assembly decision for one type-neutral production candidate. |
 

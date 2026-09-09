@@ -69,6 +69,98 @@ test("an accepted generic GLB candidate is published once to the mounted volume 
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("a v2 runtime artifact preserves caller-declared AssetBundle bytes, type, safe extension, and Unity target tuple", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "myth-maker-artifact-"));
+  const origin = "https://artifacts.example.test";
+  const bytes = Buffer.from("exact-unity-assetbundle-bytes\\0\\x01", "utf8");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const publication = {
+    schema_version: "2",
+    publication_id: "runtime-publication-0001",
+    idempotency_key: "runtime-publish-0001",
+    runtime_artifact: {
+      module_id: "generic-runtime-module", revision: 3, source_artifact_uri: `sha256:${sha256}`,
+      sha256, media_type: "application/vnd.unity.assetbundle", byte_length: bytes.byteLength,
+      compatibility: { platforms: ["macos"], builds: ["unity-6000.6.0f1-macos"], loaders: ["unity-assetbundle"] },
+    },
+    host_compatibility: { platform: "macos", engine_build: "unity-6000.6.0f1-macos", scripting_backend: "il2cpp", loader: "unity-assetbundle" },
+    extension: "bundle",
+    artifact_bytes_base64: bytes.toString("base64"),
+  };
+  const handler = createRailwayArtifactHandler({
+    store: createRailwayArtifactStore({ rootPath: root, publicOrigin: origin, clock: () => "2026-09-08T22:00:00.000Z" }),
+    publicationToken: "publication-token",
+  });
+  try {
+    const request = (value = publication) => new Request(`${origin}/v2/artifact-publications`, {
+      method: "POST", headers: { authorization: "Bearer publication-token", "content-type": "application/json" }, body: JSON.stringify(value),
+    });
+    const published = await handler(request());
+    assert.equal(published.status, 201);
+    const receipt = await published.json();
+    assert.equal(receipt.schema_version, "2");
+    assert.equal(receipt.artifact.uri, `${origin}/v2/artifacts/${sha256}.bundle`);
+    assert.equal(receipt.artifact.module_id, publication.runtime_artifact.module_id);
+    assert.equal(receipt.artifact.revision, publication.runtime_artifact.revision);
+    assert.equal(receipt.artifact.media_type, publication.runtime_artifact.media_type);
+    assert.deepEqual(receipt.host_compatibility, publication.host_compatibility);
+
+    const downloaded = await handler(new Request(receipt.artifact.uri));
+    const downloadedBytes = Buffer.from(await downloaded.arrayBuffer());
+    assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.headers.get("content-type"), "application/vnd.unity.assetbundle");
+    assert.deepEqual(downloadedBytes, bytes);
+    assert.equal(downloaded.headers.get("digest"), `sha-256=${sha256}`);
+    await assert.doesNotReject(verifyPublishedArtifact({ url: receipt.artifact.uri, sha256, byteLength: bytes.byteLength, mediaType: publication.runtime_artifact.media_type, fetcher: (url) => handler(new Request(url)) }));
+
+    assert.equal((await handler(request())).status, 200, "an identical publication is idempotent");
+    const conflict = structuredClone(publication);
+    const replacement = Buffer.from("different exact bytes");
+    const replacementSha256 = createHash("sha256").update(replacement).digest("hex");
+    conflict.artifact_bytes_base64 = replacement.toString("base64");
+    conflict.runtime_artifact.sha256 = replacementSha256;
+    conflict.runtime_artifact.source_artifact_uri = `sha256:${replacementSha256}`;
+    conflict.runtime_artifact.byte_length = replacement.byteLength;
+    assert.equal((await handler(request(conflict))).status, 409, "a publication ID cannot be overwritten");
+
+    const formatCollision = structuredClone(publication);
+    formatCollision.publication_id = "runtime-publication-0003";
+    formatCollision.idempotency_key = "runtime-publish-0003";
+    formatCollision.runtime_artifact.media_type = "model/gltf-binary";
+    formatCollision.runtime_artifact.compatibility.loaders = ["gltf-loader"];
+    formatCollision.host_compatibility.loader = "gltf-loader";
+    formatCollision.extension = "glb";
+    assert.equal((await handler(request(formatCollision))).status, 409, "a path cannot be relabelled as another format");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("v2 runtime publication rejects format substitution, traversal extensions, byte mismatches, and incompatible catalog targets", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "myth-maker-artifact-"));
+  const bytes = Buffer.from("generic bytes", "utf8");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const base = {
+    schema_version: "2", publication_id: "runtime-publication-0002", idempotency_key: "runtime-publish-0002",
+    runtime_artifact: { module_id: "generic-runtime-module", revision: 3, source_artifact_uri: `sha256:${sha256}`, sha256, media_type: "application/vnd.unity.assetbundle", byte_length: bytes.byteLength, compatibility: { platforms: ["macos"], builds: ["unity-6000.6.0f1-macos"], loaders: ["unity-assetbundle"] } },
+    host_compatibility: { platform: "macos", engine_build: "unity-6000.6.0f1-macos", scripting_backend: "il2cpp", loader: "unity-assetbundle" }, extension: "bundle", artifact_bytes_base64: bytes.toString("base64"),
+  };
+  const handler = createRailwayArtifactHandler({ store: createRailwayArtifactStore({ rootPath: root, publicOrigin: "https://artifacts.example.test" }), publicationToken: "publication-token" });
+  try {
+    for (const mutate of [
+      (value) => { value.runtime_artifact.media_type = "application/x-unapproved-format"; },
+      (value) => { value.extension = "../escape"; },
+      (value) => { value.artifact_bytes_base64 = Buffer.from("substituted bytes").toString("base64"); },
+      (value) => { value.host_compatibility.loader = "other-loader"; },
+      (value) => { value.host_compatibility.engine_build = "unity-other-build"; },
+    ]) {
+      const invalid = structuredClone(base);
+      mutate(invalid);
+      const result = await handler(new Request("https://artifacts.example.test/v2/artifact-publications", { method: "POST", headers: { authorization: "Bearer publication-token", "content-type": "application/json" }, body: JSON.stringify(invalid) }));
+      assert.equal(result.status, 400);
+      assert.equal((await result.json()).error, "invalid_runtime_artifact_publication");
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("package receipts are immutable canonical records on the same mounted volume", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "myth-maker-artifact-"));
   const handler = createRailwayArtifactHandler({ store: createRailwayArtifactStore({ rootPath: root, publicOrigin: "https://artifacts.example.test" }), publicationToken: "publication-token" });

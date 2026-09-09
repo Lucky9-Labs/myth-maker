@@ -52,7 +52,7 @@ test("v2 contracts are closed and retain v1 dependencies without changing v1", a
   const files = [
     "encounter-spec.schema.json", "work-order.schema.json", "host-capability-manifest.schema.json",
     "package-discovery-manifest.schema.json", "package-discovery-catalog-revision.schema.json",
-    "package-discovery-assembly-receipt.schema.json",
+    "package-discovery-assembly-receipt.schema.json", "runtime-artifact-publication.schema.json",
   ];
   for (const file of files) {
     const schema = JSON.parse(await readFile(path.join(contractDirectory, file), "utf8"));
@@ -70,6 +70,10 @@ test("v2 contracts are closed and retain v1 dependencies without changing v1", a
   assert.equal(manifest.$defs.artifact.properties.media_type.const, undefined);
   assert.equal(manifest.$defs.artifact.required.includes("byte_length"), true);
   assert.equal(manifest.$defs.artifact.required.includes("compatibility"), true);
+  const publication = JSON.parse(await readFile(path.join(contractDirectory, "runtime-artifact-publication.schema.json"), "utf8"));
+  assert.equal(publication.$defs.runtimeArtifact.properties.media_type.maxLength, 128);
+  assert.equal(publication.properties.extension.pattern, "^[a-z0-9]{1,16}$");
+  assert.equal(publication.$defs.hostCompatibility.required.includes("scripting_backend"), true);
 
   const schemas = new Set();
   for (const version of ["v1", "v2"]) {
