@@ -109,6 +109,8 @@ jobs:
           DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           RESULT: ${{ runner.temp }}/provider-result.json
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           RAILWAY_SERVICE_ID: ${{ vars.RAILWAY_SERVICE_ID }}
           RAILWAY_ENVIRONMENT_ID: ${{ vars.RAILWAY_ENVIRONMENT_ID }}
         run: |

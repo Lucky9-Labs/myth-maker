@@ -123,7 +123,7 @@ test("the provider interface has separate least-privilege credentials", () => {
   assert.deepEqual(Object.keys(providerDefinitions).sort(), ["cloudflare", "modal", "railway"]);
   assert.deepEqual(providerDefinitions.cloudflare.secretNames, ["CLOUDFLARE_API_TOKEN", "AGENT_INGRESS_TOKEN", "WORK_DISPATCH_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]);
   assert.deepEqual(providerDefinitions.cloudflare.variableNames, ["WORK_DISPATCH_URL"]);
-  assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN"]);
+  assert.deepEqual(providerDefinitions.railway.secretNames, ["RAILWAY_TOKEN", "MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
   assert.deepEqual(providerDefinitions.modal.secretNames, ["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY"]);
 });
 
@@ -323,6 +323,8 @@ test("workflows use non-mutating PR previews and provider locks", async () => {
   assert.match(executor, /CLOUDFLARE_DISCOVERY_OUTCOME: \$\{\{ steps\.discovery\.outcome \}\}/);
   assert.match(executor, /\"\$PROVIDER\" != cloudflare \|\| \"\$DISCOVERY_OUTCOME\" == success/);
   assert.match(executor, /if: inputs\.provider == 'railway'/);
+  assert.match(executor, /id: railway[\s\S]*?MODAL_TOKEN_ID: \$\{\{ secrets\.MODAL_TOKEN_ID \}\}/);
+  assert.match(executor, /id: railway[\s\S]*?MODAL_TOKEN_SECRET: \$\{\{ secrets\.MODAL_TOKEN_SECRET \}\}/);
   assert.match(executor, /provider command did not produce parseable result/);
   assert.match(executor, /assert-github-deployment/);
   assert.match(executor, /id-token: write/);
@@ -436,7 +438,9 @@ test("environment-scoped provider activation consumes secrets in top-level deplo
   assert.equal(railway.environment.name, "${{ inputs.environment || 'dev' }}");
   assert.equal(railway.concurrency.group, "myth-maker-deploy-railway-${{ inputs.environment || 'dev' }}");
   assert.match(railwayDeploy.RAILWAY_TOKEN, /secrets\.RAILWAY_TOKEN/);
-  assert.doesNotMatch(JSON.stringify(railwayReceiptStep.env), /RAILWAY_TOKEN/);
+  assert.match(railwayDeploy.MODAL_TOKEN_ID, /secrets\.MODAL_TOKEN_ID/);
+  assert.match(railwayDeploy.MODAL_TOKEN_SECRET, /secrets\.MODAL_TOKEN_SECRET/);
+  assert.doesNotMatch(JSON.stringify(railwayReceiptStep.env), /TOKEN/);
   assert.equal(railway.uses, undefined);
 
   const cloudflare = workflow.jobs.cloudflare;

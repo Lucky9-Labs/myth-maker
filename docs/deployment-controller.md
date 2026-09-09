@@ -35,7 +35,7 @@ the indicated CLI credentials in the environment that needs them:
 | Environment-gated provider job | Secrets it reads |
 | --- | --- |
 | Cloudflare adapter | `CLOUDFLARE_API_TOKEN`, `AGENT_INGRESS_TOKEN`, `WORK_DISPATCH_TOKEN`, `PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY`, and `CATALOG_ACCEPTANCE_TOKEN`; it also receives the non-secret `WORK_DISPATCH_URL` variable |
-| Railway adapter | `RAILWAY_TOKEN`; the executor installs the pinned Railway CLI, uploads the exact trusted source revision to the configured service/environment, and polls for a `SUCCESS` deployment receipt |
+| Railway adapter | `RAILWAY_TOKEN`, `MODAL_TOKEN_ID`, and `MODAL_TOKEN_SECRET`; the executor binds the two Modal credentials to the selected Railway service without emitting their values, uploads the exact trusted source revision, and polls for a `SUCCESS` deployment receipt |
 | Modal adapter | None until a documented machine-readable deploy/health query seam exists |
 
 The environment boundary lives in the shared executor, before any credential is

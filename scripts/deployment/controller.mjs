@@ -19,6 +19,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const RECEIPT_PROVIDERS = new Set(["cloudflare", "railway", "modal", "terraform-foundation"]);
 const CLOUDFLARE_RUNTIME_SECRET_BINDINGS = Object.freeze(["AGENT_INGRESS_TOKEN", "WORK_DISPATCH_TOKEN", "PACKAGE_DISCOVERY_SIGNING_PRIVATE_KEY", "CATALOG_ACCEPTANCE_TOKEN"]);
 const CLOUDFLARE_RUNTIME_VARIABLE_BINDINGS = Object.freeze(["WORK_DISPATCH_URL"]);
+const RAILWAY_RUNTIME_SECRET_BINDINGS = Object.freeze(["MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"]);
 
 export const providerDefinitions = Object.freeze({
   cloudflare: Object.freeze({
@@ -31,7 +32,7 @@ export const providerDefinitions = Object.freeze({
     deploy: ["npx", ["--yes", "wrangler@4.130.0", "deploy", "--config", "wrangler.jsonc"]],
   }),
   railway: Object.freeze({
-    secretNames: ["RAILWAY_TOKEN"],
+    secretNames: ["RAILWAY_TOKEN", ...RAILWAY_RUNTIME_SECRET_BINDINGS],
     requiredFiles: ["Dockerfile", "railway.toml", "src/railway-server.js", "src/modal-bridge-backend.js", "modal/railway_modal_bridge.py"],
     preview: null,
     deploy: ["railway", ["up", "--ci", "--detach"]],
@@ -432,9 +433,18 @@ function executeCloudflareDeployment(invocation) {
 }
 
 function executeRailwayDeployment(invocation) {
-  executeProviderCommand(invocation);
   const serviceId = process.env.RAILWAY_SERVICE_ID;
   const environmentId = process.env.RAILWAY_ENVIRONMENT_ID;
+  const secretArguments = RAILWAY_RUNTIME_SECRET_BINDINGS.flatMap((name) => ["--set", `${name}=${process.env[name]}`]);
+  try {
+    execFileSync("railway", ["variables", "--skip-deploys", "--service", serviceId, "--environment", environmentId, ...secretArguments], {
+      env: process.env,
+      stdio: "ignore",
+    });
+  } catch {
+    throw new Error("Railway runtime secret binding failed");
+  }
+  executeProviderCommand(invocation);
   const deadline = Date.now() + 12 * 60_000;
   while (Date.now() < deadline) {
     const output = execFileSync("railway", ["deployment", "list", "--json", "--limit", "1", "--service", serviceId, "--environment", environmentId], { encoding: "utf8", env: process.env });
