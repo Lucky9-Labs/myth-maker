@@ -73,7 +73,7 @@ test("a Build Room selects a checked embedded animation and appends body and ani
     assert.deepEqual(receipt.source_inspection.clips.map(({ target_node, clip_name, frame_end }) => ({ target_node, clip_name, frame_end })), [{ target_node: "generated-tentacle-0", clip_name: "encounter-appendage-sway-r1", frame_end: 32 }]);
     assert.equal(receipt.concept_first_lineage.waiver.kind, "maintenance");
     assert.ok(receipt.concept_first_lineage.waiver.asset_ids.includes(artifact.artifact_id));
-    const upgradeResponse = await fetch(`${base}/api/encounters/${run.ids.encounterId}/upgrades`, {
+    const upgradeResponse = await fetch(`${base}/api/coordinator/encounters/${run.ids.encounterId}/upgrades`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ idempotency_key: "real-blender-upgrade-002" }),
     });
     assert.equal(upgradeResponse.status, 202);

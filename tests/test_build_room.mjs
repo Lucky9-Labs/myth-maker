@@ -146,6 +146,24 @@ test("Blender evidence is absent until an observed screenshot or stream receipt 
   assert.equal(room.snapshot(run.ids.encounterId).evidence.blender[0].screenshot_path, "/tmp/observed-blender.png");
 });
 
+test("trusted concept art and demo captures remain local evidence, never Blender desktop evidence", () => {
+  const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
+  const run = room.submit({ prompt: "Concept-led Kraken" });
+  new CoordinatorEventAdapter(room, { trustedObservation: () => true }).ingest(adapterEvent(run, {
+    source: "concept_art", work_id: "kraken-concept", lane: "art.concept", worker_id: "concept-worker", sequence: 4,
+    receipt: { path: "assets/concepts/kraken-v1.png", sha256: "a".repeat(64), observed_at: "2026-09-08T12:04:00.000Z" },
+  }));
+  const snapshot = room.snapshot(run.ids.encounterId);
+  assert.equal(snapshot.events.at(-1).evidence.kind, "local_concept_art");
+  assert.equal(snapshot.evidence.local.at(-1).path, "assets/concepts/kraken-v1.png");
+  new CoordinatorEventAdapter(room, { trustedObservation: () => true }).ingest(adapterEvent(run, {
+    event_id: "event-demo-capture-001", source: "demo_capture", work_id: "kraken-observer-gif", lane: "demo.capture", worker_id: "browser-capture", sequence: 5,
+    receipt: { path: "output/playwright/kraken.gif", sha256: "b".repeat(64), observed_at: "2026-09-08T12:05:00.000Z" },
+  }));
+  assert.equal(room.snapshot(run.ids.encounterId).events.at(-1).evidence.kind, "local_demo_capture");
+  assert.deepEqual(snapshot.evidence.blender, []);
+});
+
 test("the local HTTP submit path returns a replayable room projection", async () => {
   const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
   server.listen(0, "127.0.0.1");
@@ -250,31 +268,40 @@ test("the live builds index and request-keyed detail project direct SQLite catal
   }
 });
 
-test("steering stays queued or accepted until a successor response commits it", () => {
+test("encounter-scoped observer ingress admits only the matching remote worker and exposes read-only worker queries", async () => {
   const room = new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() });
-  const run = room.submit({ prompt: "Steer me" });
-  const queued = room.steer(run.ids.requestId, { instruction: "prefer cover" });
-  assert.equal(queued.status, "queued");
-  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" }), /trusted observer/);
-  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "accepted", response_id: "response-1" }, { trusted: true });
-  assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "accepted");
-  assert.throws(() => room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed" }, { trusted: true }), /successor response.created/);
-  room.recordSteering({ request_id: run.ids.requestId, steer_id: queued.steer_id, status: "committed", successor_response: { created: true, response_id: "response-2" } }, { trusted: true });
-  assert.equal(room.snapshot(run.ids.encounterId).steering[0].status, "committed");
-});
-
-test("the optional HTTP steer route queues a receipt without an approval state", async () => {
-  const server = createBuildRoomServer({ room: new BuildRoom({ now: () => "2026-09-08T12:00:00.000Z", id: sequenceIds() }) });
+  const originalToken = process.env.BUILD_ROOM_OBSERVER_TOKEN;
+  process.env.BUILD_ROOM_OBSERVER_TOKEN = "test-observer-token";
+  const server = createBuildRoomServer({ room });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "HTTP steer" }) })).json();
-    const response = await fetch(`${base}/api/builds/${run.ids.requestId}/steer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction: "hold the arena" }) });
-    assert.equal(response.status, 202);
-    assert.equal((await response.json()).status, "queued");
+    const run = await (await fetch(`${base}/api/encounters`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "Observed swarm" }) })).json();
+    const observed = adapterEvent(run, {
+      source: "modal_remote",
+      worker_id: "modal-kraken-mantle",
+      work_id: "kraken-mantle",
+      lane: "body.mantle",
+      receipt: { request_id: "fc-observed-001", observed_at: "2026-09-08T12:02:00.000Z", app_id: "ap-observed", container_id: "ta-observed", component: "kraken-mantle", attempt: 2, lease_id: "lease-observed", desktop_identity: "modal-desktop-observed" },
+    });
+    const ingest = await fetch(`${base}/api/encounters/${run.ids.encounterId}/observations`, { method: "POST", headers: { "content-type": "application/json", "x-build-room-observer-token": "test-observer-token" }, body: JSON.stringify(observed) });
+    assert.equal(ingest.status, 201);
+    assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}/workers`)).status, 200);
+    const workers = await (await fetch(`${base}/api/encounters/${run.ids.encounterId}/workers`)).json();
+    assert.deepEqual(workers.workers.find((worker) => worker.work_id === "kraken-mantle"), {
+      work_id: "kraken-mantle", lane: "body.mantle", deadline_at: "2026-09-08T12:30:00.000Z", depends_on_work_ids: [], worker_id: "modal-kraken-mantle",
+      component: "kraken-mantle", attempt: 2, lease_id: "lease-observed", desktop_identity: "modal-desktop-observed",
+      status: "running", lifecycle_state: "progress", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "modal_remote",
+    });
+    assert.equal((await fetch(`${base}/api/encounters/${run.ids.encounterId}/events`)).status, 200);
+    const crossed = await fetch(`${base}/api/encounters/not-this-encounter/observations`, { method: "POST", headers: { "content-type": "application/json", "x-build-room-observer-token": "test-observer-token" }, body: JSON.stringify(observed) });
+    assert.equal(crossed.status, 400);
+    assert.equal((await fetch(`${base}/api/builds/${run.ids.requestId}/steer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ instruction: "mutate" }) })).status, 404);
   } finally {
     server.close();
+    if (originalToken === undefined) delete process.env.BUILD_ROOM_OBSERVER_TOKEN;
+    else process.env.BUILD_ROOM_OBSERVER_TOKEN = originalToken;
   }
 });
 
@@ -321,9 +348,10 @@ test("the Build Room page includes the evidence-driven revision loop and keeps i
   await once(server, "listening");
   try {
     const page = await (await fetch(`http://127.0.0.1:${server.address().port}/`)).text();
-    for (const expected of ["loop-flow", "Coordinator / planner", "Next revision / Blender", "Unity judge", "Concept-first gate", "Material", "Arena", "High-fanout", "Deadline timer", "Freeze current package", "Component", "Selected", "Rejected", "Fallback", "Build details and evidence"]) {
+    for (const expected of ["loop-flow", "Coordinator / planner", "Coordinator revision state", "Unity judge", "Concept-first gate", "Material", "Arena", "Deadline timer", "Component", "Selected", "Rejected", "Fallback", "Build details and evidence"]) {
       assert.match(page, new RegExp(expected));
     }
+    assert.doesNotMatch(page, /id="submit"|Request next revision|\/upgrades/);
   } finally {
     server.close();
   }
@@ -342,8 +370,8 @@ test("adapter accepts the coordinator worker-event shape without upgrading its e
     artifact_id: "arena-shell", revision: 4, artifact: { uri: "https://example.test/arena.glb" },
   });
   assert.deepEqual(snapshot.topology.work_graph, [{
-    work_id: "work-001", lane: "arena.shell", component: "unreported", deadline_at: "2026-09-08T12:30:00.000Z", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
-    status: "running", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported", elapsed_seconds: 0,
+    work_id: "work-001", lane: "arena.shell", component: "arena.shell", deadline_at: "2026-09-08T12:30:00.000Z", depends_on_work_ids: ["work-000"], worker_id: run.ids.workerId,
+    attempt: 1, lease_id: null, desktop_identity: null, status: "running", lifecycle_state: "progress", started_at: "2026-09-08T12:02:00.000Z", updated_at: "2026-09-08T12:02:00.000Z", evidence_kind: "adapter_reported", elapsed_seconds: 0,
   }]);
   const restored = new BuildRoom().restore(room.exportState());
   assert.equal(restored.snapshot(run.ids.encounterId).topology.work_graph[0].work_id, "work-001");
@@ -375,7 +403,7 @@ test("adapter ingress rejects malformed closed worker envelopes before projectio
       adapterEvent(run, { unknown_field: true, artifact: { artifact_id: "poisoned-key", revision: 1 } }),
       adapterEvent(run, { kind: "unrecognised", artifact: { artifact_id: "poisoned-kind", revision: 1 } }),
     ]) {
-      const response = await fetch(`${base}/api/ingest/coordinator`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(malformed) });
+      const response = await fetch(`${base}/api/encounters/${run.ids.encounterId}/observations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(malformed) });
       assert.equal(response.status, 400);
     }
     const after = room.snapshot(run.ids.encounterId);

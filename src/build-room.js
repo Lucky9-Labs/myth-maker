@@ -6,6 +6,8 @@ const EVIDENCE_LABELS = {
   local_process: "Local process receipt (observed)",
   local_blender_cli: "Local Blender CLI evidence (observed)",
   local_blender_cli_failed: "Local Blender CLI failure (observed local process)",
+  local_concept_art: "Local concept-art file (observed)",
+  local_demo_capture: "Local browser demo capture (observed)",
   adapter_reported: "Coordinator/dispatcher report (unverified)",
   modal_remote: "Modal remote receipt (observed)",
   blender_window: "Blender window/screenshot/stream (observed)",
@@ -80,12 +82,12 @@ export class BuildRoom {
       freezeCurrentPackage,
       seed: seedFor(normalizedPrompt),
       submittedAt,
+      deadlineAt: new Date(Date.parse(submittedAt) + 30 * 60 * 1000).toISOString(),
       events: [],
       artifacts: new Map(),
       packages: new Map(),
       workGraph: new Map(),
       evidence: { local: [], modal: [], blender: [] },
-      steering: [],
       upgrade: { active: false, requested_revision: 1 },
       nextCursor: 1,
     });
@@ -111,7 +113,7 @@ export class BuildRoom {
     run.events.push(event);
     if (event.artifact) upsertRevision(run.artifacts, event.artifact);
     if (event.package) upsertRevision(run.packages, event.package);
-    if (["local_process", "local_blender_cli", "local_blender_cli_failed"].includes(event.evidence.kind)) run.evidence.local.push(event.evidence.receipt);
+    if (["local_process", "local_blender_cli", "local_blender_cli_failed", "local_concept_art", "local_demo_capture"].includes(event.evidence.kind)) run.evidence.local.push(event.evidence.receipt);
     if (event.evidence.kind === "modal_remote") run.evidence.modal.push(event.evidence.receipt);
     if (event.evidence.kind === "blender_window") run.evidence.blender.push(event.evidence.receipt);
     this.notify(encounterId);
@@ -123,18 +125,25 @@ export class BuildRoom {
     validateWorkMetadata(input);
     const run = this.requireRun(encounterId);
     const prior = run.workGraph.get(input.work_id) || {};
+    const receipt = event.evidence.receipt || {};
     run.workGraph.set(input.work_id, {
       ...prior,
       work_id: input.work_id,
       lane: input.lane || input.work_order?.lane || prior.lane || "unreported",
-      component: input.requested_provides?.[0] || input.work_order?.requested_provides?.[0] || prior.component || "unreported",
+      component: input.component || input.work_order?.component || input.requested_provides?.[0] || input.work_order?.requested_provides?.[0] || prior.component || "unreported",
       deadline_at: input.deadline_at || input.work_order?.deadline_at || prior.deadline_at || run.deadlineAt,
       depends_on_work_ids: input.depends_on_work_ids || input.work_order?.depends_on_work_ids || prior.depends_on_work_ids || [],
       worker_id: event.workerId,
+      component: receipt.component || input.component || input.work_order?.component || input.requested_provides?.[0] || input.work_order?.requested_provides?.[0] || prior.component || input.lane || input.work_order?.lane || "unreported",
+      attempt: receipt.attempt ?? prior.attempt ?? 1,
+      lease_id: receipt.lease_id || prior.lease_id || null,
+      desktop_identity: receipt.desktop_identity || receipt.container_id || prior.desktop_identity || null,
       status: workerStatus(event.kind),
+      lifecycle_state: event.kind,
       started_at: prior.started_at || event.occurredAt,
       updated_at: event.occurredAt,
       evidence_kind: event.evidence.kind,
+      ...(event.kind === "failed" ? { failure_reason: receipt.failure_reason || event.message } : prior.failure_reason ? { failure_reason: prior.failure_reason } : {}),
     });
     this.notify(encounterId);
   }
@@ -151,16 +160,19 @@ export class BuildRoom {
       freeze_current_package: Boolean(run.freezeCurrentPackage),
       seed: run.seed,
       submittedAt: run.submittedAt,
+      deadline_at: run.deadlineAt,
+      status: encounterStatus(run),
       events: orderedEvents(run.events),
       artifacts: revisions(run.artifacts),
       packages: revisions(run.packages),
+      frozen_package: frozenPackage(run.packages),
+      fallback_state: fallbackState(run.packages),
       work_graph: [...run.workGraph.values()],
       evidence: {
         local: [...run.evidence.local],
         modal: [...run.evidence.modal],
         blender: [...run.evidence.blender],
       },
-      steering: [...run.steering],
       upgrade: { ...run.upgrade },
       topology: topology(run, this.catalogProjection, this.now()),
     };
@@ -190,24 +202,6 @@ export class BuildRoom {
     const run = this.list().find((candidate) => candidate.ids.requestId === requestId);
     if (!run) throw new RangeError(`unknown request ${requestId}`);
     return { ...run, navigation_url: `/?build=${encodeURIComponent(requestId)}` };
-  }
-
-  steer(requestId, input) {
-    const run = this.requireRunByRequest(requestId);
-    if (typeof input?.instruction !== "string" || !input.instruction.trim() || input.instruction.length > 2000) {
-      throw new TypeError("steer instruction must be 1 to 2000 characters");
-    }
-    const receipt = {
-      steer_id: this.id("steer"),
-      status: "queued",
-      instruction: input.instruction.trim(),
-      work_id: input.work_id || undefined,
-      created_at: this.now(),
-      source: "local_adapter",
-    };
-    run.steering.push(receipt);
-    this.notify(run.ids.encounterId);
-    return receipt;
   }
 
   /** Reserve exactly one later local revision for an existing encounter. */
@@ -241,28 +235,6 @@ export class BuildRoom {
     this.notify(encounterId);
   }
 
-  recordSteering(input, { trusted = false } = {}) {
-    const run = this.requireRunByRequest(input?.request_id);
-    const status = input?.status;
-    if (!input.steer_id || !["queued", "accepted", "pending", "failed", "committed"].includes(status)) throw new TypeError("invalid steering receipt");
-    if (!trusted) throw new TypeError("external steering lifecycle updates require trusted observer provenance");
-    if (status === "committed" && !input.successor_response?.created) throw new TypeError("committed steering requires successor response.created");
-    const prior = run.steering.find((receipt) => receipt.steer_id === input.steer_id);
-    if (!prior) throw new TypeError("unknown steering receipt");
-    if (!validSteeringTransition(prior.status, status)) throw new TypeError("illegal steering receipt transition");
-    const receipt = {
-      ...prior,
-      status,
-      ...(input.response_id ? { response_id: input.response_id } : {}),
-      ...(input.successor_response ? { successor_response: input.successor_response } : {}),
-      received_at: this.now(),
-      observer: "trusted",
-    };
-    Object.assign(prior, receipt);
-    this.notify(run.ids.encounterId);
-    return receipt;
-  }
-
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -294,10 +266,10 @@ export class BuildRoom {
       if (!stored?.ids?.encounterId || !Array.isArray(stored.events)) throw new TypeError("invalid stored build-room run");
       this.runs.set(stored.ids.encounterId, {
         ...stored,
+        deadlineAt: stored.deadlineAt || new Date(Date.parse(stored.submittedAt) + 30 * 60 * 1000).toISOString(),
         artifacts: new Map(stored.artifacts || []),
         packages: new Map(stored.packages || []),
         workGraph: new Map(Array.isArray(stored.workGraph) ? stored.workGraph : []),
-        steering: stored.steering || [],
         upgrade: stored.upgrade || { active: false, requested_revision: (stored.packages || []).length || 1 },
       });
     }
@@ -410,13 +382,27 @@ function evidenceFromAdapterInput(input, context, trustedObservation) {
     if (!trustedObservation(input, context)) throw new TypeError("Blender evidence requires a trusted local observer");
     return { kind: "blender_window", receipt: input.receipt };
   }
+  if (source === "concept_art") {
+    if (!input.receipt?.path || !input.receipt?.sha256 || !input.receipt?.observed_at) {
+      throw new TypeError("observed concept art requires path, sha256, and observed_at");
+    }
+    if (!trustedObservation(input, context)) throw new TypeError("Concept-art evidence requires a trusted local observer");
+    return { kind: "local_concept_art", receipt: input.receipt };
+  }
+  if (source === "demo_capture") {
+    if (!input.receipt?.path || !input.receipt?.sha256 || !input.receipt?.observed_at) {
+      throw new TypeError("observed demo capture requires path, sha256, and observed_at");
+    }
+    if (!trustedObservation(input, context)) throw new TypeError("Demo-capture evidence requires a trusted local observer");
+    return { kind: "local_demo_capture", receipt: input.receipt };
+  }
   if (source === "fixture") return { kind: "fixture" };
   return { kind: "adapter_reported", receipt: input.receipt };
 }
 
 function validateEvidence(evidence) {
   if (!EVIDENCE_LABELS[evidence?.kind]) throw new TypeError("unknown evidence kind");
-  if (["local_process", "local_blender_cli", "local_blender_cli_failed", "modal_remote", "blender_window"].includes(evidence.kind) && !evidence.receipt) {
+  if (["local_process", "local_blender_cli", "local_blender_cli_failed", "local_concept_art", "local_demo_capture", "modal_remote", "blender_window"].includes(evidence.kind) && !evidence.receipt) {
     throw new TypeError(`${evidence.kind} evidence requires an observed receipt`);
   }
 }
@@ -444,6 +430,26 @@ function upsertRevision(entries, entry) {
 function revisions(entries) {
   return [...entries.values()].sort((a, b) => (a.artifact_id || a.package_id).localeCompare(b.artifact_id || b.package_id)
     || a.revision - b.revision);
+}
+
+function frozenPackage(packages) {
+  return revisions(packages).filter((entry) => entry.state === "frozen").at(-1) || null;
+}
+
+function fallbackState(packages) {
+  const latest = revisions(packages).at(-1);
+  if (!latest) return { state: "unselected", fallback: null };
+  return {
+    state: latest.state === "frozen" ? "frozen" : "selected",
+    fallback: latest.fallback || latest.fallback_provenance || null,
+  };
+}
+
+function encounterStatus(run) {
+  const work = [...run.workGraph.values()];
+  if (!work.length) return "admitted";
+  if (work.every((entry) => ["completed", "failed"].includes(entry.status))) return "terminal";
+  return "active";
 }
 
 function orderedEvents(events) {
@@ -539,17 +545,6 @@ function buildSummary(run) {
     evidence_tier: workers.map((worker) => worker.evidence_kind),
     navigation_url: `/?build=${encodeURIComponent(run.ids.requestId)}`,
   };
-}
-
-function validSteeringTransition(from, to) {
-  if (from === to) return true;
-  return {
-    queued: new Set(["accepted", "pending", "failed"]),
-    accepted: new Set(["committed", "failed"]),
-    pending: new Set(["committed", "failed"]),
-    failed: new Set(),
-    committed: new Set(),
-  }[from]?.has(to) || false;
 }
 
 function randomStableId(prefix) {
