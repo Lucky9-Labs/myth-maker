@@ -62,3 +62,13 @@ class ModalDeployTest(unittest.TestCase):
         rendered = "".join(str(call.args[0]) for call in stderr.write.call_args_list)
         self.assertIn("im-abc123", rendered)
         self.assertNotIn("MODAL_TOKEN", rendered)
+
+    def test_failed_modal_deploy_reports_redacted_cli_error_without_an_image_id(self):
+        error = subprocess.CalledProcessError(1, ("modal", "deploy"), stderr="failed for token-sensitive-value")
+        with patch.dict(modal_deploy.os.environ, {"MODAL_TOKEN_SECRET": "sensitive-value"}, clear=False), patch.object(modal_deploy.subprocess, "run") as run, patch.object(modal_deploy.sys, "stderr") as stderr:
+            modal_deploy.emit_failed_image_logs(error)
+        run.assert_not_called()
+        rendered = "".join(str(call.args[0]) for call in stderr.write.call_args_list)
+        self.assertIn("Modal deploy failed before reporting an image ID", rendered)
+        self.assertIn("[REDACTED]", rendered)
+        self.assertNotIn("sensitive-value", rendered)
