@@ -217,6 +217,7 @@ class AssetProductionTests(unittest.TestCase):
         self.assertEqual(assembly["job_type"], "kit-assembly")
         self.assertEqual(assembly["dependencies"], ["1" * 64, "2" * 64, "3" * 64])
         self.assertIn({"kind": "assemble"}, assembly["operations"])
+        self.assertEqual([item["media_type"] for item in assembly["inputs"]].count("image/png"), 1)
 
     def test_run_ledger_includes_every_attempt_and_keeps_acceptance_pending(self):
         wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
