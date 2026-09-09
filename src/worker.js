@@ -252,12 +252,20 @@ export class WorkDispatcherAdapter {
   }
 
   async dispatch(workOrder) {
-    const dispatched = await this.fetcher(this.url, {
-      method: "POST",
-      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json", "x-work-id": workOrder.work_id },
-      body: JSON.stringify(workOrder),
-    });
-    return { ok: dispatched.ok, status: dispatched.status };
+    let dispatchUrl;
+    try { dispatchUrl = new URL(this.url); } catch { return { ok: false, error_code: "work_dispatch_url_invalid" }; }
+    if (dispatchUrl.protocol !== "https:") return { ok: false, error_code: "work_dispatch_url_invalid" };
+    if (typeof this.token !== "string" || this.token.length === 0) return { ok: false, error_code: "work_dispatch_token_missing" };
+    try {
+      const dispatched = await this.fetcher(dispatchUrl, {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json", "x-work-id": workOrder.work_id },
+        body: JSON.stringify(workOrder),
+      });
+      return { ok: dispatched.ok, status: dispatched.status };
+    } catch {
+      return { ok: false, error_code: "work_dispatch_network_error" };
+    }
   }
 }
 
@@ -568,6 +576,9 @@ export class EncounterCoordinator {
 }
 
 function dispatchFailureCode(dispatched) {
+  if (["work_dispatch_url_invalid", "work_dispatch_token_missing", "work_dispatch_network_error"].includes(dispatched?.error_code)) {
+    return dispatched.error_code;
+  }
   return Number.isInteger(dispatched?.status) && dispatched.status >= 100 && dispatched.status <= 599
     ? `work_dispatch_http_${dispatched.status}`
     : "work_dispatch_failed";
