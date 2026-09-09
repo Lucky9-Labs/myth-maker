@@ -59,7 +59,16 @@ class ObservedModalDemoTests(unittest.TestCase):
             "execution": {"engine": "blender-cli"},
             "provenance": {"source_sha": "b" * 40, "recipe_sha256": demo.recipe_digest(recipe),
                            "deployed_function_id": "fu-proof", "openai_api_used": False},
-            "glb_validation": {"format": "glb-2.0-self-contained"},
+            "glb_validation": {
+                "format": "glb-2.0-self-contained", "appendage_count": recipe["appendages"]["count"],
+                "required_node_names": ["encounter-body"] + [
+                    f"encounter-appendage-{index:02d}" for index in range(recipe["appendages"]["count"])
+                ],
+            },
+            "frame_validation": {
+                name: {"width": recipe["camera"]["resolution"][0], "height": recipe["camera"]["resolution"][1]}
+                for name in ("initial", "intermediate", "final")
+            },
             "provider_receipt": {
                 "provider": "modal", "function_name": "run_deterministic_recipe", "function_call_id": "fc-proof",
                 "output_artifacts": {"kraken-tentacled-demo.blend": metadata["source"], "kraken-tentacled-demo.glb": metadata["glb"]},

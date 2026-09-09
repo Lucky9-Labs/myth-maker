@@ -4,7 +4,9 @@
 runs Blender 5.2.1 in a headful virtual desktop (`Xvfb` + Openbox), sends desktop
 screenshots to Astra through the Responses API computer tool, validates returned
 input actions, and publishes a hash-verified native checkpoint plus evidence.
-Blender geometry is authored only through the GUI.
+Its API-operated `run_draft` path authors Blender geometry only through the GUI.
+The separately documented deterministic fallback below runs a closed recipe via
+Blender Python; it does not relax the GUI-only policy for `run_draft`.
 
 The worker has no GitHub credential, no mounted Unity checkout, no local desktop
 access, no old job migrations, and no automatic integration. It stages a

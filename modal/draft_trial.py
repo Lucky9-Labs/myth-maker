@@ -94,6 +94,18 @@ def _deterministic_artifact(path: Path) -> dict:
     return {"bytes": len(data), "sha256": digest(data)}
 
 
+def _validate_deterministic_png(path: Path) -> dict:
+    """Reject a staged frame that is not a decodable, non-empty PNG."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(read_stable(path))) as picture:
+        if picture.format != "PNG" or picture.width <= 0 or picture.height <= 0:
+            raise RuntimeError("deterministic Blender recipe emitted an invalid staged PNG")
+        width, height = picture.size
+        picture.verify()
+    return {"width": width, "height": height}
+
+
 @app.function(image=image, cpu=4, memory=8192, timeout=8 * 60, retries=0, max_containers=1,
               volumes={"/submissions": volume})
 def run_deterministic_recipe(job_id: str, recipe: dict, provenance: dict) -> dict:
@@ -153,6 +165,17 @@ def run_deterministic_recipe(job_id: str, recipe: dict, provenance: dict) -> dic
         raise RuntimeError("deterministic Blender recipe omitted a required native, GLB, or staged frame")
     validate_native(read_stable(native))
     glb_document = validate_glb(read_stable(glb), material_allowlist=list(MATERIAL_NAMES), extension_allowlist=[])
+    expected_nodes = {"encounter-body"} | {
+        f"encounter-appendage-{index:02d}" for index in range(checked_recipe["appendages"]["count"])
+    }
+    node_names = {
+        node.get("name") for node in glb_document.get("nodes", [])
+        if isinstance(node, dict) and isinstance(node.get("name"), str)
+    }
+    missing_nodes = sorted(expected_nodes - node_names)
+    if missing_nodes:
+        raise RuntimeError("deterministic GLB omitted required encounter nodes: " + ", ".join(missing_nodes))
+    frame_validation = {label: _validate_deterministic_png(path) for label, path in required_frames.items()}
     output_files = {path.name: _deterministic_artifact(path) for path in (native, glb)}
     frame_files = {
         label: (str(path.relative_to(root)), _deterministic_artifact(path))
@@ -169,8 +192,11 @@ def run_deterministic_recipe(job_id: str, recipe: dict, provenance: dict) -> dic
         },
         "glb_validation": {
             "format": "glb-2.0-self-contained", "node_count": len(glb_document.get("nodes", [])),
+            "appendage_count": checked_recipe["appendages"]["count"],
+            "required_node_names": sorted(expected_nodes),
             "material_names": [item.get("name") for item in glb_document.get("materials", [])],
         },
+        "frame_validation": frame_validation,
         "files": output_files,
         "provider_receipt": modal_volume_receipt(
             volume_name=RUNTIME.volume_name, job_id=job_id, app_name=RUNTIME.app_name,
