@@ -281,7 +281,7 @@ def run_component_diffusion_job(job: dict) -> dict:
         raise RuntimeError("component diffusion lane already claimed; reconcile it before dispatch")
     try:
         volume.reload()
-        receipt = run_component_diffusion(checked, SUBMISSIONS_ROOT)
+        receipt = run_component_diffusion(checked, SUBMISSIONS_ROOT, checkpoint=volume.commit)
         volume.commit()
         return receipt
     finally:

@@ -14,14 +14,14 @@ def job():
     return {"format": FORMAT, "run_id": "pilot-001", "work_id": "canopy-shape-v1", "attempt": 1,
             "asset_id": "mech", "component_id": "canopy-system", "model": MODEL,
             "reference_polygon": [[0.2, 0.1], [0.8, 0.1], [0.7, 0.9], [0.3, 0.9]],
-            "seeds": [1101, 1102, 1103, 1104], "num_inference_steps": 30, "octree_resolution": 256}
+            "seeds": [1101], "num_inference_steps": 30, "octree_resolution": 256}
 
 
 class ComponentDiffusionTests(unittest.TestCase):
     def test_closed_job_validation(self):
         self.assertEqual(validate_component_diffusion_job(job()), job())
-        invalid = {**job(), "seeds": [1, 1]}
-        with self.assertRaisesRegex(ValueError, "unique"):
+        invalid = {**job(), "seeds": [1, 2]}
+        with self.assertRaisesRegex(ValueError, "exactly one"):
             validate_component_diffusion_job(invalid)
 
     def test_masked_crop_is_square_and_transparent(self):
