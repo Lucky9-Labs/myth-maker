@@ -296,6 +296,9 @@ def apply_parameterized_correction(spec: dict) -> int:
             elif command["op"] == "lengthen": _lengthen(target, command["factor"])
             elif command["op"] == "taper-ends": _taper_ends(target, command["factor"])
             elif command["op"] == "hide": target.hide_render = True
+            elif command["op"] == "set-material":
+                target.data.materials.clear()
+                target.data.materials.append(bpy.data.materials[command["material"]])
         changed += 1
     return changed
 
