@@ -37,11 +37,12 @@ jobs:
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-          EVALUATE: ${{ inputs.evaluate || 'true' }}
+          EVALUATE: ${{ inputs.evaluate }}
         run: |
           set -euo pipefail
           args=(--environment dev --run-id raptor-mech-railgun-pilot-001 --output output/asset-progress)
-          if [[ "$EVALUATE" != "true" ]]; then
+          effective_evaluate="${EVALUATE:-true}"
+          if [[ "$effective_evaluate" != "true" ]]; then
             args+=(--skip-evaluation)
           fi
           python3 scripts/fetch_asset_progress_dashboard.py "${args[@]}"
