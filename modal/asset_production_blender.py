@@ -263,6 +263,41 @@ def _mount_created(obj, owner, location=(0.0, 0.0, 0.0)) -> None:
     obj.rotation_euler = (0.0, 0.0, 0.0)
 
 
+def _add_polyline_frame(name, profile, bar_width, thickness, closed, material, owner) -> None:
+    """Create an extruded side-view frame while preserving its negative space."""
+    vertices, faces = [], []
+    segment_count = len(profile) if closed else len(profile) - 1
+    half_bar, half_depth = bar_width / 2.0, thickness / 2.0
+    for index in range(segment_count):
+        x1, z1 = profile[index]
+        x2, z2 = profile[(index + 1) % len(profile)]
+        dx, dz = x2 - x1, z2 - z1
+        length = math.hypot(dx, dz)
+        if length < 0.01:
+            raise RuntimeError("mounted frame contains a collapsed segment")
+        nx, nz = -dz / length * half_bar, dx / length * half_bar
+        base = len(vertices)
+        for y in (-half_depth, half_depth):
+            vertices.extend(((x1 + nx, y, z1 + nz), (x2 + nx, y, z2 + nz),
+                             (x2 - nx, y, z2 - nz), (x1 - nx, y, z1 - nz)))
+        faces.extend(((base, base + 1, base + 2, base + 3),
+                      (base + 4, base + 7, base + 6, base + 5),
+                      (base, base + 4, base + 5, base + 1),
+                      (base + 1, base + 5, base + 6, base + 2),
+                      (base + 2, base + 6, base + 7, base + 3),
+                      (base + 3, base + 7, base + 4, base)))
+    mesh = bpy.data.meshes.new(name + "-mesh")
+    mesh.from_pydata(vertices, [], faces); mesh.update()
+    obj = bpy.data.objects.new(name, mesh); bpy.context.collection.objects.link(obj)
+    for key in ("asset_production_run", "asset_production_work", "asset_core_kit"):
+        if owner.get(key) is not None: obj[key] = owner[key]
+    obj["asset_role"] = "removable-armor" if material in {"armor-white", "armor-blue"} else "structure"
+    obj.data.materials.append(bpy.data.materials[material])
+    bevel = obj.modifiers.new("reference-frame-bevel", "BEVEL")
+    bevel.width = min(bar_width * 0.22, thickness * 0.18, 0.04)
+    bevel.segments = 2; bevel.limit_method = "ANGLE"
+
+
 def apply_reference_corrections(job_type: str) -> int:
     """Apply one bounded, versioned defect batch observed against the frozen refs."""
     changed = 0
@@ -331,6 +366,11 @@ def apply_parameterized_correction(spec: dict) -> int:
             _add_arc_shell(command["name"], command["inner_radius"], command["outer_radius"],
                            command["start_degrees"], command["end_degrees"], command["segments"],
                            command["thickness"], command["material"], owner)
+            _mount_created(bpy.data.objects[command["name"]], owner, tuple(command["location"]))
+        elif command["op"] == "add-mounted-frame":
+            _add_polyline_frame(command["name"], tuple(tuple(point) for point in command["profile"]),
+                                command["bar_width"], command["thickness"], command["closed"],
+                                command["material"], owner)
             _mount_created(bpy.data.objects[command["name"]], owner, tuple(command["location"]))
         else:
             target = bpy.data.objects.get(command["name"])

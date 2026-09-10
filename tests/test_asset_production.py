@@ -88,6 +88,16 @@ class AssetProductionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "add-mounted-arc-shell"):
                 validate_correction_spec(invalid)
 
+    def test_validates_bounded_mounted_frame(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+            {"op": "add-mounted-frame", "name": "stock-frame", "owner": "receiver",
+             "location": [0, 0, 0], "profile": [[-2.4, .35], [-.8, .28], [-1.0, -.3], [-2.3, -.35]],
+             "bar_width": .12, "thickness": .45, "closed": True, "material": "structural"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["bar_width"] = 0
+        with self.assertRaisesRegex(ValueError, "add-mounted-frame"):
+            validate_correction_spec(invalid)
+
     def test_validates_material_reassignment(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
             {"op": "set-material", "name": "armor-torso", "material": "structural"}]}
@@ -113,6 +123,8 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn("def _mount_created", driver)
         self.assertIn('command["op"] == "add-mounted-box"', driver)
         self.assertIn('command["op"] == "add-mounted-arc-shell"', driver)
+        self.assertIn('command["op"] == "add-mounted-frame"', driver)
+        self.assertIn("def _add_polyline_frame", driver)
         self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
         self.assertIn('"bow-blade-upper"', driver)
