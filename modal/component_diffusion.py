@@ -13,6 +13,8 @@ FORMAT = "myth-maker.component-diffusion-job/v1"
 RECEIPT_FORMAT = "myth-maker.component-diffusion-receipt/v1"
 MODEL = "tencent/Hunyuan3D-2.1"
 L40S_USD_PER_SECOND = 0.000542
+A100_40GB_USD_PER_SECOND = 0.000583
+A100_80GB_USD_PER_SECOND = 0.000694
 CPU_USD_PER_CORE_SECOND = 0.0000131
 MEMORY_USD_PER_GIB_SECOND = 0.00000222
 
@@ -114,6 +116,18 @@ def _write_phase(attempt_root: Path, phase: str, status: str, started: datetime,
         checkpoint()
 
 
+def _gpu_identity(torch_module) -> tuple[str, float]:
+    name = torch_module.cuda.get_device_name(0)
+    memory_gib = torch_module.cuda.get_device_properties(0).total_memory / 1024**3
+    if "L40S" in name:
+        return name, L40S_USD_PER_SECOND
+    if "A100" in name and memory_gib < 60:
+        return name, A100_40GB_USD_PER_SECOND
+    if "A100" in name:
+        return name, A100_80GB_USD_PER_SECOND
+    raise RuntimeError(f"unsupported allocated diffusion GPU: {name}")
+
+
 def run_component_diffusion(job: dict, submissions_root: Path,
                             checkpoint: Callable[[], None] | None = None) -> dict:
     checked = validate_component_diffusion_job(job)
@@ -139,6 +153,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     from huggingface_hub import snapshot_download
     sys.path.insert(0, "/opt/Hunyuan3D-2.1/hy3dshape")
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+    gpu_name, gpu_usd_per_second = _gpu_identity(torch)
     _write_phase(attempt_root, "model-cache", "running", started, checkpoint)
     model_root = snapshot_download(repo_id=MODEL, allow_patterns=["hunyuan3d-dit-v2-1/*"])
     _write_phase(attempt_root, "model-cache", "completed", started, checkpoint,
@@ -172,7 +187,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
             _write_phase(attempt_root, "shape-generation", "completed", started, checkpoint,
                          seed=seed, artifact=artifacts[-1])
     duration = time.monotonic() - clock
-    estimated_cost = duration * (L40S_USD_PER_SECOND + 4 * CPU_USD_PER_CORE_SECOND + 32 * MEMORY_USD_PER_GIB_SECOND)
+    estimated_cost = duration * (gpu_usd_per_second + 4 * CPU_USD_PER_CORE_SECOND + 32 * MEMORY_USD_PER_GIB_SECOND)
     receipt = {
         "format": RECEIPT_FORMAT, "status": "completed", "run_id": checked["run_id"],
         "work_id": checked["work_id"], "attempt": checked["attempt"], "asset_id": "mech",
@@ -182,7 +197,8 @@ def run_component_diffusion(job: dict, submissions_root: Path,
         "reference_crop": {**crop, "path": str((attempt_root / "reference-crop.png").relative_to(submissions_root))},
         "artifacts": artifacts, "started_at": started.isoformat(),
         "completed_at": datetime.now(timezone.utc).isoformat(), "execution_seconds": round(duration, 3),
-        "compute": {"gpu": "L40S", "cpu_cores": 4, "memory_gib": 32,
+        "compute": {"gpu": gpu_name, "gpu_usd_per_second": gpu_usd_per_second,
+                    "cpu_cores": 4, "memory_gib": 32,
                     "estimated_cost_usd": round(estimated_cost, 6),
                     "cost_provenance": "estimated-from-published-modal-unit-rates-2026-09-10"},
     }
