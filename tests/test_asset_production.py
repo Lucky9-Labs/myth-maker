@@ -74,6 +74,14 @@ class AssetProductionTests(unittest.TestCase):
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["material"] = "unknown"
         with self.assertRaisesRegex(ValueError, "set-material"): validate_correction_spec(invalid)
 
+    def test_validates_bounded_parent_transform(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+            {"op": "translate", "name": "mount-hip-l", "delta": [.15, 0, 0]},
+            {"op": "rotate-degrees", "name": "mount-upperleg-l", "delta": [0, -15, 0]}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = json.loads(json.dumps(spec)); invalid["commands"][1]["delta"] = [0, -181, 0]
+        with self.assertRaisesRegex(ValueError, "transform"): validate_correction_spec(invalid)
+
     def test_blender_52_driver_uses_current_eevee_engine_name(self):
         driver = (MODAL_DIR / "asset_production_blender.py").read_text(encoding="utf-8")
         self.assertIn('scene.render.engine = "BLENDER_EEVEE"', driver)

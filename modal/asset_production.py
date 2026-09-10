@@ -332,14 +332,14 @@ def validate_correction_spec(value: dict) -> dict:
     if value["version"] != "myth-maker.geometry-correction/v1" or not isinstance(value["commands"], list) or not 1 <= len(value["commands"]) <= 24:
         raise ValueError("correction spec has an invalid version or command count")
     materials = {"structural", "armor-white", "armor-blue", "cyan-emission", "lens"}
-    def numbers(items, count=None, positive=False):
+    def numbers(items, count=None, positive=False, limit=20):
         return (isinstance(items, list) and (count is None or len(items) == count)
-                and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -20 <= item <= 20
+                and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "scale", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale", "factor"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale", "delta", "factor"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] == "add-box" and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -355,6 +355,10 @@ def validate_correction_spec(value: dict) -> dict:
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
         if command["op"] == "scale" and (set(command) != expected or not numbers(command.get("scale"), 3, True)):
             raise ValueError("scale correction is invalid")
+        if command["op"] == "translate" and (set(command) != {"op", "name", "delta"} or not numbers(command.get("delta"), 3)):
+            raise ValueError("transform correction is invalid")
+        if command["op"] == "rotate-degrees" and (set(command) != {"op", "name", "delta"} or not numbers(command.get("delta"), 3, limit=180)):
+            raise ValueError("transform correction is invalid")
         if command["op"] == "hide" and set(command) != expected:
             raise ValueError("hide correction is invalid")
         if command["op"] == "set-material" and (set(command) != {"op", "name", "material"}

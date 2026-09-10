@@ -292,6 +292,9 @@ def apply_parameterized_correction(spec: dict) -> int:
             target = bpy.data.objects.get(command["name"])
             if target is None: raise RuntimeError("parameterized correction target is unavailable: " + command["name"])
             if command["op"] == "scale": _scale_local(target, *command["scale"])
+            elif command["op"] == "translate": target.location += Vector(command["delta"])
+            elif command["op"] == "rotate-degrees":
+                for axis, value in enumerate(command["delta"]): target.rotation_euler[axis] += math.radians(value)
             elif command["op"] == "thicken": _thicken(target, command["factor"])
             elif command["op"] == "lengthen": _lengthen(target, command["factor"])
             elif command["op"] == "taper-ends": _taper_ends(target, command["factor"])
