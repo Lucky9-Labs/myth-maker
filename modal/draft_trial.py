@@ -292,10 +292,15 @@ def run_component_diffusion_job(job: dict) -> dict:
 
 @app.function(image=image, timeout=60, cpu=0.125, retries=0, max_containers=2,
               volumes={"/submissions": volume})
-def get_component_diffusion_status(run_id: str, work_id: str, attempt: int) -> dict:
+def get_component_diffusion_status(run_id: str, work_id: str, attempt: int,
+                                   component_id: str = "") -> dict:
     """Read the latest provider-persisted phase without waiting on the GPU invocation."""
     volume.reload()
-    return read_component_diffusion_status(run_id, work_id, attempt, SUBMISSIONS_ROOT)
+    status = read_component_diffusion_status(run_id, work_id, attempt, SUBMISSIONS_ROOT)
+    if component_id:
+        status["lane_lease"] = part_leases.get(
+            "component-diffusion:" + run_id + ":" + component_id)
+    return status
 
 
 @app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=6 * 60,
