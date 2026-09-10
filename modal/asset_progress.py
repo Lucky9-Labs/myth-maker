@@ -517,16 +517,22 @@ def build_dashboard(run_root: Path) -> dict:
         reference, measurements = None, None
         if verified_reference:
             data = verified_reference["path"].read_bytes()
-            reference_path = output / f"{asset_id}-frozen-reference.png"; reference_path.write_bytes(data)
-            reference = {"path": reference_path.name, "bytes": len(data),
-                         "sha256": hashlib.sha256(data).hexdigest()}
+            from PIL import Image, ImageOps
+            with Image.open(io.BytesIO(data)) as source:
+                preview = ImageOps.contain(source.convert("RGB"), (1280, 1280))
+            reference_path = output / f"{asset_id}-frozen-reference-preview.jpg"
+            preview.save(reference_path, format="JPEG", quality=82, optimize=True)
+            preview_data = reference_path.read_bytes()
+            reference = {"path": reference_path.name, "bytes": len(preview_data),
+                         "sha256": verified_reference["sha256"],
+                         "preview_sha256": hashlib.sha256(preview_data).hexdigest()}
             if len(values) >= 2:
                 measurements = image_space_comparison(verified_reference["path"], values[-2]["render"], values[-1]["render"])
         assets[asset_id] = {"gif": gif, "reference": reference,
                             "image_space_measurements": measurements,
                             "developments": [{k: v for k, v in item.items() if k != "render"} for item in values]}
         rows = "".join(f"<li><b>{html.escape(str(item['job_type']))}</b> attempt {item['attempt']} · {html.escape(str(item.get('completed_at') or 'time unavailable'))}</li>" for item in values)
-        reference_visual = (f'<h3>Frozen reference</h3><img src="{reference["path"]}?sha={reference["sha256"]}" '
+        reference_visual = (f'<h3>Frozen reference</h3><img src="{reference["path"]}?sha={reference["preview_sha256"]}" '
                             f'alt="{asset_id} frozen reference">' if reference else "<p>Frozen reference unavailable.</p>")
         visual = f'<h3>Last four developments</h3><img src="{gif["path"]}?sha={gif["sha256"]}" alt="{asset_id} last four completed developments">' if gif else "<p>No completed render revisions yet.</p>"
         cards.append(f'<section><h2>{html.escape(asset_id.title())}</h2>{reference_visual}{visual}<ol>{rows}</ol></section>')
