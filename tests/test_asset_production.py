@@ -285,6 +285,25 @@ class AssetProductionTests(unittest.TestCase):
             reviewed = prepare_correction_wave(root, {"source_sha": "d" * 40, "function_id": "fu-review"})
             self.assertTrue(all({"kind": "apply-reference-corrections"} not in item["operations"] for item in reviewed[:3]))
 
+    def test_correction_wave_does_not_replay_parameterized_patch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
+                                             job("worker-c", "railgun"), job("worker-d", "core-kit")]
+            for index, item in enumerate(wave):
+                if item["worker_slot"] == "worker-a":
+                    item["operations"].append({"kind": "apply-parameterized-correction"})
+                    item["correction_spec"] = {"version": "myth-maker.geometry-correction/v1",
+                        "commands": [{"op": "lengthen", "name": "frame-leg", "factor": 1.1}]}
+                attempt = root / item["work_id"] / "attempt-0001"; attempt.mkdir(parents=True)
+                (attempt / "job.json").write_text(json.dumps(item))
+                receipt = {"worker_slot": item["worker_slot"], "work_id": item["work_id"], "attempt": 1,
+                    "status": "completed", "artifacts": {"asset.blend": {"volume_path": f"x/{index}.blend",
+                    "bytes": 10, "sha256": str(index + 1) * 64}}}
+                (attempt / "receipt.json").write_text(json.dumps(receipt))
+            next_wave = prepare_correction_wave(root, {"source_sha": "e" * 40, "function_id": "fu-clean"})
+            self.assertNotIn({"kind": "apply-parameterized-correction"}, next_wave[0]["operations"])
+            self.assertNotIn("correction_spec", next_wave[0])
+
     def test_run_ledger_includes_every_attempt_and_keeps_acceptance_pending(self):
         wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
                 job("worker-c", "railgun"), job("worker-d", "core-kit")]

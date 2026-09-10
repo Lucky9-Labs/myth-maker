@@ -263,7 +263,8 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         # the same operation on every wave compounds scale changes and spends
         # compute without representing a new defect decision.
         if slot != "worker-d":
-            operations = [item for item in operations if item["kind"] != "apply-reference-corrections"]
+            operations = [item for item in operations if item["kind"] not in {
+                "apply-reference-corrections", "apply-parameterized-correction"}]
         if slot != "worker-d" and apply_reference_batch and (reference_batch_slot is None or slot == reference_batch_slot):
             operations.append({"kind": "apply-reference-corrections"})
         if correction_spec is not None and slot == reference_batch_slot:
