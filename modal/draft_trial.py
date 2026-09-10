@@ -71,7 +71,7 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
         "scipy==1.14.1", "einops==0.8.0", "omegaconf==2.3.0", "pyyaml==6.0.2",
         "opencv-python-headless==4.10.0.84", "imageio==2.36.0", "scikit-image==0.24.0",
         "rembg==2.0.65", "onnxruntime==1.17.3", "trimesh==4.4.7",
-        "pymeshlab==2022.2.post3", "pygltflib==1.16.3", "xatlas==0.0.9",
+        "pymeshlab==2023.12.post3", "pygltflib==1.16.3", "xatlas==0.0.9",
         "tqdm==4.66.5", "psutil==6.0.0", "pydantic==2.10.6", "timm", "torchdiffeq")
     .run_commands(
         "git clone --filter=blob:none https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /opt/Hunyuan3D-2.1",
