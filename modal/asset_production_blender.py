@@ -20,7 +20,7 @@ from mathutils import Vector
 
 KIT_VERSION = "myth-maker.asset-core-kit/v1"
 REVIEW_PROTOCOL = "myth-maker.asset-review/v2"
-REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v3"
+REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v4"
 KIT_PRIMITIVES = {
     "panel-profile": {"bevel_ratio": 0.003, "bevel_segments": 2, "armor_role": "removable-armor"},
     "joint-pivot": {"name_tokens": ["joint", "ankle", "elbow", "hip", "knee", "shoulder", "waist", "wrist"]},
@@ -195,6 +195,26 @@ def _add_box(name: str, location: tuple[float, float, float], dimensions: tuple[
     bevel.width = min(dimensions) * 0.16; bevel.segments = 2; bevel.limit_method = "ANGLE"
 
 
+def _add_side_wedge(name: str, profile: tuple[tuple[float, float], ...], thickness: float,
+                    material: str, owner) -> None:
+    """Extrude a tapered X/Z profile through Y for a readable side silhouette."""
+    half = thickness * 0.5
+    vertices = [(x, -half, z) for x, z in profile] + [(x, half, z) for x, z in profile]
+    count = len(profile)
+    faces = [tuple(range(count)), tuple(range(count, count * 2))]
+    for index in range(count):
+        following = (index + 1) % count
+        faces.append((index, following, following + count, index + count))
+    mesh = bpy.data.meshes.new(name + "-mesh"); mesh.from_pydata(vertices, [], faces); mesh.update()
+    obj = bpy.data.objects.new(name, mesh); bpy.context.scene.collection.objects.link(obj)
+    for key in ("asset_production_run", "asset_production_work", "asset_core_kit"):
+        if owner.get(key) is not None: obj[key] = owner[key]
+    obj["asset_role"] = "removable-armor" if material == "armor-white" else "structure"
+    obj.data.materials.append(bpy.data.materials[material])
+    bevel = obj.modifiers.new("reference-profile-bevel", "BEVEL")
+    bevel.width = min(thickness * 0.22, 0.035); bevel.segments = 2; bevel.limit_method = "ANGLE"
+
+
 def apply_reference_corrections(job_type: str) -> int:
     """Apply one bounded, versioned defect batch observed against the frozen refs."""
     changed = 0
@@ -224,25 +244,19 @@ def apply_reference_corrections(job_type: str) -> int:
             elif "shinarmor" in name:
                 _thicken(obj, 1.12); changed += 1
         elif job_type == "railgun":
-            # V3 leaves the promoted silhouette intact and adds only the
-            # layered receiver, stepped muzzle, and open cyan optic requested
-            # by the same-view reference critique.
-            if name == "sight":
-                obj.hide_render = True; changed += 1
+            pass
     if job_type == "railgun":
         owner = next((obj for obj in bpy.context.scene.objects if obj.type == "MESH" and obj.name.lower() == "receiver"), None)
         if owner is None: raise RuntimeError("railgun reference batch cannot resolve receiver owner")
         ensure_materials()
-        additions = [
-            ("receiver-upper-armor", (0.42, 0, 0.30), (1.55, 0.54, 0.20), "armor-white"),
-            ("receiver-lower-keel", (0.48, 0, -0.28), (1.42, 0.42, 0.18), "structural"),
-            ("muzzle-stepped-shroud", (3.82, 0, 0), (0.58, 0.54, 0.52), "armor-white"),
-            ("optic-frame-top", (-0.08, 0, 0.62), (0.54, 0.18, 0.08), "armor-white"),
-            ("optic-frame-left", (-0.31, 0, 0.49), (0.08, 0.18, 0.30), "armor-white"),
-            ("optic-frame-right", (0.15, 0, 0.49), (0.08, 0.18, 0.30), "armor-white"),
-            ("optic-cyan-aperture", (-0.08, 0, 0.49), (0.30, 0.10, 0.16), "cyan-emission"),
-        ]
-        for addition in additions: _add_box(*addition, owner); changed += 1
+        # The reference's defining bow blades must read in the fixed side view.
+        # Keep every promoted receiver component unchanged and add only these
+        # tapered profiles around the cyan rail.
+        _add_side_wedge("bow-blade-upper", ((2.15, 0.24), (4.42, 0.48), (4.12, 0.20), (2.48, 0.14)),
+                        0.14, "armor-white", owner)
+        _add_side_wedge("bow-blade-lower", ((2.48, -0.14), (4.12, -0.20), (4.42, -0.48), (2.15, -0.24)),
+                        0.14, "armor-white", owner)
+        changed += 2
     if changed == 0:
         raise RuntimeError("reference correction batch matched no owned geometry")
     return changed
