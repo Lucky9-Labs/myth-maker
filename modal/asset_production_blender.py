@@ -20,7 +20,7 @@ from mathutils import Vector
 
 KIT_VERSION = "myth-maker.asset-core-kit/v1"
 REVIEW_PROTOCOL = "myth-maker.asset-review/v2"
-REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v2"
+REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v3"
 KIT_PRIMITIVES = {
     "panel-profile": {"bevel_ratio": 0.003, "bevel_segments": 2, "armor_role": "removable-armor"},
     "joint-pivot": {"name_tokens": ["joint", "ankle", "elbow", "hip", "knee", "shoulder", "waist", "wrist"]},
@@ -181,6 +181,20 @@ def _scale_local(obj, x: float = 1.0, y: float = 1.0, z: float = 1.0) -> None:
     obj.scale.z *= z
 
 
+def _add_box(name: str, location: tuple[float, float, float], dimensions: tuple[float, float, float],
+             material: str, owner) -> None:
+    """Add one deterministic beveled hard-surface component in weapon coordinates."""
+    bpy.ops.mesh.primitive_cube_add(size=1, location=location)
+    obj = bpy.context.object; obj.name = name; obj.dimensions = dimensions
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    for key in ("asset_production_run", "asset_production_work", "asset_core_kit"):
+        if owner.get(key) is not None: obj[key] = owner[key]
+    obj["asset_role"] = "removable-armor" if material == "armor-white" else "structure"
+    obj.data.materials.append(bpy.data.materials[material])
+    bevel = obj.modifiers.new("reference-profile-bevel", "BEVEL")
+    bevel.width = min(dimensions) * 0.16; bevel.segments = 2; bevel.limit_method = "ANGLE"
+
+
 def apply_reference_corrections(job_type: str) -> int:
     """Apply one bounded, versioned defect batch observed against the frozen refs."""
     changed = 0
@@ -210,18 +224,25 @@ def apply_reference_corrections(job_type: str) -> int:
             elif "shinarmor" in name:
                 _thicken(obj, 1.12); changed += 1
         elif job_type == "railgun":
-            if name == "receiver":
-                _scale_local(obj, x=1.10, y=1.18, z=1.18); changed += 1
-            elif name.startswith(("railupper", "railower", "rail-side-panel")):
-                _thicken(obj, 1.34); changed += 1
-            elif name.startswith("muzle"):
-                _thicken(obj, 1.32); _lengthen(obj, 1.10); changed += 2
-            elif name.startswith(("platef", "hubl")):
-                _thicken(obj, 1.18); changed += 1
-            elif name.startswith("sight"):
-                _thicken(obj, 1.22); changed += 1
-            elif name in {"triggergrip", "guard", "handguard"}:
-                _thicken(obj, 1.18); changed += 1
+            # V3 leaves the promoted silhouette intact and adds only the
+            # layered receiver, stepped muzzle, and open cyan optic requested
+            # by the same-view reference critique.
+            if name == "sight":
+                obj.hide_render = True; changed += 1
+    if job_type == "railgun":
+        owner = next((obj for obj in bpy.context.scene.objects if obj.type == "MESH" and obj.name.lower() == "receiver"), None)
+        if owner is None: raise RuntimeError("railgun reference batch cannot resolve receiver owner")
+        ensure_materials()
+        additions = [
+            ("receiver-upper-armor", (0.42, 0, 0.30), (1.55, 0.54, 0.20), "armor-white"),
+            ("receiver-lower-keel", (0.48, 0, -0.28), (1.42, 0.42, 0.18), "structural"),
+            ("muzzle-stepped-shroud", (3.82, 0, 0), (0.58, 0.54, 0.52), "armor-white"),
+            ("optic-frame-top", (-0.08, 0, 0.62), (0.54, 0.18, 0.08), "armor-white"),
+            ("optic-frame-left", (-0.31, 0, 0.49), (0.08, 0.18, 0.30), "armor-white"),
+            ("optic-frame-right", (0.15, 0, 0.49), (0.08, 0.18, 0.30), "armor-white"),
+            ("optic-cyan-aperture", (-0.08, 0, 0.49), (0.30, 0.10, 0.16), "cyan-emission"),
+        ]
+        for addition in additions: _add_box(*addition, owner); changed += 1
     if changed == 0:
         raise RuntimeError("reference correction batch matched no owned geometry")
     return changed

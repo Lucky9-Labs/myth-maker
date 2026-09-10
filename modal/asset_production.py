@@ -230,7 +230,8 @@ def _read_json(path: Path) -> dict | None:
 
 
 def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
-                            apply_reference_batch: bool = False) -> list[dict]:
+                            apply_reference_batch: bool = False,
+                            reference_batch_slot: str | None = None) -> list[dict]:
     """Advance from promoted baselines; apply a new batch only when explicitly requested."""
     if set(runtime_deployment) != {"source_sha", "function_id"}:
         raise ValueError("correction wave requires the current runtime deployment")
@@ -257,7 +258,7 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         # compute without representing a new defect decision.
         if slot != "worker-d":
             operations = [item for item in operations if item["kind"] != "apply-reference-corrections"]
-        if slot != "worker-d" and apply_reference_batch:
+        if slot != "worker-d" and apply_reference_batch and (reference_batch_slot is None or slot == reference_batch_slot):
             operations.append({"kind": "apply-reference-corrections"})
         wave.append(validate_job_manifest({**prior, "attempt": max(attempts) + 1,
             "runtime_deployment": dict(runtime_deployment), "source_revision": native["sha256"],

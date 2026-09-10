@@ -8,6 +8,12 @@ on:
         required: false
         default: false
         type: boolean
+      reference_batch_slot:
+        description: Restrict the geometry batch to one component lane
+        required: false
+        default: ''
+        type: choice
+        options: ['', 'worker-a', 'worker-b', 'worker-c']
 
 permissions:
   contents: read
@@ -43,6 +49,7 @@ jobs:
             --run-id raptor-mech-railgun-pilot-001 \
             --source-sha "$SOURCE_SHA" \
             ${{ inputs.apply_reference_batch && '--apply-reference-batch' || '' }} \
+            ${{ inputs.reference_batch_slot && format('--reference-batch-slot {0}', inputs.reference_batch_slot) || '' }} \
             --output receipts/asset-correction-wave.json
       - name: Upload correction receipt
         if: always()
