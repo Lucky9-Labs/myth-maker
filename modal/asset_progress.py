@@ -24,6 +24,8 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
         values = developments[asset_id]
         if not values:
             continue
+        latest_protocol = values[-1].get("review_protocol", "legacy")
+        values = [item for item in values if item.get("review_protocol", "legacy") == latest_protocol]
         reference = None
         for item in reversed(values):
             job = _read_json(item["render"].parents[2] / "job.json")
@@ -270,7 +272,8 @@ def completed_developments(run_root: Path, limit: int = 4) -> dict[str, list[dic
         selected[asset_id].append({"work_id": receipt.get("work_id"), "job_type": receipt.get("job_type"),
             "attempt": receipt.get("attempt"), "completed_at": (receipt.get("execution") or {}).get("completed_at"),
             "duration_ms": (receipt.get("execution") or {}).get("duration_ms"), "render": render_path,
-            "render_sha256": artifact["sha256"]})
+            "render_sha256": artifact["sha256"],
+            "review_protocol": (_read_json(receipt_path.parent / "output" / "scene-manifest.json") or {}).get("review_protocol", "legacy")})
     for asset_id, values in selected.items():
         values.sort(key=lambda item: (item.get("completed_at") or "", item.get("attempt") or 0, item.get("work_id") or ""))
         selected[asset_id] = values[-limit:]

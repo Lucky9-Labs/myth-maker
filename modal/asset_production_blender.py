@@ -19,6 +19,7 @@ from mathutils import Vector
 
 
 KIT_VERSION = "myth-maker.asset-core-kit/v1"
+REVIEW_PROTOCOL = "myth-maker.asset-review/v2"
 KIT_PRIMITIVES = {
     "panel-profile": {"bevel_ratio": 0.003, "bevel_segments": 2, "armor_role": "removable-armor"},
     "joint-pivot": {"name_tokens": ["joint", "ankle", "elbow", "hip", "knee", "shoulder", "waist", "wrist"]},
@@ -312,7 +313,7 @@ def render_views(output: Path, views: list[str], job: dict) -> None:
             visible = [obj for obj in meshes if obj.get("asset_source_lane") != "c"]
         low, high = bounds(visible)
         center, size = (low + high) * 0.5, max((high - low).length, 1.0)
-        camera_data.ortho_scale = size * 0.72
+        camera_data.ortho_scale = size * 1.15
         direction = Vector(positions[view]).normalized()
         if job["job_type"] == "railgun" and view == "side":
             dimensions = high - low
@@ -350,6 +351,7 @@ def scene_manifest(job: dict) -> dict:
     return {
         "format": "myth-maker.normalized-asset-scene/v1", "run_id": job["run_id"],
         "work_id": job["work_id"], "core_kit": KIT_VERSION,
+        "review_protocol": REVIEW_PROTOCOL,
         "objects": objects,
         "materials": sorted(material.name for material in bpy.data.materials),
         "actions": sorted(action.name for action in bpy.data.actions),

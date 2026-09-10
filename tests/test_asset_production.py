@@ -70,6 +70,8 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('obj["asset_source_lane"]', driver)
         self.assertIn('obj.get("asset_source_lane") != "c"', driver)
         self.assertIn('job["job_type"] == "railgun" and view == "side"', driver)
+        self.assertIn('camera_data.ortho_scale = size * 1.15', driver)
+        self.assertIn('"review_protocol": REVIEW_PROTOCOL', driver)
 
     def test_manifest_accepts_bounded_reference_correction_operation(self):
         manifest = job()
