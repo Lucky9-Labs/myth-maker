@@ -21,6 +21,14 @@ class ModalDeployTest(unittest.TestCase):
         self.assertIn('ASSET_LEDGER_FUNCTION = "record_asset_production_run"', source)
         self.assertIn('"max_asset_production_containers": 4', source)
 
+    def test_scheduled_refresh_serializes_reference_evaluation(self):
+        source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
+        scheduled = source.split("def refresh_asset_progress_dashboards()", 1)[1].split(
+            "def evaluate_asset_reference_progress", 1
+        )[0]
+        self.assertIn("evaluate_asset_reference_progress.remote(run_root.name)", scheduled)
+        self.assertNotIn("evaluate_reference_progress(run_root, OpenAI())", scheduled)
+
     def test_named_secret_is_force_refreshed_from_this_ci_run(self):
         with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"Name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
             modal_deploy.ensure_named_resources("dev")

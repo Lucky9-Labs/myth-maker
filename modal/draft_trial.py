@@ -340,10 +340,12 @@ def refresh_asset_progress_dashboards() -> dict:
     if root.is_dir():
         for run_root in sorted(root.iterdir()):
             if run_root.is_dir():
-                from openai import OpenAI
-                evaluate_reference_progress(run_root, OpenAI())
-                refreshed.append(build_dashboard(run_root))
-    volume.commit()
+                # Route scheduled and on-demand evaluations through the same
+                # max_containers=1 function.  Separate callers previously
+                # raced after both observed a missing digest, paid for the
+                # same Astra comparison twice, and could disagree about which
+                # revision was promoted.
+                refreshed.append(evaluate_asset_reference_progress.remote(run_root.name))
     return {"status": "completed", "runs": len(refreshed), "dashboards": refreshed}
 
 
