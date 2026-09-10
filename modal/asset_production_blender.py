@@ -30,8 +30,14 @@ KIT_PRIMITIVES = {
     "export": {"native": "uncompressed-blend", "runtime": "glb-2.0", "animations": True},
 }
 MATERIALS = {
-    "structural": (0.035, 0.045, 0.055, 1.0),
-    "armor-white": (0.72, 0.76, 0.78, 1.0),
+    # Keep the load-bearing chassis close to black so the separately mounted
+    # armor reads as layers at gameplay distance, matching the frozen mech
+    # reference rather than collapsing into one light-gray mass under the
+    # bright review rig.
+    "structural": (0.008, 0.012, 0.018, 1.0),
+    # The reference uses warm, muted ivory panels.  Lowering this value also
+    # preserves bevel and inset detail that clipped to white in review renders.
+    "armor-white": (0.48, 0.45, 0.39, 1.0),
     "armor-blue": (0.035, 0.18, 0.42, 1.0),
     "cyan-emission": (0.01, 0.55, 0.8, 1.0),
     "lens": (0.02, 0.2, 0.28, 0.55),
