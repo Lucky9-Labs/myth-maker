@@ -365,6 +365,30 @@ def apply_parameterized_correction(spec: dict) -> int:
         owner = bpy.data.objects.get(command.get("owner", ""))
         if command["op"].startswith("add-") and owner is None:
             raise RuntimeError("parameterized correction owner is unavailable: " + command.get("owner", ""))
+        if command["op"] == "normalize-materials":
+            normalized = 0
+            for target in bpy.context.scene.objects:
+                if target.type != "MESH" or target.hide_render:
+                    continue
+                object_name = target.name.lower()
+                material_names = " ".join(slot.name.lower() for slot in target.data.materials if slot)
+                if "canopy" in object_name or "glass" in material_names or "lens" in material_names:
+                    material = "lens"
+                elif any(token in object_name or token in material_names for token in ("cyan", "emission", "glow")):
+                    material = "cyan-emission"
+                elif "blue" in object_name or "blue" in material_names:
+                    material = "armor-blue"
+                elif target.get("asset_role") == "removable-armor" or object_name.startswith("armor-") or "ivory" in material_names or "white" in material_names:
+                    material = "armor-white"
+                else:
+                    material = "structural"
+                target.data.materials.clear()
+                target.data.materials.append(bpy.data.materials[material])
+                normalized += 1
+            if normalized == 0:
+                raise RuntimeError("material normalization matched no visible meshes")
+            changed += normalized
+            continue
         if command["op"] == "add-box":
             _add_box(command["name"], tuple(command["location"]), tuple(command["dimensions"]), command["material"], owner)
         elif command["op"] == "add-mounted-box":

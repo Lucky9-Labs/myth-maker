@@ -105,6 +105,15 @@ class AssetProductionTests(unittest.TestCase):
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["material"] = "unknown"
         with self.assertRaisesRegex(ValueError, "set-material"): validate_correction_spec(invalid)
 
+    def test_validates_legacy_material_normalization(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+            {"op": "normalize-materials", "name": "visible-owned-meshes"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = {"version": spec["version"], "commands": [
+            {"op": "normalize-materials", "name": "all-meshes"}]}
+        with self.assertRaisesRegex(ValueError, "normalize-materials"):
+            validate_correction_spec(invalid)
+
     def test_validates_atomic_prefix_hide_and_large_rebuild(self):
         commands = [{"op": "hide-prefix", "name": "rail-housing-"}]
         commands.extend({"op": "hide", "name": f"legacy-part-{index}"} for index in range(24))
