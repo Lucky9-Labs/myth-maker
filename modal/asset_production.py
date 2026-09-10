@@ -337,7 +337,7 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -20 <= item <= 20
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "scale", "thicken", "lengthen", "taper-ends", "hide"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "scale", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
             raise ValueError("correction spec contains an invalid command")
         common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale", "factor"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
@@ -357,6 +357,9 @@ def validate_correction_spec(value: dict) -> dict:
             raise ValueError("scale correction is invalid")
         if command["op"] == "hide" and set(command) != expected:
             raise ValueError("hide correction is invalid")
+        if command["op"] == "set-material" and (set(command) != {"op", "name", "material"}
+                or command.get("material") not in materials):
+            raise ValueError("set-material correction is invalid")
         if command["op"] in {"thicken", "lengthen", "taper-ends"} and (set(command) != {"op", "name", "factor"}
                 or not isinstance(command.get("factor"), (int, float)) or isinstance(command.get("factor"), bool)
                 or not 0.5 <= command["factor"] <= 2.0):

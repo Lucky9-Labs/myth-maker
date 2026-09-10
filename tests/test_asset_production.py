@@ -67,6 +67,13 @@ class AssetProductionTests(unittest.TestCase):
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["thickness"] = 99
         with self.assertRaisesRegex(ValueError, "add-side-wedge"): validate_correction_spec(invalid)
 
+    def test_validates_material_reassignment(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+            {"op": "set-material", "name": "armor-torso", "material": "structural"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["material"] = "unknown"
+        with self.assertRaisesRegex(ValueError, "set-material"): validate_correction_spec(invalid)
+
     def test_blender_52_driver_uses_current_eevee_engine_name(self):
         driver = (MODAL_DIR / "asset_production_blender.py").read_text(encoding="utf-8")
         self.assertIn('scene.render.engine = "BLENDER_EEVEE"', driver)
