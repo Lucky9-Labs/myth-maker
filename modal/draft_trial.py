@@ -30,6 +30,7 @@ from modal_volume_inputs import load_volume_inputs, validate_volume_input_manife
 from asset_production import (create_run_ledger, run_asset_production_job as execute_asset_production_job,
                               prepare_correction_wave, validate_critique_request, validate_job_manifest, validate_visual_critique)
 from asset_progress import build_dashboard, dashboard_bundle, evaluate_reference_progress
+from component_diffusion import run_component_diffusion, validate_component_diffusion_job
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -58,7 +59,25 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
 image = (image
          .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
          .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
-         .add_local_file(HERE / "asset_production_blender.py", "/opt/asset_production_blender.py", copy=True))
+         .add_local_file(HERE / "asset_production_blender.py", "/opt/asset_production_blender.py", copy=True)
+         .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True))
+
+diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu22.04", add_python="3.12")
+    .apt_install("git", "libgl1", "libglib2.0-0")
+    .run_commands("python -m pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124")
+    .pip_install(
+        "transformers==4.46.0", "diffusers==0.30.0", "accelerate==1.1.1",
+        "huggingface-hub==0.30.2", "safetensors==0.4.4", "numpy==1.26.4",
+        "scipy==1.14.1", "einops==0.8.0", "omegaconf==2.3.0", "pyyaml==6.0.2",
+        "opencv-python-headless==4.10.0.84", "imageio==2.36.0", "scikit-image==0.24.0",
+        "rembg==2.0.65", "onnxruntime==1.16.3", "trimesh==4.4.7",
+        "pymeshlab==2022.2.post3", "pygltflib==1.16.3", "xatlas==0.0.9",
+        "tqdm==4.66.5", "psutil==6.0.0", "pydantic==2.10.6", "timm", "torchdiffeq")
+    .run_commands(
+        "git clone --filter=blob:none https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /opt/Hunyuan3D-2.1",
+        "cd /opt/Hunyuan3D-2.1 && git checkout 82920d643c0dc2f7bfd7255f45f62d386edfe60c")
+    .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True)
+    .env({"HF_HOME": "/submissions/model-cache/huggingface", "PYTHONPATH": "/opt"}))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
 SUBMISSIONS_ROOT = Path("/submissions")
@@ -244,6 +263,25 @@ def run_asset_production_job(job: dict) -> dict:
             checked, SUBMISSIONS_ROOT, SUBMISSIONS_ROOT / "asset-production",
             "/usr/local/bin/blender", function_call_id=function_call_id, input_id=input_id,
         )
+        volume.commit()
+        return receipt
+    finally:
+        if part_leases.get(lease_key) == lease_value:
+            part_leases.pop(lease_key)
+
+
+@app.function(image=diffusion_image, gpu="L40S", cpu=4, memory=32768, timeout=30 * 60,
+              retries=0, max_containers=1, volumes={"/submissions": volume})
+def run_component_diffusion_job(job: dict) -> dict:
+    """Generate immutable component shell candidates from the frozen cloud reference."""
+    checked = validate_component_diffusion_job(job)
+    lease_key = "component-diffusion:" + checked["run_id"] + ":" + checked["component_id"]
+    lease_value = checked["work_id"] + ":a" + str(checked["attempt"])
+    if not part_leases.put(lease_key, lease_value, skip_if_exists=True):
+        raise RuntimeError("component diffusion lane already claimed; reconcile it before dispatch")
+    try:
+        volume.reload()
+        receipt = run_component_diffusion(checked, SUBMISSIONS_ROOT)
         volume.commit()
         return receipt
     finally:

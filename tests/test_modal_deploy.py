@@ -30,6 +30,11 @@ class ModalDeployTest(unittest.TestCase):
         self.assertNotIn("evaluate_asset_reference_progress.remote", scheduled)
         self.assertNotIn("evaluate_reference_progress(run_root, OpenAI())", scheduled)
 
+    def test_deployment_verifies_component_diffusion_function(self):
+        deployed = (Path(__file__).parents[1] / "scripts" / "deployment" / "modal_deploy.py").read_text()
+        self.assertIn('COMPONENT_DIFFUSION_FUNCTION = "run_component_diffusion_job"', deployed)
+        self.assertIn('"component_diffusion_function_id": component_diffusion.object_id', deployed)
+
     def test_named_secret_is_force_refreshed_from_this_ci_run(self):
         with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"Name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
             modal_deploy.ensure_named_resources("dev")
