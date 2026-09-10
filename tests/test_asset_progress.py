@@ -97,6 +97,16 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual([item["render_sha256"] for item in selected],
                              [values[1]["render_sha256"], values[3]["render_sha256"]])
 
+    def test_reference_input_skips_asset_when_latest_render_was_already_evaluated(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            self._attempt(root, "gun", 1, "railgun")
+            latest = completed_developments(root)["railgun"][-1]
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "prior.json").write_text(json.dumps({"status": "completed", "evaluation": {"evaluations": [
+                {"asset_id": "railgun", "render_sha256": latest["render_sha256"], "weighted_score": 55}]}}))
+            self.assertNotIn("railgun", reference_evaluation_inputs(root))
+
     def test_progress_history_retains_unique_candidate_deltas(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run-one"; evaluations = root / "observability" / "evaluations"
