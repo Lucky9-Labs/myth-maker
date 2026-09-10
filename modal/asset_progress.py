@@ -141,6 +141,9 @@ def latest_reference_evaluation(run_root: Path) -> dict | None:
     receipts = [value for path in (run_root / "observability" / "evaluations").glob("*.json") if (value := _read_json(path))]
     return max(receipts, key=lambda item: item.get("created_at") or "") if receipts else None
 
+MINIMUM_ACCEPTED_REFERENCE_DELTA = 1.0
+
+
 def reference_progress_history(run_root: Path) -> list[dict]:
     """Return one same-request delta for each newly observed candidate render."""
     receipts = sorted(
@@ -160,12 +163,14 @@ def reference_progress_history(run_root: Path) -> list[dict]:
                 continue
             seen.add(identity)
             delta = round(candidate["weighted_score"] - asset_rows[0]["weighted_score"], 2)
-            accepted = delta > 0
+            accepted = delta >= MINIMUM_ACCEPTED_REFERENCE_DELTA
             if accepted:
                 cumulative[asset_id] = round(cumulative[asset_id] + delta, 2)
             history.append({"created_at": receipt.get("created_at"), "asset_id": asset_id,
                             "render_sha256": candidate.get("render_sha256"), "delta": delta,
-                            "accepted": accepted, "cumulative_accepted_gain": cumulative[asset_id]})
+                            "accepted": accepted,
+                            "disposition": "accepted" if accepted else ("below-threshold" if delta > 0 else "rejected"),
+                            "cumulative_accepted_gain": cumulative[asset_id]})
     return history
 
 def _progress_svg(history: list[dict], output: Path) -> dict | None:
@@ -275,8 +280,10 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
                     "accepted_asset_set": False},
         "reference_convergence": {"provenance": "measured" if evaluation else "unavailable",
                                   "latest_evaluation": evaluation, "history": history,
+                                  "minimum_accepted_delta": MINIMUM_ACCEPTED_REFERENCE_DELTA,
                                   "accepted_quality_gain": round(sum(gains), 2) if evaluation else None,
                                   "candidate_net_delta": round(candidate_net, 2) if evaluation else None,
+                                  "below_threshold_candidates": sum(row["disposition"] == "below-threshold" for row in history),
                                   "rejected_candidates": sum(not row["accepted"] for row in history)},
         "efficiency": {"quality_gain_per_1k_tokens": round(sum(gains) * 1000 / measured_tokens, 3) if evaluation and measured_tokens else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
