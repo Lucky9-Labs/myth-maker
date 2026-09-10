@@ -19,6 +19,11 @@ on:
         required: false
         default: ''
         type: string
+      correction_specs:
+        description: Map of worker lane to validated correction JSON for an atomic multi-lane candidate
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -48,6 +53,7 @@ jobs:
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           SOURCE_SHA: ${{ github.sha }}
           CORRECTION_SPEC: ${{ inputs.correction_spec }}
+          CORRECTION_SPECS: ${{ inputs.correction_specs }}
         run: |
           set -euo pipefail
           python3 scripts/run_asset_correction_wave.py \

@@ -376,6 +376,23 @@ class AssetProductionTests(unittest.TestCase):
                                 and item["correction_spec"] == spec for item in coordinated[:2]))
             self.assertNotIn("correction_spec", coordinated[2])
 
+            structure_spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+                {"op": "hide", "name": "frame-forearm-maincasting-forearm-l"}]}
+            armor_spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+                {"op": "hide", "name": "armor-forearm-armor-mainblade-forearmarmor-l"}]}
+            reconstructed = prepare_correction_wave(
+                root, {"source_sha": "f" * 40, "function_id": "fu-reconstruct"},
+                reference_batch_slot="worker-a+worker-b",
+                correction_specs={"worker-a": structure_spec, "worker-b": armor_spec})
+            self.assertEqual(reconstructed[0]["correction_spec"], structure_spec)
+            self.assertEqual(reconstructed[1]["correction_spec"], armor_spec)
+            self.assertNotIn("correction_spec", reconstructed[2])
+            with self.assertRaisesRegex(ValueError, "exactly match"):
+                prepare_correction_wave(
+                    root, {"source_sha": "f" * 40, "function_id": "fu-incomplete"},
+                    reference_batch_slot="worker-a+worker-b",
+                    correction_specs={"worker-a": structure_spec})
+
             # The next immutable baseline already contains that patch, so the
             # operation is not compounded on a review-only follow-up wave.
             for item in corrected[:3]:

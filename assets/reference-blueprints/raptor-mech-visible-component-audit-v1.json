@@ -1,0 +1,20 @@
+{
+  "format": "myth-maker.visible-component-audit/v1",
+  "asset_id": "raptor-mech",
+  "reference": "frozen-mech-reference",
+  "acceptance_rule": "Every replace/remove family must be dispositioned in one assembled candidate before visual promotion.",
+  "families": [
+    {"id": "rig-and-anchors", "owner": "worker-a", "action": "retain", "reason": "Preserve articulation and engine attachment contracts."},
+    {"id": "pose-and-proportions", "owner": "worker-a", "action": "reshape", "reason": "Match the reference crouch, shoulder width, short torso, and compressed leg stance."},
+    {"id": "visible-limb-structure", "owner": "worker-a", "action": "replace", "reason": "Legacy upper arms, forearms, thighs, and shins read as rectangular castings rather than tapered mechanical volumes."},
+    {"id": "joint-hubs", "owner": "worker-a", "action": "replace", "reason": "Open C rings and exposed barrels must become recessed, capped bearings with reference-scale collars."},
+    {"id": "hands-and-fingers", "owner": "worker-a", "action": "replace", "reason": "Current splayed cuboids do not form compact articulated hands or a credible weapon grip."},
+    {"id": "feet-and-toes", "owner": "worker-a", "action": "replace", "reason": "Current fanned spikes must become compact load-bearing feet with layered toe plates."},
+    {"id": "legacy-open-rings", "owner": "worker-a", "action": "remove", "reason": "They are a known silhouette regression and do not occur in the target design."},
+    {"id": "canopy-system", "owner": "worker-b", "action": "replace", "reason": "Build a framed translucent cockpit with crown, side cheeks, lower chin, and visible inset glazing."},
+    {"id": "shoulder-forearm-knee-shin-armor", "owner": "worker-b", "action": "replace", "reason": "Detached flat patches must become seated, layered shells that follow each underlying volume."},
+    {"id": "duplicate-rods-and-floating-panels", "owner": "worker-b", "action": "remove", "reason": "These add noise without matching a reference landmark."},
+    {"id": "material-regions", "owner": "worker-b", "action": "reshape", "reason": "Preserve distinct white, blue, cyan glazing, and dark structural regions after shell replacement."},
+    {"id": "rear-weapon-silhouette", "owner": "worker-b", "action": "replace", "reason": "The reference has a readable diagonal rear weapon mass, not an occluded rod bundle."}
+  ]
+}
