@@ -4,9 +4,36 @@ from PIL import Image
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
 from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
-                            reference_evaluation_inputs, reference_progress_history, validate_reference_evaluation)
+                            image_space_comparison, image_space_profile, reference_evaluation_inputs,
+                            reference_progress_history, validate_reference_evaluation)
 
 class AssetProgressTests(unittest.TestCase):
+    def test_image_space_profile_measures_foreground_geometry(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "image.png"
+            image = Image.new("RGB", (100, 100), "white")
+            for x in range(20, 80):
+                for y in range(30, 70): image.putpixel((x, y), (0, 0, 0))
+            image.save(path); profile = image_space_profile(path)
+            self.assertTrue(profile["foreground"])
+            self.assertAlmostEqual(profile["occupancy"], .24, places=2)
+            self.assertAlmostEqual(profile["aspect_ratio"], 1.5, places=1)
+
+    def test_image_space_comparison_rejects_large_coarse_regression(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def draw(name, box):
+                image = Image.new("RGB", (100, 100), "white")
+                for x in range(box[0], box[2]):
+                    for y in range(box[1], box[3]): image.putpixel((x, y), (0, 0, 0))
+                path = root / name; image.save(path); return path
+            reference = draw("reference.png", (20, 30, 80, 70))
+            baseline = draw("baseline.png", (22, 31, 78, 69))
+            candidate = draw("candidate.png", (5, 45, 95, 55))
+            report = image_space_comparison(reference, baseline, candidate)
+            self.assertEqual(report["decision"], "reject-before-model")
+            self.assertLess(report["improvement"], 0)
+
     def _attempt(self, root, work, attempt, job_type, status="completed"):
         path = root / work / f"attempt-{attempt:04d}"
         render = path / "output" / "renders" / ("side.png" if job_type == "railgun" else "full-body.png")
@@ -42,6 +69,8 @@ class AssetProgressTests(unittest.TestCase):
             self.assertTrue((root / "observability" / "railgun-frozen-reference.png").is_file())
             self.assertEqual(manifest["assets"]["railgun"]["reference"]["sha256"],
                              hashlib.sha256((root / "observability" / "railgun-frozen-reference.png").read_bytes()).hexdigest())
+            self.assertEqual(manifest["assets"]["railgun"]["image_space_measurements"]["format"],
+                             "myth-maker.image-space-comparison/v1")
             with Image.open(gif) as image: self.assertEqual(image.n_frames, 4)
             self.assertIn('content="300"', (root / "observability" / "index.html").read_text())
 
