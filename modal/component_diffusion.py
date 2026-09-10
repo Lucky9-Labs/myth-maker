@@ -25,7 +25,7 @@ MEMORY_USD_PER_GIB_SECOND = 0.00000222
 def validate_component_diffusion_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
                 "model", "reference_polygon", "seeds", "num_inference_steps", "octree_resolution"}
-    if not isinstance(value, dict) or set(value) != required:
+    if not isinstance(value, dict) or frozenset(value) not in {frozenset(required), frozenset(required | {"conditioning"})}:
         raise ValueError("component diffusion job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] != "mech" or value["model"] != MODEL:
         raise ValueError("component diffusion job has an unsupported format, asset, or model")
@@ -51,7 +51,16 @@ def validate_component_diffusion_job(value: dict) -> dict:
         raise ValueError("component diffusion inference steps must be between 5 and 50")
     if value["octree_resolution"] not in {128, 192, 256, 320, 384}:
         raise ValueError("component diffusion octree resolution is unsupported")
-    return value
+    if "conditioning" in value:
+        condition = value["conditioning"]
+        if (not isinstance(condition, dict) or set(condition) != {"path", "bytes", "sha256", "media_type", "component_id"}
+                or not isinstance(condition["path"], str) or Path(condition["path"]).is_absolute()
+                or ".." in Path(condition["path"]).parts or condition["media_type"] != "image/png"
+                or not isinstance(condition["bytes"], int) or condition["bytes"] < 1
+                or not isinstance(condition["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", condition["sha256"])
+                or condition["component_id"] != value["component_id"]):
+            raise ValueError("component diffusion conditioning artifact is invalid")
+    return json.loads(json.dumps(value))
 
 
 def masked_component_crop(reference: Path, polygon: list[list[float]], output: Path) -> dict:
@@ -151,6 +160,17 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     attempt_root.mkdir(parents=True, exist_ok=False)
     (attempt_root / "job.json").write_text(json.dumps(checked, indent=2, sort_keys=True) + "\n")
     crop = masked_component_crop(reference, checked["reference_polygon"], attempt_root / "reference-crop.png")
+    condition_path = attempt_root / "reference-crop.png"
+    conditioning = None
+    if "conditioning" in checked:
+        declared = checked["conditioning"]
+        condition_path = submissions_root / declared["path"]
+        if not condition_path.is_file():
+            raise ValueError("component isolation artifact is unavailable")
+        condition_data = condition_path.read_bytes()
+        if len(condition_data) != declared["bytes"] or hashlib.sha256(condition_data).hexdigest() != declared["sha256"]:
+            raise ValueError("component isolation artifact hash mismatch")
+        conditioning = dict(declared)
     reference_data = reference.read_bytes()
     started = datetime.now(timezone.utc)
     clock = time.monotonic()
@@ -173,7 +193,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     pipeline.to("cuda")
     _write_phase(attempt_root, "model-load", "completed", started, checkpoint)
     artifacts = []
-    with Image.open(attempt_root / "reference-crop.png") as image:
+    with Image.open(condition_path) as image:
         condition = image.convert("RGBA")
         for seed in checked["seeds"]:
             candidate_started = time.monotonic()
@@ -204,6 +224,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
         "reference": {"path": str(reference.relative_to(submissions_root)), "bytes": len(reference_data),
                       "sha256": hashlib.sha256(reference_data).hexdigest()},
         "reference_crop": {**crop, "path": str((attempt_root / "reference-crop.png").relative_to(submissions_root))},
+        "conditioning": conditioning,
         "artifacts": artifacts, "started_at": started.isoformat(),
         "completed_at": datetime.now(timezone.utc).isoformat(), "execution_seconds": round(duration, 3),
         "compute": {"gpu": gpu_name, "gpu_usd_per_second": gpu_usd_per_second,

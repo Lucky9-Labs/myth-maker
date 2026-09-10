@@ -45,6 +45,10 @@ class ComponentDiffusionTests(unittest.TestCase):
         invalid = {**job(), "seeds": [1, 2]}
         with self.assertRaisesRegex(ValueError, "exactly one"):
             validate_component_diffusion_job(invalid)
+        conditioned = {**job(), "conditioning": {"path": "asset-production/pilot/isolation.png",
+            "bytes": 123, "sha256": "a" * 64, "media_type": "image/png",
+            "component_id": "canopy-system"}}
+        self.assertEqual(validate_component_diffusion_job(conditioned), conditioned)
 
     def test_masked_crop_is_square_and_transparent(self):
         with tempfile.TemporaryDirectory() as temporary:
