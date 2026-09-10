@@ -282,10 +282,19 @@ def look_at(camera, target: Vector) -> None:
 
 def render_views(output: Path, views: list[str], job: dict) -> None:
     meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
-    camera_data = bpy.data.cameras.get("asset-review-camera") or bpy.data.cameras.new("asset-review-camera")
-    camera = bpy.data.objects.get("asset-review-camera") or bpy.data.objects.new("asset-review-camera", camera_data)
-    if camera.name not in bpy.context.scene.objects:
-        bpy.context.scene.collection.objects.link(camera)
+    old_camera = bpy.data.objects.get("asset-review-camera")
+    if old_camera is not None:
+        bpy.data.objects.remove(old_camera, do_unlink=True)
+    old_data = bpy.data.cameras.get("asset-review-camera")
+    if old_data is not None:
+        bpy.data.cameras.remove(old_data)
+    camera_data = bpy.data.cameras.new("asset-review-camera")
+    camera = bpy.data.objects.new("asset-review-camera", camera_data)
+    bpy.context.scene.collection.objects.link(camera)
+    camera.parent = None
+    camera.scale = (1, 1, 1)
+    camera_data.shift_x = 0
+    camera_data.shift_y = 0
     bpy.context.scene.camera = camera
     camera_data.type = "ORTHO"
     positions = {
