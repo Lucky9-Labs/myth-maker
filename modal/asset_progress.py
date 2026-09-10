@@ -16,6 +16,34 @@ ASSETS = {
 RUBRIC = {"silhouette": 0.30, "proportions": 0.25, "component_geometry": 0.20,
           "material_identity": 0.10, "detail_readability": 0.10, "fit": 0.05}
 
+
+def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str) -> tuple[str, ...] | None:
+    """Resolve the immutable component hashes that define one asset render."""
+    attempts = []
+    for path in run_root.glob("*/attempt-*/receipt.json"):
+        receipt = _read_json(path)
+        if receipt:
+            attempts.append((path, receipt))
+    rendered = [(path, receipt) for path, receipt in attempts
+                if any(name.startswith("renders/") and item.get("sha256") == render_sha256
+                       for name, item in (receipt.get("artifacts") or {}).items())]
+    if not rendered:
+        return None
+    path, receipt = rendered[-1]
+    if asset_id == "railgun":
+        native = (receipt.get("artifacts") or {}).get("asset.blend")
+        return (native["sha256"],) if native and native.get("sha256") else None
+    dependencies = set((_read_json(path.parent / "job.json") or {}).get("dependencies") or [])
+    hashes = []
+    for slot in ("worker-a", "worker-b"):
+        matches = [(candidate.get("artifacts") or {}).get("asset.blend", {}).get("sha256")
+                   for _candidate_path, candidate in attempts if candidate.get("worker_slot") == slot]
+        match = next((digest for digest in matches if digest in dependencies), None)
+        if not match:
+            return None
+        hashes.append(match)
+    return tuple(hashes)
+
 def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
     """Resolve one frozen reference, promoted baseline, and newest candidate per asset."""
     developments = completed_developments(run_root)
@@ -37,6 +65,11 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
             continue
         prior = values[:-1]
         baseline = max(prior, key=lambda item: historical_scores.get(item["render_sha256"], -1)) if prior else None
+        if baseline:
+            baseline_signature = _asset_component_signature(run_root, asset_id, baseline["render_sha256"])
+            latest_signature = _asset_component_signature(run_root, asset_id, latest["render_sha256"])
+            if baseline_signature is not None and baseline_signature == latest_signature:
+                continue
         values = ([baseline] if baseline else []) + [latest]
         values = list({item["render_sha256"]: item for item in values}.values())
         reference = None

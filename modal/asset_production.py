@@ -189,7 +189,7 @@ def plan_production_wave(values: list[dict]) -> list[dict]:
 
 
 def _best_scored_baselines(run_root: Path, receipts: list[tuple[Path, dict]]) -> dict[str, tuple[Path, dict]]:
-    """Resolve promoted component receipts from the strongest same-protocol renders."""
+    """Resolve promoted receipts while enforcing the substantial-revision gate."""
     evaluations = []
     for path in (run_root / "observability" / "evaluations").glob("*.json"):
         value = _read_json(path)
@@ -200,8 +200,19 @@ def _best_scored_baselines(run_root: Path, receipts: list[tuple[Path, dict]]) ->
     scores = (latest.get("evaluation") or {}).get("evaluations") or []
 
     def receipt_for_render(asset_id: str) -> tuple[Path, dict] | None:
-        candidates = sorted((item for item in scores if item.get("asset_id") == asset_id),
-                            key=lambda item: item.get("weighted_score", -1), reverse=True)
+        asset_scores = [item for item in scores if item.get("asset_id") == asset_id]
+        if not asset_scores:
+            return None
+        # Evaluations are ordered baseline then candidate. A candidate becomes the
+        # next production baseline only when its same-call gain clears the gate.
+        candidates = [asset_scores[0]]
+        baseline_score = asset_scores[0].get("weighted_score")
+        candidate = asset_scores[-1]
+        candidate_score = candidate.get("weighted_score")
+        if (len(asset_scores) > 1 and isinstance(baseline_score, (int, float))
+                and isinstance(candidate_score, (int, float)) and candidate_score - baseline_score >= 3.0):
+            candidates.append(candidate)
+        candidates.sort(key=lambda item: item.get("weighted_score", -1), reverse=True)
         for score in candidates:
             digest = score.get("render_sha256")
             for path, receipt in receipts:

@@ -107,6 +107,26 @@ class AssetProgressTests(unittest.TestCase):
                 {"asset_id": "railgun", "render_sha256": latest["render_sha256"], "weighted_score": 55}]}}))
             self.assertNotIn("railgun", reference_evaluation_inputs(root))
 
+    def test_reference_input_skips_new_assembly_when_mech_dependencies_are_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            component_hashes = []
+            for slot, digest in (("worker-a", "a" * 64), ("worker-b", "b" * 64)):
+                attempt = root / slot / "attempt-0001"; attempt.mkdir(parents=True)
+                (attempt / "receipt.json").write_text(json.dumps({"status": "completed", "worker_slot": slot,
+                    "artifacts": {"asset.blend": {"sha256": digest}}}))
+                component_hashes.append(digest)
+            for attempt_number in (1, 2):
+                self._attempt(root, "assembly", attempt_number, "kit-assembly")
+                attempt = root / "assembly" / f"attempt-{attempt_number:04d}"
+                job = json.loads((attempt / "job.json").read_text()); job["dependencies"] = component_hashes
+                (attempt / "job.json").write_text(json.dumps(job))
+            values = completed_developments(root)["mech"]
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "prior.json").write_text(json.dumps({"status": "completed", "evaluation": {"evaluations": [
+                {"asset_id": "mech", "render_sha256": values[0]["render_sha256"], "weighted_score": 44}]}}))
+            self.assertNotIn("mech", reference_evaluation_inputs(root))
+
     def test_progress_history_retains_unique_candidate_deltas(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run-one"; evaluations = root / "observability" / "evaluations"

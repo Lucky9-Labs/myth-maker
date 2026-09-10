@@ -396,6 +396,27 @@ class AssetProductionTests(unittest.TestCase):
             self.assertEqual(promoted[0]["inputs"][0]["sha256"], "1" * 64)
             self.assertNotIn({"kind": "apply-reference-corrections"}, promoted[2]["operations"])
 
+    def test_correction_wave_does_not_promote_candidate_below_three_point_gain(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            railgun = job("worker-c", "railgun")
+            for attempt_number, native, render in ((1, "3" * 64, "c" * 64), (2, "5" * 64, "e" * 64)):
+                attempt = root / railgun["work_id"] / f"attempt-{attempt_number:04d}"; attempt.mkdir(parents=True)
+                (attempt / "job.json").write_text(json.dumps(railgun))
+                (attempt / "receipt.json").write_text(json.dumps({"worker_slot": "worker-c",
+                    "work_id": railgun["work_id"], "attempt": attempt_number, "status": "completed",
+                    "artifacts": {"asset.blend": {"volume_path": f"asset-production/run/c/{attempt_number}.blend",
+                    "bytes": 100, "sha256": native}, "renders/side.png": {"sha256": render}}}))
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "latest.json").write_text(json.dumps({"status": "completed", "created_at": "2026-09-10T01:00:00Z",
+                "evaluation": {"evaluations": [
+                    {"asset_id": "railgun", "render_sha256": "c" * 64, "weighted_score": 56.0},
+                    {"asset_id": "railgun", "render_sha256": "e" * 64, "weighted_score": 58.7}]}}))
+            from asset_production import _best_scored_baselines
+            receipts = [(path, json.loads(path.read_text())) for path in root.glob("*/attempt-*/receipt.json")]
+            promoted = _best_scored_baselines(root, receipts)
+            self.assertEqual(promoted["worker-c"][1]["artifacts"]["asset.blend"]["sha256"], "3" * 64)
+
 
 if __name__ == "__main__":
     unittest.main()
