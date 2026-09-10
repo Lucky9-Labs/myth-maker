@@ -15,6 +15,31 @@ ASSETS = {
 }
 RUBRIC = {"silhouette": 0.30, "proportions": 0.25, "component_geometry": 0.20,
           "material_identity": 0.10, "detail_readability": 0.10, "fit": 0.05}
+MODEL_PRICING = {
+    "gpt-6-astra": {
+        "input_usd_per_million": 10.0,
+        "cached_input_usd_per_million": 1.0,
+        "output_usd_per_million": 50.0,
+        "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+        "verified_at": "2026-09-10",
+    },
+}
+
+
+def priced_model_usage(model: str, usage: dict) -> dict:
+    """Price measured usage without treating unavailable usage as free."""
+    pricing = MODEL_PRICING.get(model)
+    fields = ("input_tokens", "cached_input_tokens", "output_tokens")
+    if not pricing or usage.get("provenance") != "measured" or any(usage.get(field) is None for field in fields):
+        return {"provenance": "unavailable", "usd": None, "pricing": pricing}
+    input_tokens = usage["input_tokens"]
+    cached_tokens = usage["cached_input_tokens"]
+    if cached_tokens < 0 or cached_tokens > input_tokens:
+        return {"provenance": "unavailable", "usd": None, "pricing": pricing}
+    usd = ((input_tokens - cached_tokens) * pricing["input_usd_per_million"]
+           + cached_tokens * pricing["cached_input_usd_per_million"]
+           + usage["output_tokens"] * pricing["output_usd_per_million"]) / 1_000_000
+    return {"provenance": "calculated-from-measured-usage", "usd": round(usd, 6), "pricing": pricing}
 
 
 def image_space_profile(path: Path) -> dict:
@@ -351,6 +376,32 @@ def _progress_svg(history: list[dict], output: Path) -> dict | None:
     data = output.read_bytes()
     return {"path": output.name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
+def _spend_svg(history: list[dict], output: Path) -> dict | None:
+    """Plot cumulative USD, accepted gain, and gain per dollar per model call."""
+    if not history:
+        return None
+    max_cost = max(item["cumulative_cost_usd"] for item in history) or 1
+    max_gain = max(item["cumulative_accepted_gain"] for item in history) or 1
+    max_efficiency = max(item["accepted_gain_per_usd"] or 0 for item in history) or 1
+    def points(field, maximum):
+        return " ".join(f'{90 + index * (780 / max(1, len(history) - 1)):.1f},'
+                        f'{330 - (item[field] or 0) / maximum * 270:.1f}'
+                        for index, item in enumerate(history))
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410">'
+           '<rect width="960" height="410" fill="#111c2d"/>'
+           '<text x="40" y="35" fill="#f8fafc" font-size="20">Spend and accepted improvement over model calls</text>'
+           f'<polyline points="{points("cumulative_cost_usd", max_cost)}" fill="none" stroke="#67e8f9" stroke-width="4"/>'
+           f'<polyline points="{points("cumulative_accepted_gain", max_gain)}" fill="none" stroke="#86efac" stroke-width="4"/>'
+           f'<polyline points="{points("accepted_gain_per_usd", max_efficiency)}" fill="none" stroke="#fbbf24" stroke-width="4"/>'
+           f'<text x="100" y="385" fill="#67e8f9">USD ${max_cost:.2f}</text>'
+           f'<text x="280" y="385" fill="#86efac">accepted gain {max_gain:.1f}</text>'
+           f'<text x="500" y="385" fill="#fbbf24">gain / $ {history[-1]["accepted_gain_per_usd"] or 0:.3f}</text>'
+           '</svg>')
+    output.write_text(svg, encoding="utf-8")
+    data = output.read_bytes()
+    return {"path": output.name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
 def _instant(value) -> datetime | None:
     if not isinstance(value, str):
         return None
@@ -363,7 +414,7 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     """Project attempts, critique spend, and a rolling five-minute patch feed."""
     now = now or datetime.now(timezone.utc)
     cutoff = now - timedelta(minutes=5)
-    attempts, patches, model_rows, defects = [], [], {}, []
+    attempts, patches, model_rows, model_events, defects = [], [], {}, [], []
     for path in run_root.glob("*/attempt-*/receipt.json"):
         receipt = _read_json(path)
         if not receipt:
@@ -395,6 +446,9 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
             row["total_tokens"] += (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
         row["duration_ms"] += receipt.get("duration_ms") or 0
         defects.extend((receipt.get("critique") or {}).get("defects") or [])
+        model_events.append({"created_at": receipt.get("created_at"), "model": model,
+                             "request_id": provider.get("request_id"),
+                             "cost": priced_model_usage(model, usage)})
     for path in (run_root / "observability" / "evaluations").glob("*.json"):
         receipt = _read_json(path)
         if not receipt:
@@ -409,11 +463,16 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
             for field in ("input_tokens", "cached_input_tokens", "output_tokens"): row[field] += usage.get(field) or 0
             row["total_tokens"] += (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
         row["duration_ms"] += receipt.get("duration_ms") or 0
+        model_events.append({"created_at": receipt.get("created_at"), "model": model,
+                             "request_id": provider.get("request_id"),
+                             "cost": priced_model_usage(model, usage)})
     # Codex task-level usage is not present in production receipts. Keep the
     # desired comparison visible without turning unavailable telemetry into 0.
     model_rows.setdefault("gpt-5.6-luna", {"model": "gpt-5.6-luna", "requests": None,
         "input_tokens": None, "cached_input_tokens": None, "output_tokens": None,
         "total_tokens": None, "duration_ms": None, "provenance": "unavailable"})
+    for row in model_rows.values():
+        row["cost"] = priced_model_usage(row["model"], row)
     attempts.sort(key=lambda item: item.get("completed_at") or "", reverse=True)
     patches.sort(key=lambda item: item.get("completed_at") or "", reverse=True)
     completed = sum(item["status"] == "completed" for item in attempts)
@@ -424,11 +483,34 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     gains = [row["delta"] for row in history if row["accepted"]]
     candidate_net = sum(row["delta"] for row in history)
     measured_tokens = sum(row["total_tokens"] or 0 for row in model_rows.values() if row["provenance"] == "measured")
+    measured_cost = round(sum(row["cost"]["usd"] or 0 for row in model_rows.values()
+                              if row["cost"]["provenance"] == "calculated-from-measured-usage"), 6)
+    unpriced_models = sorted(row["model"] for row in model_rows.values() if row["cost"]["usd"] is None)
+    accepted_by_time = {}
+    for item in history:
+        if item["accepted"]:
+            accepted_by_time[item["created_at"]] = accepted_by_time.get(item["created_at"], 0) + item["delta"]
+    cumulative_cost = cumulative_gain = 0.0
+    spend_history = []
+    for event in sorted(model_events, key=lambda item: item.get("created_at") or ""):
+        cost = event["cost"]["usd"]
+        if cost is None:
+            continue
+        cumulative_cost += cost
+        cumulative_gain += accepted_by_time.get(event["created_at"], 0)
+        spend_history.append({"created_at": event["created_at"], "model": event["model"],
+                              "request_id": event["request_id"], "request_cost_usd": cost,
+                              "cumulative_cost_usd": round(cumulative_cost, 6),
+                              "cumulative_accepted_gain": round(cumulative_gain, 2),
+                              "accepted_gain_per_usd": round(cumulative_gain / cumulative_cost, 4) if cumulative_cost else None})
     compute_minutes = sum((item["duration_ms"] or 0) for item in attempts) / 60000
     return {"window_started_at": cutoff.isoformat(), "patches_last_5m": patches,
         "attempts": {"completed": completed, "failed": failed,
                      "success_rate": completed / (completed + failed) if completed + failed else None},
         "models": sorted(model_rows.values(), key=lambda item: item["model"]),
+        "spend": {"currency": "USD", "measured_model_cost_usd": measured_cost,
+                  "unpriced_models": unpriced_models, "history": spend_history,
+                  "provenance": "calculated-from-measured-usage"},
         "quality": {"blocking_open": sum(item.get("severity") == "blocking" and item.get("disposition") != "resolved" for item in defects),
                     "resolved": sum(item.get("disposition") == "resolved" for item in defects),
                     "cosmetic_backlog": sum(item.get("disposition") == "backlog" for item in defects),
@@ -441,6 +523,7 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
                                   "below_threshold_candidates": sum(row["disposition"] == "below-threshold" for row in history),
                                   "rejected_candidates": sum(not row["accepted"] for row in history)},
         "efficiency": {"quality_gain_per_1k_tokens": round(sum(gains) * 1000 / measured_tokens, 3) if evaluation and measured_tokens else None,
+                       "accepted_quality_gain_per_usd": round(sum(gains) / measured_cost, 3) if evaluation and measured_cost else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
                        "tokens_per_accepted_asset_set": {"provenance": "unavailable", "value": None},
                        "luna_comparison": "unavailable until Codex task usage is exported into the run ledger"}}
@@ -510,6 +593,7 @@ def build_dashboard(run_root: Path) -> dict:
     developments = {asset_id: values[-4:] for asset_id, values in all_developments.items()}
     telemetry = production_observability(run_root, generated_at)
     chart = _progress_svg(telemetry["reference_convergence"]["history"], output / "reference-convergence.svg")
+    spend_chart = _spend_svg(telemetry["spend"]["history"], output / "spend-efficiency.svg")
     assets, cards = {}, []
     for asset_id, values in developments.items():
         gif = _gif(values, output / f"{asset_id}-last-four.gif")
@@ -540,10 +624,12 @@ def build_dashboard(run_root: Path) -> dict:
     patches = telemetry["patches_last_5m"]
     patch_rows = "".join(f"<tr><td>{html.escape(str(item['job_type']))}</td><td>{html.escape(str(item['status']))}</td><td>{item['attempt']}</td><td>{len(item['output_hashes'])}</td><td>{html.escape(str(item.get('completed_at') or 'unavailable'))}</td></tr>" for item in patches)
     if not patch_rows: patch_rows = '<tr><td colspan="5">No completed or failed asset patch in this five-minute window.</td></tr>'
-    model_rows = "".join(f"<tr><td>{html.escape(row['model'])}</td><td>{html.escape(row['provenance'])}</td><td>{row['requests'] if row['requests'] is not None else 'unavailable'}</td><td>{row['input_tokens'] if row['input_tokens'] is not None else 'unavailable'}</td><td>{row['cached_input_tokens'] if row['cached_input_tokens'] is not None else 'unavailable'}</td><td>{row['output_tokens'] if row['output_tokens'] is not None else 'unavailable'}</td><td>{row['total_tokens'] if row['total_tokens'] is not None else 'unavailable'}</td></tr>" for row in telemetry["models"])
+    model_rows = "".join(f"<tr><td>{html.escape(row['model'])}</td><td>{html.escape(row['provenance'])}</td><td>{row['requests'] if row['requests'] is not None else 'unavailable'}</td><td>{row['input_tokens'] if row['input_tokens'] is not None else 'unavailable'}</td><td>{row['cached_input_tokens'] if row['cached_input_tokens'] is not None else 'unavailable'}</td><td>{row['output_tokens'] if row['output_tokens'] is not None else 'unavailable'}</td><td>{('$%.4f' % row['cost']['usd']) if row['cost']['usd'] is not None else 'unavailable'}</td></tr>" for row in telemetry["models"])
     quality = telemetry["quality"]; attempts = telemetry["attempts"]; efficiency = telemetry["efficiency"]
     chart_html = f'<section><h2>Artwork convergence</h2><img src="{chart["path"]}?sha={chart["sha256"]}" alt="reference convergence graph"><p class="muted">Weighted rubric: silhouette 30%, proportions 25%, component geometry 20%, material identity 10%, detail readability 10%, fit 5%.</p></section>' if chart else '<section><h2>Artwork convergence</h2><p>Awaiting the first reference evaluation.</p></section>'
-    page = """<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="300"><meta name="viewport" content="width=device-width"><title>Asset production progress</title><style>body{margin:0;background:#07111f;color:#e5eefb;font:15px system-ui;padding:24px}main{max-width:1200px;margin:auto}.grid,.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}section,.metric{background:#111c2d;padding:16px;border-radius:12px;margin:18px 0}img{width:100%;border-radius:8px;background:#030712}small,.muted{color:#9fb1c8}li{margin:.4em 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #26364d}.bad{color:#fda4af}.good{color:#86efac}</style></head><body><main><h1>Cloud asset production progress</h1><small>Run """ + html.escape(run_root.name) + " · generated " + html.escape(generated) + " · refreshes every 5 minutes</small><div class=\"metrics\"><div class=\"metric\"><b>Attempts</b><br>" + str(attempts["completed"]) + " completed / " + str(attempts["failed"]) + " failed</div><div class=\"metric\"><b>Open blockers</b><br><span class=\"bad\">" + str(quality["blocking_open"]) + "</span></div><div class=\"metric\"><b>Quality gain / 1K tokens</b><br>" + str(efficiency["quality_gain_per_1k_tokens"] if efficiency["quality_gain_per_1k_tokens"] is not None else "unavailable") + "</div><div class=\"metric\"><b>Quality gain / compute minute</b><br>" + str(efficiency["quality_gain_per_compute_minute"] if efficiency["quality_gain_per_compute_minute"] is not None else "unavailable") + "</div></div>" + chart_html + "<section><h2>Asset patches in the last 5 minutes</h2><table><thead><tr><th>Lane</th><th>Status</th><th>Attempt</th><th>Output hashes</th><th>Completed</th></tr></thead><tbody>" + patch_rows + "</tbody></table></section><section><h2>Measured model spend</h2><table><thead><tr><th>Model</th><th>Provenance</th><th>Requests</th><th>Input</th><th>Cached</th><th>Output</th><th>Total tokens*</th></tr></thead><tbody>" + model_rows + "</tbody></table><p class=\"muted\">* Input plus output. Cached tokens are included in input and shown separately. Blender scripts use compute time and zero model calls. Luna remains unavailable until Codex exports task usage into the run ledger.</p></section><h2>Last four completed developments</h2><div class=\"grid\">" + "".join(cards) + "</div></main></body></html>"
+    spend_chart_html = f'<section><h2>Dollar spend and efficiency</h2><img src="{spend_chart["path"]}?sha={spend_chart["sha256"]}" alt="dollar spend and accepted quality gain graph"></section>' if spend_chart else '<section><h2>Dollar spend and efficiency</h2><p>Awaiting measured, priced model usage.</p></section>'
+    spend = telemetry["spend"]
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="300"><meta name="viewport" content="width=device-width"><title>Asset production progress</title><style>body{margin:0;background:#07111f;color:#e5eefb;font:15px system-ui;padding:24px}main{max-width:1200px;margin:auto}.grid,.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}section,.metric{background:#111c2d;padding:16px;border-radius:12px;margin:18px 0}img{width:100%;border-radius:8px;background:#030712}small,.muted{color:#9fb1c8}li{margin:.4em 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #26364d}.bad{color:#fda4af}.good{color:#86efac}</style></head><body><main><h1>Cloud asset production progress</h1><small>Run """ + html.escape(run_root.name) + " · generated " + html.escape(generated) + " · refreshes every 5 minutes</small><div class=\"metrics\"><div class=\"metric\"><b>Measured API spend</b><br>$" + f'{spend["measured_model_cost_usd"]:.4f}' + "</div><div class=\"metric\"><b>Accepted gain / $</b><br>" + str(efficiency["accepted_quality_gain_per_usd"] if efficiency["accepted_quality_gain_per_usd"] is not None else "unavailable") + "</div><div class=\"metric\"><b>Attempts</b><br>" + str(attempts["completed"]) + " completed / " + str(attempts["failed"]) + " failed</div><div class=\"metric\"><b>Open blockers</b><br><span class=\"bad\">" + str(quality["blocking_open"]) + "</span></div><div class=\"metric\"><b>Quality gain / compute minute</b><br>" + str(efficiency["quality_gain_per_compute_minute"] if efficiency["quality_gain_per_compute_minute"] is not None else "unavailable") + "</div></div>" + spend_chart_html + chart_html + "<section><h2>Asset patches in the last 5 minutes</h2><table><thead><tr><th>Lane</th><th>Status</th><th>Attempt</th><th>Output hashes</th><th>Completed</th></tr></thead><tbody>" + patch_rows + "</tbody></table></section><section><h2>Measured model spend</h2><table><thead><tr><th>Model</th><th>Provenance</th><th>Requests</th><th>Input</th><th>Cached</th><th>Output</th><th>USD cost</th></tr></thead><tbody>" + model_rows + "</tbody></table><p class=\"muted\">Costs apply each model's published uncached-input, cached-input, and output rates. Blender scripts use compute time and zero model calls. Models with unavailable task usage remain unpriced rather than counted as free.</p></section><h2>Last four completed developments</h2><div class=\"grid\">" + "".join(cards) + "</div></main></body></html>"
     (output / "index.html").write_text(page, encoding="utf-8")
     manifest = {"format": "myth-maker.asset-progress-dashboard/v2", "run_id": run_root.name, "generated_at": generated, "refresh_seconds": 300, "telemetry": telemetry, "assets": assets}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
