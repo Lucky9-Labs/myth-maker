@@ -74,6 +74,7 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('bpy.context.view_layer.update()', driver)
         self.assertIn('bpy.data.objects.remove(old_camera, do_unlink=True)', driver)
         self.assertIn('camera_data.shift_y = 0', driver)
+        self.assertIn('camera.matrix_world.to_quaternion() @ Vector((mid_x, mid_y, 0))', driver)
         self.assertIn('visible = [obj for obj in meshes if not obj.hide_render]', driver)
         self.assertIn('assembly mech coverage collapsed', driver)
         self.assertIn('"review_protocol": REVIEW_PROTOCOL', driver)
