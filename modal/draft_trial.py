@@ -30,7 +30,8 @@ from modal_volume_inputs import load_volume_inputs, validate_volume_input_manife
 from asset_production import (create_run_ledger, run_asset_production_job as execute_asset_production_job,
                               prepare_correction_wave, validate_critique_request, validate_job_manifest, validate_visual_critique)
 from asset_progress import build_dashboard, dashboard_bundle, evaluate_reference_progress
-from component_diffusion import run_component_diffusion, validate_component_diffusion_job
+from component_diffusion import (read_component_diffusion_status, run_component_diffusion,
+                                 validate_component_diffusion_job)
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -287,6 +288,14 @@ def run_component_diffusion_job(job: dict) -> dict:
     finally:
         if part_leases.get(lease_key) == lease_value:
             part_leases.pop(lease_key)
+
+
+@app.function(image=image, timeout=60, cpu=0.125, retries=0, max_containers=2,
+              volumes={"/submissions": volume})
+def get_component_diffusion_status(run_id: str, work_id: str, attempt: int) -> dict:
+    """Read the latest provider-persisted phase without waiting on the GPU invocation."""
+    volume.reload()
+    return read_component_diffusion_status(run_id, work_id, attempt, SUBMISSIONS_ROOT)
 
 
 @app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=6 * 60,

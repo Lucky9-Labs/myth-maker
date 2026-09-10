@@ -73,6 +73,29 @@ def masked_component_crop(reference: Path, polygon: list[list[float]], output: P
             "width": side, "height": side}
 
 
+def read_component_diffusion_status(run_id: str, work_id: str, attempt: int,
+                                    submissions_root: Path) -> dict:
+    import re
+    name = re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
+    if not name.fullmatch(run_id) or not name.fullmatch(work_id) or not isinstance(attempt, int) or attempt < 1:
+        raise ValueError("invalid component diffusion status identity")
+    root = (submissions_root / "asset-production" / run_id / "component-diffusion" /
+            work_id / f"attempt-{attempt:04d}")
+    result = {"format": "myth-maker.component-diffusion-status/v1", "run_id": run_id,
+              "work_id": work_id, "attempt": attempt, "status": "unavailable"}
+    for name_part in ("job", "phase", "receipt"):
+        path = root / f"{name_part}.json"
+        if path.is_file():
+            result[name_part] = json.loads(path.read_text())
+    if "receipt" in result:
+        result["status"] = result["receipt"].get("status", "terminal")
+    elif "phase" in result:
+        result["status"] = "running"
+    elif "job" in result:
+        result["status"] = "dispatched"
+    return result
+
+
 def _write_phase(attempt_root: Path, phase: str, status: str, started: datetime,
                  checkpoint: Callable[[], None] | None, **details: object) -> None:
     payload = {
