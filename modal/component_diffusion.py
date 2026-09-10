@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import time
+from typing import Callable
 
 
 FORMAT = "myth-maker.component-diffusion-job/v1"
@@ -38,9 +39,9 @@ def validate_component_diffusion_job(value: dict) -> dict:
                 any(not isinstance(axis, (int, float)) or not 0 <= axis <= 1 for axis in point)):
             raise ValueError("component diffusion polygon points must be normalized pairs")
     seeds = value["seeds"]
-    if (not isinstance(seeds, list) or not 1 <= len(seeds) <= 8 or len(set(seeds)) != len(seeds)
+    if (not isinstance(seeds, list) or len(seeds) != 1
             or any(not isinstance(seed, int) or not 0 <= seed <= 2**32 - 1 for seed in seeds)):
-        raise ValueError("component diffusion requires 1 to 8 unique uint32 seeds")
+        raise ValueError("component diffusion requires exactly one uint32 seed per immutable attempt")
     if not isinstance(value["num_inference_steps"], int) or not 5 <= value["num_inference_steps"] <= 50:
         raise ValueError("component diffusion inference steps must be between 5 and 50")
     if value["octree_resolution"] not in {128, 192, 256, 320, 384}:
@@ -72,7 +73,26 @@ def masked_component_crop(reference: Path, polygon: list[list[float]], output: P
             "width": side, "height": side}
 
 
-def run_component_diffusion(job: dict, submissions_root: Path) -> dict:
+def _write_phase(attempt_root: Path, phase: str, status: str, started: datetime,
+                 checkpoint: Callable[[], None] | None, **details: object) -> None:
+    payload = {
+        "format": "myth-maker.component-diffusion-phase/v1",
+        "phase": phase,
+        "status": status,
+        "started_at": started.isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        **details,
+    }
+    destination = attempt_root / "phase.json"
+    temporary = destination.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    temporary.replace(destination)
+    if checkpoint:
+        checkpoint()
+
+
+def run_component_diffusion(job: dict, submissions_root: Path,
+                            checkpoint: Callable[[], None] | None = None) -> dict:
     checked = validate_component_diffusion_job(job)
     run_root = submissions_root / "asset-production" / checked["run_id"]
     reference = run_root / "observability" / "mech-frozen-reference-preview.jpg"
@@ -88,18 +108,29 @@ def run_component_diffusion(job: dict, submissions_root: Path) -> dict:
     reference_data = reference.read_bytes()
     started = datetime.now(timezone.utc)
     clock = time.monotonic()
+    _write_phase(attempt_root, "reference-crop", "completed", started, checkpoint,
+                 reference_crop=crop)
     from PIL import Image
     import sys
     import torch
+    from huggingface_hub import snapshot_download
     sys.path.insert(0, "/opt/Hunyuan3D-2.1/hy3dshape")
     from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
-    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(MODEL, subfolder="hunyuan3d-dit-v2-1")
+    _write_phase(attempt_root, "model-cache", "running", started, checkpoint)
+    model_root = snapshot_download(repo_id=MODEL, allow_patterns=["hunyuan3d-dit-v2-1/*"])
+    _write_phase(attempt_root, "model-cache", "completed", started, checkpoint,
+                 model_root=model_root)
+    _write_phase(attempt_root, "model-load", "running", started, checkpoint)
+    pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
+        model_root, subfolder="hunyuan3d-dit-v2-1")
     pipeline.to("cuda")
+    _write_phase(attempt_root, "model-load", "completed", started, checkpoint)
     artifacts = []
     with Image.open(attempt_root / "reference-crop.png") as image:
         condition = image.convert("RGBA")
         for seed in checked["seeds"]:
             candidate_started = time.monotonic()
+            _write_phase(attempt_root, "shape-generation", "running", started, checkpoint, seed=seed)
             mesh = pipeline(
                 image=condition,
                 num_inference_steps=checked["num_inference_steps"],
@@ -115,6 +146,8 @@ def run_component_diffusion(job: dict, submissions_root: Path) -> dict:
                               "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                               "vertices": int(len(mesh.vertices)), "faces": int(len(mesh.faces)),
                               "generation_seconds": round(time.monotonic() - candidate_started, 3)})
+            _write_phase(attempt_root, "shape-generation", "completed", started, checkpoint,
+                         seed=seed, artifact=artifacts[-1])
     duration = time.monotonic() - clock
     estimated_cost = duration * (L40S_USD_PER_SECOND + 4 * CPU_USD_PER_CORE_SECOND + 32 * MEMORY_USD_PER_GIB_SECOND)
     receipt = {
