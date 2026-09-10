@@ -360,15 +360,15 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
             raise ValueError("correction spec contains an invalid command")
         common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale", "delta", "factor"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
-        if command["op"] == "add-box" and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
+        if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
                 or not numbers(command.get("dimensions"), 3, True) or command.get("material") not in materials):
             raise ValueError("add-box correction is invalid")
-        if command["op"] == "add-side-wedge":
+        if command["op"] in {"add-side-wedge", "add-mounted-side-wedge"}:
             profile = command.get("profile")
             if (not isinstance(command.get("owner"), str) or not isinstance(profile, list) or not 3 <= len(profile) <= 8
                     or not all(numbers(point, 2) for point in profile) or not isinstance(command.get("thickness"), (int, float))

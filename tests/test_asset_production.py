@@ -67,6 +67,15 @@ class AssetProductionTests(unittest.TestCase):
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["thickness"] = 99
         with self.assertRaisesRegex(ValueError, "add-side-wedge"): validate_correction_spec(invalid)
 
+    def test_validates_mount_relative_component_construction(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+            {"op": "add-mounted-box", "name": "thigh-shell-l", "owner": "mount-upperleg-l",
+             "location": [0, 0, 0], "dimensions": [.6, .5, 1.4], "material": "structural"},
+            {"op": "add-mounted-side-wedge", "name": "shin-facet-l", "owner": "mount-lowerleg-l",
+             "profile": [[-.3, .6], [.3, .5], [.22, -.6], [-.22, -.7]],
+             "thickness": .45, "material": "armor-white"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+
     def test_validates_material_reassignment(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
             {"op": "set-material", "name": "armor-torso", "material": "structural"}]}
@@ -89,6 +98,8 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('scene.world = bpy.data.worlds.new("asset-review-world")', driver)
         self.assertIn("def isolate_worker_ownership", driver)
         self.assertIn("def apply_reference_corrections", driver)
+        self.assertIn("def _mount_created", driver)
+        self.assertIn('command["op"] == "add-mounted-box"', driver)
         self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
         self.assertIn('"bow-blade-upper"', driver)
