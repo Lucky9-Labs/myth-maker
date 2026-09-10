@@ -7,7 +7,7 @@ import unittest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from component_diffusion import (FORMAT, MODEL, masked_component_crop,
+from component_diffusion import (A100_40GB_USD_PER_SECOND, FORMAT, MODEL, _gpu_identity, masked_component_crop,
                                  read_component_diffusion_status, validate_component_diffusion_job)
 
 
@@ -19,6 +19,16 @@ def job():
 
 
 class ComponentDiffusionTests(unittest.TestCase):
+    def test_gpu_identity_prices_allocated_fallback(self):
+        class Properties:
+            total_memory = 40 * 1024**3
+        class Cuda:
+            get_device_name = staticmethod(lambda _: "NVIDIA A100-SXM4-40GB")
+            get_device_properties = staticmethod(lambda _: Properties())
+        class Torch:
+            cuda = Cuda()
+        self.assertEqual(_gpu_identity(Torch), ("NVIDIA A100-SXM4-40GB", A100_40GB_USD_PER_SECOND))
+
     def test_closed_job_validation(self):
         self.assertEqual(validate_component_diffusion_job(job()), job())
         invalid = {**job(), "seeds": [1, 2]}
