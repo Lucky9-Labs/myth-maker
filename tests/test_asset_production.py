@@ -86,6 +86,18 @@ class AssetProductionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "add-mounted-tapered-prism"):
             validate_correction_spec(invalid)
 
+    def test_validates_bounded_mounted_lofted_shell(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{
+            "op": "add-mounted-lofted-shell", "name": "canopy-volume", "owner": "mount-canopyarmor",
+            "location": [0, 0, 0], "sections": [[-1.0, .35, .5], [0, 1.0, .9], [1.1, .4, .55]],
+            "segments": 12, "rotation_degrees": [0, 0, 0], "bevel": .02, "material": "lens"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        for mutate in (lambda command: command.update(segments=4),
+                       lambda command: command.update(sections=[[0, 1, 1], [-1, 1, 1], [1, 1, 1]])):
+            invalid = json.loads(json.dumps(spec)); mutate(invalid["commands"][0])
+            with self.assertRaisesRegex(ValueError, "add-mounted-lofted-shell"):
+                validate_correction_spec(invalid)
+
     def test_validates_bounded_mounted_arc_shell(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
             {"op": "add-mounted-arc-shell", "name": "cockpit-rim", "owner": "mount-cockpit",
@@ -151,11 +163,13 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn("def _mount_created", driver)
         self.assertIn('command["op"] == "add-mounted-box"', driver)
         self.assertIn('command["op"] == "add-mounted-arc-shell"', driver)
+        self.assertIn('command["op"] == "add-mounted-lofted-shell"', driver)
         self.assertIn('command["op"] == "add-mounted-frame"', driver)
         self.assertIn('command["op"] == "hide-prefix"', driver)
         self.assertIn('shader.inputs.get("Transmission Weight")', driver)
         self.assertIn('material.surface_render_method = "DITHERED"', driver)
         self.assertIn("def _add_polyline_frame", driver)
+        self.assertIn("def _add_lofted_shell", driver)
         self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
         self.assertIn('"bow-blade-upper"', driver)

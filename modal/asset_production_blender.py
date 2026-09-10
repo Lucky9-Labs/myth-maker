@@ -268,6 +268,36 @@ def _add_tapered_prism(name: str, dimensions: tuple[float, float, float],
         bevel.width = bevel_width; bevel.segments = 2; bevel.limit_method = "ANGLE"
 
 
+def _add_lofted_shell(name: str, sections, radial_segments: int, bevel_width: float,
+                       material: str, owner) -> None:
+    """Create a closed rounded shell from ordered Z/width/depth cross-sections."""
+    vertices = []
+    for z, width, depth in sections:
+        for index in range(radial_segments):
+            angle = 2.0 * math.pi * index / radial_segments
+            vertices.append((math.cos(angle) * width * 0.5,
+                             math.sin(angle) * depth * 0.5, z))
+    faces = []
+    for ring in range(len(sections) - 1):
+        low = ring * radial_segments; high = (ring + 1) * radial_segments
+        for index in range(radial_segments):
+            following = (index + 1) % radial_segments
+            faces.append((low + index, low + following, high + following, high + index))
+    faces.append(tuple(reversed(range(radial_segments))))
+    last = (len(sections) - 1) * radial_segments
+    faces.append(tuple(last + index for index in range(radial_segments)))
+    mesh = bpy.data.meshes.new(name + "-mesh"); mesh.from_pydata(vertices, [], faces); mesh.update()
+    obj = bpy.data.objects.new(name, mesh); bpy.context.scene.collection.objects.link(obj)
+    for key in ("asset_production_run", "asset_production_work", "asset_core_kit"):
+        if owner.get(key) is not None: obj[key] = owner[key]
+    obj["asset_role"] = "removable-armor" if material in {"armor-white", "armor-blue"} else "structure"
+    obj.data.materials.append(bpy.data.materials[material])
+    for polygon in mesh.polygons: polygon.use_smooth = True
+    if bevel_width:
+        bevel = obj.modifiers.new("reference-loft-bevel", "BEVEL")
+        bevel.width = bevel_width; bevel.segments = 2; bevel.limit_method = "ANGLE"
+
+
 def _add_arc_shell(name: str, inner_radius: float, outer_radius: float,
                    start_degrees: float, end_degrees: float, segments: int,
                    thickness: float, material: str, owner) -> None:
@@ -427,6 +457,12 @@ def apply_parameterized_correction(spec: dict) -> int:
         elif command["op"] == "add-mounted-tapered-prism":
             _add_tapered_prism(command["name"], tuple(command["dimensions"]), tuple(command["end_scale"]),
                                command["bevel"], command["material"], owner)
+            created = bpy.data.objects[command["name"]]
+            _mount_created(created, owner, tuple(command["location"]))
+            created.rotation_euler = tuple(math.radians(value) for value in command["rotation_degrees"])
+        elif command["op"] == "add-mounted-lofted-shell":
+            _add_lofted_shell(command["name"], tuple(tuple(section) for section in command["sections"]),
+                              command["segments"], command["bevel"], command["material"], owner)
             created = bpy.data.objects[command["name"]]
             _mount_created(created, owner, tuple(command["location"]))
             created.rotation_euler = tuple(math.radians(value) for value in command["rotation_degrees"])
