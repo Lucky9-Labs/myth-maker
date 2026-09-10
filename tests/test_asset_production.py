@@ -59,6 +59,18 @@ def job(slot: str = "worker-a", kind: str = "mech-structure") -> dict:
 
 
 class AssetProductionTests(unittest.TestCase):
+    def test_validates_diffusion_component_import(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{
+            "op": "import-component-glb", "name": "diffused-canopy-v1",
+            "owner": "mount-canopyarmor", "staged_name": "canopy.glb",
+            "location": [0, 0, 0], "dimensions": [1.4, .7, 1.7],
+            "rotation_degrees": [0, 0, 0], "decimate_ratio": .12,
+            "material": "lens"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["staged_name"] = "../canopy.glb"
+        with self.assertRaisesRegex(ValueError, "import-component-glb"):
+            validate_correction_spec(invalid)
+
     def test_validates_bounded_parameterized_geometry(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{"op": "add-side-wedge",
             "name": "shin-panel-left", "owner": "receiver", "profile": [[0, 0], [1, 0], [0, 1]],
@@ -387,6 +399,15 @@ class AssetProductionTests(unittest.TestCase):
             self.assertEqual(reconstructed[0]["correction_spec"], structure_spec)
             self.assertEqual(reconstructed[1]["correction_spec"], armor_spec)
             self.assertNotIn("correction_spec", reconstructed[2])
+            diffused = prepare_correction_wave(
+                root, {"source_sha": "f" * 40, "function_id": "fu-diffusion"},
+                reference_batch_slot="worker-b", correction_specs={"worker-b": armor_spec},
+                extra_inputs={"worker-b": [{"path": "asset-production/run/component.glb",
+                    "bytes": 321, "sha256": "9" * 64, "media_type": "model/gltf-binary",
+                    "staged_name": "canopy.glb"}]})
+            self.assertEqual(diffused[1]["inputs"][-1]["staged_name"], "canopy.glb")
+            self.assertEqual(diffused[1]["inputs"][-1]["sha256"], "9" * 64)
+            self.assertFalse(any(item.get("staged_name") == "canopy.glb" for item in diffused[0]["inputs"]))
             with self.assertRaisesRegex(ValueError, "exactly match"):
                 prepare_correction_wave(
                     root, {"source_sha": "f" * 40, "function_id": "fu-incomplete"},

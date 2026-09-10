@@ -413,14 +413,55 @@ def apply_reference_corrections(job_type: str) -> int:
     return changed
 
 
-def apply_parameterized_correction(spec: dict) -> int:
+def _import_component_glb(command: dict, inputs: Path, owner) -> None:
+    """Import one immutable diffusion mesh and fit it to a mount-local envelope."""
+    source = inputs / command["staged_name"]
+    if not source.is_file():
+        raise RuntimeError("diffusion component input is unavailable: " + command["staged_name"])
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=str(source))
+    imported = [obj for obj in bpy.data.objects if obj not in before and obj.type == "MESH"]
+    if not imported:
+        raise RuntimeError("diffusion component GLB contains no mesh")
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in imported:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = imported[0]
+    if len(imported) > 1:
+        bpy.ops.object.join()
+    obj = bpy.context.view_layer.objects.active
+    obj.name = command["name"]
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
+    dimensions = Vector(command["dimensions"])
+    current = obj.dimensions
+    if min(current) <= 1e-6:
+        raise RuntimeError("diffusion component has a collapsed dimension")
+    obj.scale = tuple(dimensions[index] / current[index] for index in range(3))
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if command["decimate_ratio"] < 1:
+        modifier = obj.modifiers.new("diffusion-performance-budget", "DECIMATE")
+        modifier.ratio = command["decimate_ratio"]
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
+    obj.data.materials.clear()
+    obj.data.materials.append(bpy.data.materials[command["material"]])
+    obj["asset_role"] = "removable-armor" if command["material"] in {"armor-white", "armor-blue", "lens"} else "structure"
+    obj["diffusion_source_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
+    _mount_created(obj, owner, tuple(command["location"]))
+    obj.rotation_euler = tuple(math.radians(value) for value in command["rotation_degrees"])
+
+
+def apply_parameterized_correction(spec: dict, inputs: Path) -> int:
     """Execute a control-plane validated, lane-local geometry patch."""
     ensure_materials(); changed = 0
     for command in spec["commands"]:
         owner = bpy.data.objects.get(command.get("owner", ""))
-        if command["op"].startswith("add-") and owner is None:
+        if (command["op"].startswith("add-") or command["op"] == "import-component-glb") and owner is None:
             raise RuntimeError("parameterized correction owner is unavailable: " + command.get("owner", ""))
-        if command["op"] == "normalize-materials":
+        if command["op"] == "import-component-glb":
+            _import_component_glb(command, inputs, owner)
+        elif command["op"] == "normalize-materials":
             normalized = 0
             for target in bpy.context.scene.objects:
                 if target.type != "MESH" or target.hide_render:
@@ -747,7 +788,7 @@ def main() -> int:
     if "apply-reference-corrections" in kinds:
         apply_reference_corrections(job["job_type"])
     if "apply-parameterized-correction" in kinds:
-        apply_parameterized_correction(job["correction_spec"])
+        apply_parameterized_correction(job["correction_spec"], Path(args.inputs))
     if "apply-core-kit" in kinds:
         apply_core_kit()
     if job["job_type"] == "railgun" or "animate" in kinds:

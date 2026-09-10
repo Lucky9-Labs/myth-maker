@@ -258,7 +258,8 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
                             apply_reference_batch: bool = False,
                             reference_batch_slot: str | None = None,
                             correction_spec: dict | None = None,
-                            correction_specs: dict[str, dict] | None = None) -> list[dict]:
+                            correction_specs: dict[str, dict] | None = None,
+                            extra_inputs: dict[str, list[dict]] | None = None) -> list[dict]:
     """Advance from promoted baselines; apply a new batch only when explicitly requested."""
     if set(runtime_deployment) != {"source_sha", "function_id"}:
         raise ValueError("correction wave requires the current runtime deployment")
@@ -271,8 +272,11 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
     if selected_slots - set(SLOTS[:3]):
         raise ValueError("correction wave contains an invalid component lane selection")
     correction_specs = correction_specs or {}
+    extra_inputs = extra_inputs or {}
     if set(correction_specs) - set(SLOTS[:3]):
         raise ValueError("correction wave contains a spec for an invalid component lane")
+    if set(extra_inputs) - set(SLOTS[:3]):
+        raise ValueError("correction wave contains inputs for an invalid component lane")
     if correction_spec is not None and correction_specs:
         raise ValueError("use either the legacy shared correction spec or per-lane correction specs")
     if correction_specs and set(correction_specs) != selected_slots:
@@ -290,6 +294,8 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         inputs = ([{"path": native["volume_path"], "bytes": native["bytes"], "sha256": native["sha256"],
                     "media_type": "application/x-blender", "staged_name": "source.blend"}, *references]
                   if slot != "worker-d" else [dict(item) for item in prior["inputs"]])
+        if slot in extra_inputs:
+            inputs.extend(json.loads(json.dumps(extra_inputs[slot])))
         attempts = [item.get("attempt", 0) for _path, item in receipts if item.get("work_id") == receipt["work_id"]]
         operations = [dict(item) for item in prior["operations"]]
         # A correction is baked into the immutable native baseline. Replaying
@@ -371,9 +377,9 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "import-component-glb", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -429,6 +435,17 @@ def validate_correction_spec(value: dict) -> dict:
                     or not isinstance(command.get("closed"), bool)
                     or command.get("material") not in materials):
                 raise ValueError("add-mounted-frame correction is invalid")
+        if command["op"] == "import-component-glb":
+            staged = command.get("staged_name")
+            ratio = command.get("decimate_ratio")
+            if (not isinstance(command.get("owner"), str) or not command["owner"]
+                    or not isinstance(staged, str) or Path(staged).name != staged or not staged.endswith(".glb")
+                    or not numbers(command.get("location"), 3)
+                    or not numbers(command.get("dimensions"), 3, True)
+                    or not numbers(command.get("rotation_degrees"), 3, limit=180)
+                    or not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or not 0.01 <= ratio <= 1
+                    or command.get("material") not in materials):
+                raise ValueError("import-component-glb correction is invalid")
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
         if command["op"] == "scale" and (set(command) != expected or not numbers(command.get("scale"), 3, True)):
             raise ValueError("scale correction is invalid")
