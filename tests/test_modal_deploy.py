@@ -35,6 +35,12 @@ class ModalDeployTest(unittest.TestCase):
         self.assertIn('COMPONENT_DIFFUSION_FUNCTION = "run_component_diffusion_job"', deployed)
         self.assertIn('"component_diffusion_function_id": component_diffusion.object_id', deployed)
 
+    def test_diffusion_observer_reports_the_gpu_function_queue(self):
+        observer = (Path(__file__).parents[1] / "scripts" / "get_component_diffusion_status.py").read_text()
+        self.assertIn("config.component_diffusion_function_name", observer)
+        self.assertIn('status["diffusion_function_stats"]', observer)
+        self.assertNotIn('status["function_stats"]', observer)
+
     def test_named_secret_is_force_refreshed_from_this_ci_run(self):
         with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"Name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
             modal_deploy.ensure_named_resources("dev")

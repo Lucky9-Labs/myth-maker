@@ -25,12 +25,17 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     config = runtime(args.environment)
-    function = modal.Function.from_name(
+    status_function = modal.Function.from_name(
         config.app_name, "get_component_diffusion_status", environment_name=config.environment)
-    function.hydrate()
-    stats = function.get_current_stats()
-    status = function.remote(args.run_id, args.work_id, args.attempt, args.component_id)
-    status["function_stats"] = {
+    diffusion_function = modal.Function.from_name(
+        config.app_name, config.component_diffusion_function_name,
+        environment_name=config.environment)
+    status_function.hydrate()
+    diffusion_function.hydrate()
+    stats = diffusion_function.get_current_stats()
+    status = status_function.remote(args.run_id, args.work_id, args.attempt, args.component_id)
+    status["diffusion_function_stats"] = {
+        "function_name": config.component_diffusion_function_name,
         "backlog": stats.backlog,
         "num_total_runners": stats.num_total_runners,
         "num_running_inputs": stats.num_running_inputs,
