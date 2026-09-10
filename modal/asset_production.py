@@ -257,7 +257,8 @@ def _read_json(path: Path) -> dict | None:
 def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
                             apply_reference_batch: bool = False,
                             reference_batch_slot: str | None = None,
-                            correction_spec: dict | None = None) -> list[dict]:
+                            correction_spec: dict | None = None,
+                            correction_specs: dict[str, dict] | None = None) -> list[dict]:
     """Advance from promoted baselines; apply a new batch only when explicitly requested."""
     if set(runtime_deployment) != {"source_sha", "function_id"}:
         raise ValueError("correction wave requires the current runtime deployment")
@@ -269,6 +270,15 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
     selected_slots = set(reference_batch_slot.split("+")) if reference_batch_slot else set()
     if selected_slots - set(SLOTS[:3]):
         raise ValueError("correction wave contains an invalid component lane selection")
+    correction_specs = correction_specs or {}
+    if set(correction_specs) - set(SLOTS[:3]):
+        raise ValueError("correction wave contains a spec for an invalid component lane")
+    if correction_spec is not None and correction_specs:
+        raise ValueError("use either the legacy shared correction spec or per-lane correction specs")
+    if correction_specs and set(correction_specs) != selected_slots:
+        raise ValueError("per-lane correction specs must exactly match the selected component lanes")
+    for lane_spec in correction_specs.values():
+        validate_correction_spec(lane_spec)
     wave = []
     for slot in SLOTS:
         candidates = [(path, item) for path, item in receipts if item.get("worker_slot") == slot and item.get("status") == "completed" and (item.get("artifacts") or {}).get("asset.blend")]
@@ -290,16 +300,17 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
                 "apply-reference-corrections", "apply-parameterized-correction"}]
         if slot != "worker-d" and apply_reference_batch and (not selected_slots or slot in selected_slots):
             operations.append({"kind": "apply-reference-corrections"})
-        if correction_spec is not None and slot in selected_slots:
-            validate_correction_spec(correction_spec)
+        lane_spec = correction_specs.get(slot, correction_spec if slot in selected_slots else None)
+        if lane_spec is not None:
+            validate_correction_spec(lane_spec)
             operations.append({"kind": "apply-parameterized-correction"})
         candidate = {**prior, "attempt": max(attempts) + 1,
             "runtime_deployment": dict(runtime_deployment), "source_revision": native["sha256"],
             "inputs": inputs, "dependencies": [] if slot != "worker-d" else list(prior["dependencies"]),
             "operations": operations}
         candidate.pop("correction_spec", None)
-        if correction_spec is not None and slot in selected_slots:
-            candidate["correction_spec"] = correction_spec
+        if lane_spec is not None:
+            candidate["correction_spec"] = lane_spec
         wave.append(validate_job_manifest(candidate))
     return plan_production_wave(wave)
 
