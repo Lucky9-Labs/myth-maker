@@ -30,8 +30,7 @@ jobs:
           python-version: '3.12'
       - name: Install pinned Modal client
         run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
-      - name: Generate immutable component candidates in Modal
-        timeout-minutes: 35
+      - name: Dispatch immutable component candidate in Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}

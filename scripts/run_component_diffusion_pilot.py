@@ -19,6 +19,8 @@ def main() -> int:
     parser.add_argument("--environment", default="dev")
     parser.add_argument("--job-json", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--wait", action="store_true",
+                        help="wait for the terminal provider receipt instead of returning after dispatch")
     args = parser.parse_args()
     job = validate_component_diffusion_job(json.loads(args.job_json))
     config = runtime(args.environment)
@@ -38,6 +40,9 @@ def main() -> int:
         "dispatched_at": datetime.now(timezone.utc).isoformat(),
     }
     output.write_text(json.dumps(dispatch, indent=2, sort_keys=True) + "\n")
+    print(json.dumps(dispatch, sort_keys=True))
+    if not args.wait:
+        return 0
     receipt = call.get()
     receipt["dispatch"] = dispatch
     output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
