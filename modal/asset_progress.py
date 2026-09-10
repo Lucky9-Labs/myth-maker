@@ -59,19 +59,27 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
         latest_protocol = values[-1].get("review_protocol", "legacy")
         values = [item for item in values if item.get("review_protocol", "legacy") == latest_protocol]
         historical_scores = {}
+        evaluated_pairs = set()
         for path in (run_root / "observability" / "evaluations").glob("*.json"):
             receipt = _read_json(path) or {}
-            for row in ((receipt.get("evaluation") or {}).get("evaluations") or []):
+            asset_rows = [row for row in ((receipt.get("evaluation") or {}).get("evaluations") or [])
+                          if row.get("asset_id") == asset_id]
+            for row in asset_rows:
                 if row.get("asset_id") == asset_id and isinstance(row.get("weighted_score"), (int, float)):
                     historical_scores[row.get("render_sha256")] = row["weighted_score"]
+            if len(asset_rows) == 1:
+                evaluated_pairs.add((None, asset_rows[0].get("render_sha256")))
+            elif len(asset_rows) == 2:
+                evaluated_pairs.add((asset_rows[0].get("render_sha256"), asset_rows[1].get("render_sha256")))
         latest = values[-1]
-        if latest["render_sha256"] in historical_scores:
-            continue
         prior = values[:-1]
         promoted_digest = accepted_baselines.get(asset_id)
         baseline = next((item for item in reversed(prior) if item["render_sha256"] == promoted_digest), None)
         if baseline is None and prior:
             baseline = max(prior, key=lambda item: historical_scores.get(item["render_sha256"], -1))
+        comparison = (baseline["render_sha256"] if baseline else None, latest["render_sha256"])
+        if comparison in evaluated_pairs:
+            continue
         if baseline:
             baseline_signature = _asset_component_signature(run_root, asset_id, baseline["render_sha256"])
             latest_signature = _asset_component_signature(run_root, asset_id, latest["render_sha256"])

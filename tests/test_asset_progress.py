@@ -145,6 +145,24 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual([item["render_sha256"] for item in selected],
                              [values[1]["render_sha256"], values[3]["render_sha256"]])
 
+    def test_reference_input_reevaluates_candidate_previously_compared_to_rejected_baseline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            for attempt in range(1, 4): self._attempt(root, "mech", attempt, "kit-assembly")
+            values = completed_developments(root)["mech"]
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "accepted.json").write_text(json.dumps({"status": "completed", "created_at": "2026-09-09T00:01:00Z",
+                "evaluation": {"evaluations": [
+                    {"asset_id": "mech", "render_sha256": values[0]["render_sha256"], "weighted_score": 40},
+                    {"asset_id": "mech", "render_sha256": values[1]["render_sha256"], "weighted_score": 44}]}}))
+            (evaluations / "wrong-baseline.json").write_text(json.dumps({"status": "completed", "created_at": "2026-09-09T00:02:00Z",
+                "evaluation": {"evaluations": [
+                    {"asset_id": "mech", "render_sha256": values[0]["render_sha256"], "weighted_score": 50},
+                    {"asset_id": "mech", "render_sha256": values[2]["render_sha256"], "weighted_score": 51}]}}))
+            selected = reference_evaluation_inputs(root)["mech"]["developments"]
+            self.assertEqual([item["render_sha256"] for item in selected],
+                             [values[1]["render_sha256"], values[2]["render_sha256"]])
+
     def test_progress_history_retains_unique_candidate_deltas(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run-one"; evaluations = root / "observability" / "evaluations"
