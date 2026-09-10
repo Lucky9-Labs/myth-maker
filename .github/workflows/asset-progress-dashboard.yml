@@ -6,7 +6,7 @@ on:
       evaluate:
         description: Run the paid Astra reference evaluation before building the dashboard
         required: false
-        default: true
+        default: false
         type: boolean
   schedule:
     - cron: '*/5 * * * *'
@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           args=(--environment dev --run-id raptor-mech-railgun-pilot-001 --output output/asset-progress)
-          effective_evaluate="${EVALUATE:-true}"
+          effective_evaluate="${EVALUATE:-false}"
           if [[ "$effective_evaluate" != "true" ]]; then
             args+=(--skip-evaluation)
           fi
