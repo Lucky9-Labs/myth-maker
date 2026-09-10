@@ -308,12 +308,16 @@ def render_views(output: Path, views: list[str], job: dict) -> None:
     scene.world.color = (0.025, 0.03, 0.04)
     output.mkdir(parents=True, exist_ok=True)
     for view in views:
-        visible = meshes
+        # Camera framing must use the exact set Blender will render. Source WIP
+        # often contains hidden alternates whose distant bounds otherwise turn a
+        # full-body review into a misleading crop.
+        visible = [obj for obj in meshes if not obj.hide_render]
         if job["job_type"] == "kit-assembly" and view in {"full-body", "front", "side", "rear", "articulation"}:
-            visible = [obj for obj in meshes if obj.get("asset_source_lane") != "c"]
+            visible = [obj for obj in visible if obj.get("asset_source_lane") != "c"]
+        if not visible:
+            raise RuntimeError(f"review view {view} has no renderable mesh geometry")
         low, high = bounds(visible)
         center, size = (low + high) * 0.5, max((high - low).length, 1.0)
-        camera_data.ortho_scale = size * 1.15
         direction = Vector(positions[view]).normalized()
         if job["job_type"] == "railgun" and view == "side":
             dimensions = high - low
@@ -321,6 +325,16 @@ def render_views(output: Path, views: list[str], job: dict) -> None:
             direction = Vector((0, -1, 0)) if longest == 0 else Vector((1, 0, 0))
         camera.location = center + direction * size
         look_at(camera, center)
+        # Fit the projected bounds after orienting the camera. Orthographic scale
+        # is vertical, so a world-space diagonal is neither necessary nor
+        # sufficient when an imported asset has arbitrary axes.
+        inverse = camera.matrix_world.inverted()
+        projected = [inverse @ (obj.matrix_world @ Vector(corner))
+                     for obj in visible for corner in obj.bound_box]
+        width = max(point.x for point in projected) - min(point.x for point in projected)
+        height = max(point.y for point in projected) - min(point.y for point in projected)
+        aspect = scene.render.resolution_x / scene.render.resolution_y
+        camera_data.ortho_scale = max(height, width / aspect, 0.1) * 1.12
         if view == "charge-rest": scene.frame_set(1)
         if view == "charge-mid": scene.frame_set(max(1, scene.frame_end // 2))
         if view == "charge-full": scene.frame_set(max(1, scene.frame_end))
@@ -343,6 +357,8 @@ def scene_manifest(job: dict) -> dict:
             "location": [round(value, 6) for value in obj.location],
             "rotation": [round(value, 6) for value in obj.rotation_euler],
             "scale": [round(value, 6) for value in obj.scale],
+            "renderable": not obj.hide_render,
+            "source_lane": obj.get("asset_source_lane"),
         })
     triangles = 0
     for obj in bpy.context.scene.objects:
@@ -378,10 +394,23 @@ def fit_report(job: dict, manifest: dict) -> dict:
             blockers.append("rig binding has neither an armature nor mechanical pivots")
     if not any(item["type"] == "MESH" for item in manifest["objects"]):
         blockers.append("scene has no mesh geometry")
+    mesh_objects = [item for item in manifest["objects"] if item["type"] == "MESH"]
+    renderable_meshes = [item for item in mesh_objects if item["renderable"]]
+    lane_counts = {lane: sum(item.get("source_lane") == lane for item in renderable_meshes)
+                   for lane in ("a", "b", "c")}
+    if job["job_type"] == "kit-assembly":
+        missing_lanes = [lane for lane, count in lane_counts.items() if count == 0]
+        if missing_lanes:
+            blockers.append("assembly has no renderable geometry from worker lane(s): " + ", ".join(missing_lanes))
+        mech_renderable = [item for item in renderable_meshes if item.get("source_lane") != "c"]
+        if len(mech_renderable) < 8:
+            blockers.append(f"assembly mech coverage collapsed to {len(mech_renderable)} renderable meshes")
     return {
         "format": "myth-maker.asset-fit-report/v1", "run_id": job["run_id"],
         "work_id": job["work_id"], "blocking": blockers,
-        "checks": {"removable_armor_count": len(armor), "required_anchor_count": len(set(ANCHORS) & names)},
+        "checks": {"removable_armor_count": len(armor), "required_anchor_count": len(set(ANCHORS) & names),
+                   "mesh_count": len(mesh_objects), "renderable_mesh_count": len(renderable_meshes),
+                   "renderable_source_lane_counts": lane_counts},
     }
 
 

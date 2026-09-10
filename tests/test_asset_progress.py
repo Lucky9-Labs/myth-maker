@@ -3,7 +3,7 @@ from pathlib import Path
 from PIL import Image
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
-from asset_progress import (build_dashboard, completed_developments, production_observability,
+from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
                             reference_evaluation_inputs, validate_reference_evaluation)
 
 class AssetProgressTests(unittest.TestCase):
@@ -40,6 +40,18 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual(manifest["assets"]["railgun"]["gif"]["frames"], 4)
             with Image.open(gif) as image: self.assertEqual(image.n_frames, 4)
             self.assertIn('content="300"', (root / "observability" / "index.html").read_text())
+
+    def test_private_bundle_includes_latest_structural_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            self._attempt(root, "mech", 1, "kit-assembly")
+            self._attempt(root, "mech", 2, "kit-assembly")
+            attempt = root / "mech" / "attempt-0002" / "output"
+            (attempt / "scene-manifest.json").write_text(json.dumps({"objects": ["latest"]}))
+            (attempt / "fit-report.json").write_text(json.dumps({"blocking": []}))
+            files = dashboard_bundle(root)["files_base64"]
+            self.assertIn("latest-kit-assembly-attempt-0002-scene-manifest.json", files)
+            self.assertIn("latest-kit-assembly-attempt-0002-fit-report.json", files)
 
     def test_reports_five_minute_patches_and_measured_model_usage(self):
         from datetime import datetime, timezone
