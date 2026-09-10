@@ -12,6 +12,9 @@ on:
       attempt:
         required: true
         type: number
+      component_id:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -39,6 +42,7 @@ jobs:
             --run-id '${{ inputs.run_id }}' \
             --work-id '${{ inputs.work_id }}' \
             --attempt '${{ inputs.attempt }}' \
+            --component-id '${{ inputs.component_id }}' \
             --output receipts/component-diffusion-status.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
