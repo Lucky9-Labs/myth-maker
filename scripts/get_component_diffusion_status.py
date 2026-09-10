@@ -2,6 +2,7 @@
 """Read a component-diffusion attempt's provider-persisted phase."""
 from __future__ import annotations
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import modal
@@ -20,6 +21,7 @@ def main() -> int:
     parser.add_argument("--attempt", required=True, type=int)
     parser.add_argument("--component-id", required=True)
     parser.add_argument("--provider-call-id", default="")
+    parser.add_argument("--cancel-provider-call", action="store_true")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     config = runtime(args.environment)
@@ -37,6 +39,15 @@ def main() -> int:
     if args.provider_call_id:
         call = modal.FunctionCall.from_id(args.provider_call_id)
         status["provider_call_id"] = args.provider_call_id
+        if args.cancel_provider_call:
+            call.cancel(terminate_containers=True)
+            status["provider_call_status"] = "cancelled"
+            status["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            output = Path(args.output)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")
+            print(json.dumps(status, sort_keys=True))
+            return 0
         try:
             status["provider_result"] = call.get(timeout=0)
             status["provider_call_status"] = "completed"
