@@ -4,7 +4,7 @@ from PIL import Image
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
 from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
-                            reference_evaluation_inputs, validate_reference_evaluation)
+                            reference_evaluation_inputs, reference_progress_history, validate_reference_evaluation)
 
 class AssetProgressTests(unittest.TestCase):
     def _attempt(self, root, work, attempt, job_type, status="completed"):
@@ -93,4 +93,17 @@ class AssetProgressTests(unittest.TestCase):
             selected = reference_evaluation_inputs(root)["mech"]["developments"]
             self.assertEqual([item["render_sha256"] for item in selected],
                              [values[1]["render_sha256"], values[3]["render_sha256"]])
+
+    def test_progress_history_retains_unique_candidate_deltas(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"; evaluations = root / "observability" / "evaluations"
+            evaluations.mkdir(parents=True)
+            for index, (candidate, scores) in enumerate((("b", (30, 34)), ("b", (31, 35)), ("c", (34, 33))), 1):
+                rows = [{"asset_id": "mech", "render_sha256": "a", "weighted_score": scores[0]},
+                        {"asset_id": "mech", "render_sha256": candidate, "weighted_score": scores[1]}]
+                (evaluations / f"{index}.json").write_text(json.dumps({"status": "completed",
+                    "created_at": f"2026-09-09T00:0{index}:00+00:00", "evaluation": {"evaluations": rows}}))
+            history = reference_progress_history(root)
+            self.assertEqual([(row["render_sha256"], row["delta"], row["cumulative_net_gain"]) for row in history],
+                             [("b", 4, 4), ("c", -1, 3)])
 if __name__ == "__main__": unittest.main()

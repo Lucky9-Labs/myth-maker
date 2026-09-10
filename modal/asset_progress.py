@@ -141,22 +141,48 @@ def latest_reference_evaluation(run_root: Path) -> dict | None:
     receipts = [value for path in (run_root / "observability" / "evaluations").glob("*.json") if (value := _read_json(path))]
     return max(receipts, key=lambda item: item.get("created_at") or "") if receipts else None
 
-def _progress_svg(evaluation: dict | None, developments: dict[str, list[dict]], output: Path) -> dict | None:
-    if not evaluation:
+def reference_progress_history(run_root: Path) -> list[dict]:
+    """Return one same-request delta for each newly observed candidate render."""
+    receipts = sorted(
+        (value for path in (run_root / "observability" / "evaluations").glob("*.json")
+         if (value := _read_json(path)) and value.get("status") == "completed"),
+        key=lambda item: item.get("created_at") or "")
+    seen, cumulative, history = set(), {"mech": 0.0, "railgun": 0.0}, []
+    for receipt in receipts:
+        rows = (receipt.get("evaluation") or {}).get("evaluations") or []
+        for asset_id in ("mech", "railgun"):
+            asset_rows = [row for row in rows if row.get("asset_id") == asset_id]
+            if len(asset_rows) < 2:
+                continue
+            candidate = asset_rows[-1]
+            identity = (asset_id, candidate.get("render_sha256"))
+            if identity in seen:
+                continue
+            seen.add(identity)
+            delta = round(candidate["weighted_score"] - asset_rows[0]["weighted_score"], 2)
+            cumulative[asset_id] = round(cumulative[asset_id] + delta, 2)
+            history.append({"created_at": receipt.get("created_at"), "asset_id": asset_id,
+                            "render_sha256": candidate.get("render_sha256"), "delta": delta,
+                            "cumulative_net_gain": cumulative[asset_id]})
+    return history
+
+def _progress_svg(history: list[dict], output: Path) -> dict | None:
+    if not history:
         return None
-    rows = evaluation["evaluation"]["evaluations"]
     points, polylines, labels = [], [], []
     colors = {"mech": "#67e8f9", "railgun": "#fbbf24"}
+    extrema = [0.0] + [row["cumulative_net_gain"] for row in history]
+    low, high = min(extrema), max(extrema)
+    span = max(1.0, high - low)
     for asset_id in ("mech", "railgun"):
-        asset_rows = [row for row in rows if row["asset_id"] == asset_id]
+        asset_rows = [row for row in history if row["asset_id"] == asset_id]
         coordinates = []
         for index, row in enumerate(asset_rows):
-            x = 90 + index * (780 / max(1, len(asset_rows) - 1)); y = 330 - row["weighted_score"] * 2.7
-            coordinates.append(f"{x:.1f},{y:.1f}"); points.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="{colors[asset_id]}"/><text x="{x:.1f}" y="{y-12:.1f}" text-anchor="middle" fill="#e5eefb">{row["weighted_score"]:.1f}</text>')
+            x = 90 + index * (780 / max(1, len(asset_rows) - 1)); y = 330 - ((row["cumulative_net_gain"] - low) / span) * 270
+            coordinates.append(f"{x:.1f},{y:.1f}"); points.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="{colors[asset_id]}"/><text x="{x:.1f}" y="{y-12:.1f}" text-anchor="middle" fill="#e5eefb">{row["cumulative_net_gain"]:+.1f}</text>')
         if coordinates: polylines.append(f'<polyline points="{" ".join(coordinates)}" fill="none" stroke="{colors[asset_id]}" stroke-width="4"/>')
         labels.append(f'<text x="{100 + len(labels)*180}" y="385" fill="{colors[asset_id]}">● {asset_id}</text>')
-    grid = "".join(f'<line x1="80" y1="{330-i*54}" x2="880" y2="{330-i*54}" stroke="#26364d"/><text x="45" y="{335-i*54}" fill="#9fb1c8">{i*20}</text>' for i in range(6))
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410"><rect width="960" height="410" fill="#111c2d"/><text x="40" y="35" fill="#f8fafc" font-size="20">Reference convergence over completed revisions</text>{grid}{"".join(polylines)}{"".join(points)}{"".join(labels)}</svg>'
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410"><rect width="960" height="410" fill="#111c2d"/><text x="40" y="35" fill="#f8fafc" font-size="20">Cumulative net reference progress by candidate</text>{"".join(polylines)}{"".join(points)}{"".join(labels)}</svg>'
     output.write_text(svg, encoding="utf-8")
     data = output.read_bytes()
     return {"path": output.name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
@@ -229,12 +255,9 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     completed = sum(item["status"] == "completed" for item in attempts)
     failed = sum(item["status"] == "failed" for item in attempts)
     evaluation = latest_reference_evaluation(run_root)
+    history = reference_progress_history(run_root)
     scores = (evaluation or {}).get("evaluation", {}).get("evaluations", [])
-    gains = []
-    for asset_id in ("mech", "railgun"):
-        asset_scores = [item["weighted_score"] for item in scores if item["asset_id"] == asset_id]
-        if len(asset_scores) >= 2:
-            gains.append(asset_scores[-1] - asset_scores[0])
+    gains = [row["delta"] for row in history]
     measured_tokens = sum(row["total_tokens"] or 0 for row in model_rows.values() if row["provenance"] == "measured")
     compute_minutes = sum((item["duration_ms"] or 0) for item in attempts) / 60000
     return {"window_started_at": cutoff.isoformat(), "patches_last_5m": patches,
@@ -246,7 +269,8 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
                     "cosmetic_backlog": sum(item.get("disposition") == "backlog" for item in defects),
                     "accepted_asset_set": False},
         "reference_convergence": {"provenance": "measured" if evaluation else "unavailable",
-                                  "latest_evaluation": evaluation, "net_quality_gain": round(sum(gains), 2) if evaluation else None},
+                                  "latest_evaluation": evaluation, "history": history,
+                                  "net_quality_gain": round(sum(gains), 2) if evaluation else None},
         "efficiency": {"quality_gain_per_1k_tokens": round(sum(gains) * 1000 / measured_tokens, 3) if evaluation and measured_tokens else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
                        "tokens_per_accepted_asset_set": {"provenance": "unavailable", "value": None},
@@ -315,7 +339,7 @@ def build_dashboard(run_root: Path) -> dict:
     generated_at = datetime.now(timezone.utc)
     developments = completed_developments(run_root)
     telemetry = production_observability(run_root, generated_at)
-    chart = _progress_svg(telemetry["reference_convergence"]["latest_evaluation"], developments, output / "reference-convergence.svg")
+    chart = _progress_svg(telemetry["reference_convergence"]["history"], output / "reference-convergence.svg")
     assets, cards = {}, []
     for asset_id, values in developments.items():
         gif = _gif(values, output / f"{asset_id}-last-four.gif")
