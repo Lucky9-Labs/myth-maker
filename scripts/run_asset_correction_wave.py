@@ -12,12 +12,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(); parser.add_argument("--environment", default="dev")
     parser.add_argument("--run-id", required=True); parser.add_argument("--source-sha", required=True)
     parser.add_argument("--apply-reference-batch", action="store_true")
+    parser.add_argument("--reference-batch-slot", choices=("worker-a", "worker-b", "worker-c"))
     parser.add_argument("--output", required=True); args = parser.parse_args()
     config = runtime(args.environment)
     production = modal.Function.from_name(config.app_name, config.asset_production_function_name, environment_name=config.environment); production.hydrate()
     prepare = modal.Function.from_name(config.app_name, "prepare_asset_correction_wave", environment_name=config.environment)
     wave = prepare.remote(args.run_id, {"source_sha": args.source_sha, "function_id": production.object_id},
-                          args.apply_reference_batch)
+                          args.apply_reference_batch, args.reference_batch_slot)
     calls = [production.spawn(job) for job in wave[:3]]; receipts = [call.get(timeout=20 * 60) for call in calls]
     if any(item.get("status") != "completed" for item in receipts):
         raise RuntimeError("one or more correction lanes failed; inspect returned receipts")

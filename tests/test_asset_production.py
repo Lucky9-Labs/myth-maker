@@ -65,9 +65,9 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('scene.world = bpy.data.worlds.new("asset-review-world")', driver)
         self.assertIn("def isolate_worker_ownership", driver)
         self.assertIn("def apply_reference_corrections", driver)
-        self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v2"', driver)
+        self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v3"', driver)
         self.assertIn('"frame-foot-toe"', driver)
-        self.assertIn('name == "receiver"', driver)
+        self.assertIn('"receiver-upper-armor"', driver)
         self.assertIn("reference correction batch matched no owned geometry", driver)
         self.assertIn("def mount_railgun_to_mech", driver)
         self.assertIn('obj["asset_source_lane"]', driver)
@@ -257,9 +257,10 @@ class AssetProductionTests(unittest.TestCase):
                            "status": "completed", "artifacts": {"asset.blend": native}}
                 (attempt / "receipt.json").write_text(json.dumps(receipt))
             corrected = prepare_correction_wave(root, {"source_sha": "c" * 40, "function_id": "fu-next"},
-                                                apply_reference_batch=True)
+                                                apply_reference_batch=True, reference_batch_slot="worker-c")
             self.assertEqual([item["attempt"] for item in corrected], [4, 4, 4, 4])
-            self.assertTrue(all({"kind": "apply-reference-corrections"} in item["operations"] for item in corrected[:3]))
+            self.assertTrue(all({"kind": "apply-reference-corrections"} not in item["operations"] for item in corrected[:2]))
+            self.assertIn({"kind": "apply-reference-corrections"}, corrected[2]["operations"])
             self.assertEqual(corrected[0]["inputs"][0]["sha256"], "1" * 64)
 
             # The next immutable baseline already contains that patch, so the
