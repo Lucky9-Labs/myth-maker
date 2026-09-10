@@ -46,7 +46,7 @@ def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str
 
 def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
     """Resolve one frozen reference, promoted baseline, and newest candidate per asset."""
-    developments = completed_developments(run_root)
+    developments = completed_developments(run_root, limit=None)
     accepted_baselines = {}
     for row in reference_progress_history(run_root):
         if row["accepted"]:
@@ -388,7 +388,7 @@ def _read_json(path: Path) -> dict | None:
     except (OSError, json.JSONDecodeError):
         return None
 
-def completed_developments(run_root: Path, limit: int = 4) -> dict[str, list[dict]]:
+def completed_developments(run_root: Path, limit: int | None = 4) -> dict[str, list[dict]]:
     """Select the last N hash-verified renders for each logical asset."""
     selected = {asset_id: [] for asset_id in ASSETS}
     for receipt_path in run_root.glob("*/attempt-*/receipt.json"):
@@ -417,7 +417,7 @@ def completed_developments(run_root: Path, limit: int = 4) -> dict[str, list[dic
             "review_protocol": (_read_json(receipt_path.parent / "output" / "scene-manifest.json") or {}).get("review_protocol", "legacy")})
     for asset_id, values in selected.items():
         values.sort(key=lambda item: (item.get("completed_at") or "", item.get("attempt") or 0, item.get("work_id") or ""))
-        selected[asset_id] = values[-limit:]
+        selected[asset_id] = values[-limit:] if limit is not None else values
     return selected
 
 def _gif(developments: list[dict], output: Path) -> dict | None:

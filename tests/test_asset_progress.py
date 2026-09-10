@@ -31,6 +31,7 @@ class AssetProgressTests(unittest.TestCase):
             values = completed_developments(root)
             self.assertEqual([item["attempt"] for item in values["mech"]], [2, 3, 4, 5])
             self.assertEqual(values["railgun"], [])
+            self.assertEqual(len(completed_developments(root, limit=None)["mech"]), 5)
 
     def test_builds_animated_gif_manifest_and_five_minute_dashboard(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -144,6 +145,20 @@ class AssetProgressTests(unittest.TestCase):
             selected = reference_evaluation_inputs(root)["mech"]["developments"]
             self.assertEqual([item["render_sha256"] for item in selected],
                              [values[1]["render_sha256"], values[3]["render_sha256"]])
+
+    def test_reference_input_can_reach_accepted_revision_older_than_dashboard_window(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            for attempt in range(1, 7): self._attempt(root, "mech", attempt, "kit-assembly")
+            values = completed_developments(root, limit=None)["mech"]
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "accepted.json").write_text(json.dumps({"status": "completed", "created_at": "2026-09-09T00:01:00Z",
+                "evaluation": {"evaluations": [
+                    {"asset_id": "mech", "render_sha256": values[0]["render_sha256"], "weighted_score": 40},
+                    {"asset_id": "mech", "render_sha256": values[1]["render_sha256"], "weighted_score": 44}]}}))
+            selected = reference_evaluation_inputs(root)["mech"]["developments"]
+            self.assertEqual([item["render_sha256"] for item in selected],
+                             [values[1]["render_sha256"], values[-1]["render_sha256"]])
 
     def test_reference_input_reevaluates_candidate_previously_compared_to_rejected_baseline(self):
         with tempfile.TemporaryDirectory() as temporary:
