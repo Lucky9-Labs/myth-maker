@@ -82,6 +82,13 @@ def ensure_materials() -> None:
             shader.inputs["Base Color"].default_value = color
             shader.inputs["Metallic"].default_value = 0.55 if name != "lens" else 0.05
             shader.inputs["Roughness"].default_value = 0.3 if name != "lens" else 0.12
+            if name == "lens":
+                transmission = shader.inputs.get("Transmission Weight") or shader.inputs.get("Transmission")
+                if transmission:
+                    transmission.default_value = 0.58
+                shader.inputs["Alpha"].default_value = color[3]
+                if hasattr(material, "surface_render_method"):
+                    material.surface_render_method = "DITHERED"
             if name == "cyan-emission":
                 emission = shader.inputs.get("Emission Color") or shader.inputs.get("Emission")
                 strength = shader.inputs.get("Emission Strength")
