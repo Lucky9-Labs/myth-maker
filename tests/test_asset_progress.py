@@ -13,6 +13,8 @@ class AssetProgressTests(unittest.TestCase):
             "cached_input_tokens": 20_000, "output_tokens": 10_000})
         self.assertEqual(cost["provenance"], "calculated-from-measured-usage")
         self.assertAlmostEqual(cost["usd"], 1.32)
+        self.assertEqual(cost["breakdown_usd"], {
+            "uncached_input": .8, "cached_input": .02, "output": .5})
 
     def test_does_not_price_unknown_or_unavailable_usage_as_zero(self):
         usage = {"provenance": "unavailable", "input_tokens": None,
@@ -112,6 +114,20 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual(astra["total_tokens"], 120)
             luna = next(row for row in observed["models"] if row["model"] == "gpt-5.6-luna")
             self.assertEqual(luna["provenance"], "unavailable")
+
+    def test_dashboard_presents_model_spend_in_dollars(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            critique = root / "review" / "critique-attempt-0001"; critique.mkdir(parents=True)
+            (critique / "receipt.json").write_text(json.dumps({"provider": {"model": "gpt-6-astra"},
+                "model_usage": {"provenance": "measured", "input_tokens": 100_000,
+                "cached_input_tokens": 20_000, "output_tokens": 10_000}, "critique": {"defects": []}}))
+            manifest = build_dashboard(root)
+            page = (root / "observability" / "index.html").read_text()
+            self.assertIn("Uncached input USD", page)
+            self.assertIn("$0.8000", page)
+            self.assertNotIn("Quality gain / 1k tokens", page)
+            self.assertNotIn("quality_gain_per_1k_tokens", manifest["telemetry"]["efficiency"])
 
     def test_reference_score_is_calculated_from_closed_rubric(self):
         with tempfile.TemporaryDirectory() as temporary:
