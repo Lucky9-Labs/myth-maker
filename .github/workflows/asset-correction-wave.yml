@@ -13,7 +13,7 @@ on:
         required: false
         default: ''
         type: choice
-        options: ['', 'worker-a', 'worker-b', 'worker-c']
+        options: ['', 'worker-a', 'worker-b', 'worker-c', 'worker-a+worker-b']
       correction_spec:
         description: Validated geometry-correction JSON for the selected lane
         required: false

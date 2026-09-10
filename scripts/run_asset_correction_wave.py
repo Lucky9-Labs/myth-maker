@@ -12,7 +12,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(); parser.add_argument("--environment", default="dev")
     parser.add_argument("--run-id", required=True); parser.add_argument("--source-sha", required=True)
     parser.add_argument("--apply-reference-batch", action="store_true")
-    parser.add_argument("--reference-batch-slot", choices=("worker-a", "worker-b", "worker-c"))
+    parser.add_argument("--reference-batch-slot", choices=("worker-a", "worker-b", "worker-c", "worker-a+worker-b"))
     parser.add_argument("--correction-spec-json")
     parser.add_argument("--output", required=True); args = parser.parse_args()
     config = runtime(args.environment)
