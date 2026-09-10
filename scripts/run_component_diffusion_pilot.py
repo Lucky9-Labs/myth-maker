@@ -2,6 +2,7 @@
 """Submit one immutable component diffusion attempt to the deployed Modal runtime."""
 from __future__ import annotations
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -25,8 +26,20 @@ def main() -> int:
         config.app_name, config.component_diffusion_function_name,
         environment_name=config.environment)
     function.hydrate()
-    receipt = function.remote(job)
     output = Path(args.output); output.parent.mkdir(parents=True, exist_ok=True)
+    call = function.spawn(job)
+    dispatch = {
+        "format": "myth-maker.component-diffusion-dispatch/v1",
+        "status": "dispatched",
+        "run_id": job["run_id"],
+        "work_id": job["work_id"],
+        "attempt": job["attempt"],
+        "provider_call_id": call.object_id,
+        "dispatched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    output.write_text(json.dumps(dispatch, indent=2, sort_keys=True) + "\n")
+    receipt = call.get()
+    receipt["dispatch"] = dispatch
     output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     if receipt.get("status") != "completed":
         raise RuntimeError("component diffusion attempt did not complete")
