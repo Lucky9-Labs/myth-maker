@@ -15,6 +15,9 @@ MODEL = "tencent/Hunyuan3D-2.1"
 L40S_USD_PER_SECOND = 0.000542
 A100_40GB_USD_PER_SECOND = 0.000583
 A100_80GB_USD_PER_SECOND = 0.000694
+A10_USD_PER_SECOND = 0.000306
+L4_USD_PER_SECOND = 0.000222
+T4_USD_PER_SECOND = 0.000164
 CPU_USD_PER_CORE_SECOND = 0.0000131
 MEMORY_USD_PER_GIB_SECOND = 0.00000222
 
@@ -125,6 +128,12 @@ def _gpu_identity(torch_module) -> tuple[str, float]:
         return name, A100_40GB_USD_PER_SECOND
     if "A100" in name:
         return name, A100_80GB_USD_PER_SECOND
+    if "A10" in name:
+        return name, A10_USD_PER_SECOND
+    if "L4" in name:
+        return name, L4_USD_PER_SECOND
+    if "T4" in name:
+        return name, T4_USD_PER_SECOND
     raise RuntimeError(f"unsupported allocated diffusion GPU: {name}")
 
 
