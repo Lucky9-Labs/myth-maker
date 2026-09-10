@@ -5,9 +5,20 @@ ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
 from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
                             image_space_comparison, image_space_profile, reference_evaluation_inputs,
-                            reference_progress_history, validate_reference_evaluation)
+                            reference_progress_history, validate_reference_evaluation, priced_model_usage)
 
 class AssetProgressTests(unittest.TestCase):
+    def test_prices_measured_astra_usage_by_cache_class(self):
+        cost = priced_model_usage("gpt-6-astra", {"provenance": "measured", "input_tokens": 100_000,
+            "cached_input_tokens": 20_000, "output_tokens": 10_000})
+        self.assertEqual(cost["provenance"], "calculated-from-measured-usage")
+        self.assertAlmostEqual(cost["usd"], 1.32)
+
+    def test_does_not_price_unknown_or_unavailable_usage_as_zero(self):
+        usage = {"provenance": "unavailable", "input_tokens": None,
+                 "cached_input_tokens": None, "output_tokens": None}
+        self.assertIsNone(priced_model_usage("gpt-5.6-luna", usage)["usd"])
+
     def test_image_space_profile_measures_foreground_geometry(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "image.png"
