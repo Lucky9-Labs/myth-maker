@@ -277,6 +277,8 @@ def apply_parameterized_correction(spec: dict) -> int:
             target = bpy.data.objects.get(command["name"])
             if target is None: raise RuntimeError("parameterized correction target is unavailable: " + command["name"])
             if command["op"] == "scale": _scale_local(target, *command["scale"])
+            elif command["op"] == "thicken": _thicken(target, command["factor"])
+            elif command["op"] == "lengthen": _lengthen(target, command["factor"])
             elif command["op"] == "hide": target.hide_render = True
         changed += 1
     return changed
