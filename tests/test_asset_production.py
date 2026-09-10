@@ -105,6 +105,15 @@ class AssetProductionTests(unittest.TestCase):
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["material"] = "unknown"
         with self.assertRaisesRegex(ValueError, "set-material"): validate_correction_spec(invalid)
 
+    def test_validates_atomic_prefix_hide_and_large_rebuild(self):
+        commands = [{"op": "hide-prefix", "name": "rail-housing-"}]
+        commands.extend({"op": "hide", "name": f"legacy-part-{index}"} for index in range(24))
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": commands}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = {"version": spec["version"], "commands": [{"op": "hide-prefix", "name": "x"}]}
+        with self.assertRaisesRegex(ValueError, "hide-prefix"):
+            validate_correction_spec(invalid)
+
     def test_validates_bounded_parent_transform(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
             {"op": "translate", "name": "mount-hip-l", "delta": [.15, 0, 0]},
@@ -124,6 +133,7 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('command["op"] == "add-mounted-box"', driver)
         self.assertIn('command["op"] == "add-mounted-arc-shell"', driver)
         self.assertIn('command["op"] == "add-mounted-frame"', driver)
+        self.assertIn('command["op"] == "hide-prefix"', driver)
         self.assertIn("def _add_polyline_frame", driver)
         self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
