@@ -287,6 +287,14 @@ class AssetProductionTests(unittest.TestCase):
             self.assertIn({"kind": "apply-reference-corrections"}, corrected[2]["operations"])
             self.assertEqual(corrected[0]["inputs"][0]["sha256"], "1" * 64)
 
+            spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+                {"op": "rotate-degrees", "name": "mount-upperleg-l", "delta": [0, -15, 0]}]}
+            coordinated = prepare_correction_wave(root, {"source_sha": "e" * 40, "function_id": "fu-pose"},
+                                                   reference_batch_slot="worker-a+worker-b", correction_spec=spec)
+            self.assertTrue(all({"kind": "apply-parameterized-correction"} in item["operations"]
+                                and item["correction_spec"] == spec for item in coordinated[:2]))
+            self.assertNotIn("correction_spec", coordinated[2])
+
             # The next immutable baseline already contains that patch, so the
             # operation is not compounded on a review-only follow-up wave.
             for item in corrected[:3]:

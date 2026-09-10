@@ -246,6 +246,9 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         receipt = _read_json(path)
         if isinstance(receipt, dict): receipts.append((path, receipt))
     promoted = _best_scored_baselines(run_root, receipts)
+    selected_slots = set(reference_batch_slot.split("+")) if reference_batch_slot else set()
+    if selected_slots - set(SLOTS[:3]):
+        raise ValueError("correction wave contains an invalid component lane selection")
     wave = []
     for slot in SLOTS:
         candidates = [(path, item) for path, item in receipts if item.get("worker_slot") == slot and item.get("status") == "completed" and (item.get("artifacts") or {}).get("asset.blend")]
@@ -265,9 +268,9 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         if slot != "worker-d":
             operations = [item for item in operations if item["kind"] not in {
                 "apply-reference-corrections", "apply-parameterized-correction"}]
-        if slot != "worker-d" and apply_reference_batch and (reference_batch_slot is None or slot == reference_batch_slot):
+        if slot != "worker-d" and apply_reference_batch and (not selected_slots or slot in selected_slots):
             operations.append({"kind": "apply-reference-corrections"})
-        if correction_spec is not None and slot == reference_batch_slot:
+        if correction_spec is not None and slot in selected_slots:
             validate_correction_spec(correction_spec)
             operations.append({"kind": "apply-parameterized-correction"})
         candidate = {**prior, "attempt": max(attempts) + 1,
@@ -275,7 +278,7 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
             "inputs": inputs, "dependencies": [] if slot != "worker-d" else list(prior["dependencies"]),
             "operations": operations}
         candidate.pop("correction_spec", None)
-        if correction_spec is not None and slot == reference_batch_slot:
+        if correction_spec is not None and slot in selected_slots:
             candidate["correction_spec"] = correction_spec
         wave.append(validate_job_manifest(candidate))
     return plan_production_wave(wave)
