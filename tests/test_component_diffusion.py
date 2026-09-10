@@ -7,7 +7,8 @@ import unittest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from component_diffusion import FORMAT, MODEL, masked_component_crop, validate_component_diffusion_job
+from component_diffusion import (FORMAT, MODEL, masked_component_crop,
+                                 read_component_diffusion_status, validate_component_diffusion_job)
 
 
 def job():
@@ -33,6 +34,21 @@ class ComponentDiffusionTests(unittest.TestCase):
             with Image.open(output) as crop:
                 self.assertEqual(crop.mode, "RGBA")
                 self.assertEqual(crop.getpixel((0, 0))[3], 0)
+
+    def test_status_reads_latest_persisted_phase_and_terminal_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            attempt = root / "asset-production/pilot-001/component-diffusion/canopy-shape-v1/attempt-0001"
+            attempt.mkdir(parents=True)
+            (attempt / "job.json").write_text('{"work_id":"canopy-shape-v1"}')
+            status = read_component_diffusion_status("pilot-001", "canopy-shape-v1", 1, root)
+            self.assertEqual(status["status"], "dispatched")
+            (attempt / "phase.json").write_text('{"phase":"model-cache","status":"running"}')
+            self.assertEqual(read_component_diffusion_status(
+                "pilot-001", "canopy-shape-v1", 1, root)["status"], "running")
+            (attempt / "receipt.json").write_text('{"status":"completed"}')
+            self.assertEqual(read_component_diffusion_status(
+                "pilot-001", "canopy-shape-v1", 1, root)["status"], "completed")
 
 
 if __name__ == "__main__": unittest.main()
