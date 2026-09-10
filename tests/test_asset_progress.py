@@ -66,9 +66,9 @@ class AssetProgressTests(unittest.TestCase):
             for attempt in range(1, 5): self._attempt(root, "gun", attempt, "railgun")
             manifest = build_dashboard(root); gif = root / "observability" / "railgun-last-four.gif"
             self.assertEqual(manifest["assets"]["railgun"]["gif"]["frames"], 4)
-            self.assertTrue((root / "observability" / "railgun-frozen-reference.png").is_file())
+            self.assertTrue((root / "observability" / "railgun-frozen-reference-preview.jpg").is_file())
             self.assertEqual(manifest["assets"]["railgun"]["reference"]["sha256"],
-                             hashlib.sha256((root / "observability" / "railgun-frozen-reference.png").read_bytes()).hexdigest())
+                             hashlib.sha256((root / "gun" / "attempt-0004" / "inputs" / "reference.png").read_bytes()).hexdigest())
             self.assertEqual(manifest["assets"]["railgun"]["image_space_measurements"]["format"],
                              "myth-maker.image-space-comparison/v1")
             with Image.open(gif) as image: self.assertEqual(image.n_frames, 4)
