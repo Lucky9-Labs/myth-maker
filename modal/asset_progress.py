@@ -31,15 +31,18 @@ def priced_model_usage(model: str, usage: dict) -> dict:
     pricing = MODEL_PRICING.get(model)
     fields = ("input_tokens", "cached_input_tokens", "output_tokens")
     if not pricing or usage.get("provenance") != "measured" or any(usage.get(field) is None for field in fields):
-        return {"provenance": "unavailable", "usd": None, "pricing": pricing}
+        return {"provenance": "unavailable", "usd": None, "breakdown_usd": None, "pricing": pricing}
     input_tokens = usage["input_tokens"]
     cached_tokens = usage["cached_input_tokens"]
     if cached_tokens < 0 or cached_tokens > input_tokens:
-        return {"provenance": "unavailable", "usd": None, "pricing": pricing}
-    usd = ((input_tokens - cached_tokens) * pricing["input_usd_per_million"]
-           + cached_tokens * pricing["cached_input_usd_per_million"]
-           + usage["output_tokens"] * pricing["output_usd_per_million"]) / 1_000_000
-    return {"provenance": "calculated-from-measured-usage", "usd": round(usd, 6), "pricing": pricing}
+        return {"provenance": "unavailable", "usd": None, "breakdown_usd": None, "pricing": pricing}
+    breakdown = {
+        "uncached_input": round((input_tokens - cached_tokens) * pricing["input_usd_per_million"] / 1_000_000, 6),
+        "cached_input": round(cached_tokens * pricing["cached_input_usd_per_million"] / 1_000_000, 6),
+        "output": round(usage["output_tokens"] * pricing["output_usd_per_million"] / 1_000_000, 6),
+    }
+    return {"provenance": "calculated-from-measured-usage",
+            "usd": round(sum(breakdown.values()), 6), "breakdown_usd": breakdown, "pricing": pricing}
 
 
 def image_space_profile(path: Path) -> dict:
@@ -482,7 +485,6 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     scores = (evaluation or {}).get("evaluation", {}).get("evaluations", [])
     gains = [row["delta"] for row in history if row["accepted"]]
     candidate_net = sum(row["delta"] for row in history)
-    measured_tokens = sum(row["total_tokens"] or 0 for row in model_rows.values() if row["provenance"] == "measured")
     measured_cost = round(sum(row["cost"]["usd"] or 0 for row in model_rows.values()
                               if row["cost"]["provenance"] == "calculated-from-measured-usage"), 6)
     unpriced_models = sorted(row["model"] for row in model_rows.values() if row["cost"]["usd"] is None)
@@ -522,10 +524,9 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
                                   "candidate_net_delta": round(candidate_net, 2) if evaluation else None,
                                   "below_threshold_candidates": sum(row["disposition"] == "below-threshold" for row in history),
                                   "rejected_candidates": sum(not row["accepted"] for row in history)},
-        "efficiency": {"quality_gain_per_1k_tokens": round(sum(gains) * 1000 / measured_tokens, 3) if evaluation and measured_tokens else None,
-                       "accepted_quality_gain_per_usd": round(sum(gains) / measured_cost, 3) if evaluation and measured_cost else None,
+        "efficiency": {"accepted_quality_gain_per_usd": round(sum(gains) / measured_cost, 3) if evaluation and measured_cost else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
-                       "tokens_per_accepted_asset_set": {"provenance": "unavailable", "value": None},
+                       "accepted_asset_sets_per_usd": {"provenance": "unavailable", "value": None},
                        "luna_comparison": "unavailable until Codex task usage is exported into the run ledger"}}
 
 def _read_json(path: Path) -> dict | None:
@@ -624,12 +625,20 @@ def build_dashboard(run_root: Path) -> dict:
     patches = telemetry["patches_last_5m"]
     patch_rows = "".join(f"<tr><td>{html.escape(str(item['job_type']))}</td><td>{html.escape(str(item['status']))}</td><td>{item['attempt']}</td><td>{len(item['output_hashes'])}</td><td>{html.escape(str(item.get('completed_at') or 'unavailable'))}</td></tr>" for item in patches)
     if not patch_rows: patch_rows = '<tr><td colspan="5">No completed or failed asset patch in this five-minute window.</td></tr>'
-    model_rows = "".join(f"<tr><td>{html.escape(row['model'])}</td><td>{html.escape(row['provenance'])}</td><td>{row['requests'] if row['requests'] is not None else 'unavailable'}</td><td>{row['input_tokens'] if row['input_tokens'] is not None else 'unavailable'}</td><td>{row['cached_input_tokens'] if row['cached_input_tokens'] is not None else 'unavailable'}</td><td>{row['output_tokens'] if row['output_tokens'] is not None else 'unavailable'}</td><td>{('$%.4f' % row['cost']['usd']) if row['cost']['usd'] is not None else 'unavailable'}</td></tr>" for row in telemetry["models"])
+    def usd(value):
+        return "$%.4f" % value if value is not None else "unavailable"
+    model_rows = "".join(
+        f"<tr><td>{html.escape(row['model'])}</td><td>{html.escape(row['cost']['provenance'])}</td>"
+        f"<td>{row['requests'] if row['requests'] is not None else 'unavailable'}</td>"
+        f"<td>{usd((row['cost']['breakdown_usd'] or {}).get('uncached_input'))}</td>"
+        f"<td>{usd((row['cost']['breakdown_usd'] or {}).get('cached_input'))}</td>"
+        f"<td>{usd((row['cost']['breakdown_usd'] or {}).get('output'))}</td>"
+        f"<td>{usd(row['cost']['usd'])}</td></tr>" for row in telemetry["models"])
     quality = telemetry["quality"]; attempts = telemetry["attempts"]; efficiency = telemetry["efficiency"]
     chart_html = f'<section><h2>Artwork convergence</h2><img src="{chart["path"]}?sha={chart["sha256"]}" alt="reference convergence graph"><p class="muted">Weighted rubric: silhouette 30%, proportions 25%, component geometry 20%, material identity 10%, detail readability 10%, fit 5%.</p></section>' if chart else '<section><h2>Artwork convergence</h2><p>Awaiting the first reference evaluation.</p></section>'
     spend_chart_html = f'<section><h2>Dollar spend and efficiency</h2><img src="{spend_chart["path"]}?sha={spend_chart["sha256"]}" alt="dollar spend and accepted quality gain graph"></section>' if spend_chart else '<section><h2>Dollar spend and efficiency</h2><p>Awaiting measured, priced model usage.</p></section>'
     spend = telemetry["spend"]
-    page = """<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="300"><meta name="viewport" content="width=device-width"><title>Asset production progress</title><style>body{margin:0;background:#07111f;color:#e5eefb;font:15px system-ui;padding:24px}main{max-width:1200px;margin:auto}.grid,.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}section,.metric{background:#111c2d;padding:16px;border-radius:12px;margin:18px 0}img{width:100%;border-radius:8px;background:#030712}small,.muted{color:#9fb1c8}li{margin:.4em 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #26364d}.bad{color:#fda4af}.good{color:#86efac}</style></head><body><main><h1>Cloud asset production progress</h1><small>Run """ + html.escape(run_root.name) + " · generated " + html.escape(generated) + " · refreshes every 5 minutes</small><div class=\"metrics\"><div class=\"metric\"><b>Measured API spend</b><br>$" + f'{spend["measured_model_cost_usd"]:.4f}' + "</div><div class=\"metric\"><b>Accepted gain / $</b><br>" + str(efficiency["accepted_quality_gain_per_usd"] if efficiency["accepted_quality_gain_per_usd"] is not None else "unavailable") + "</div><div class=\"metric\"><b>Attempts</b><br>" + str(attempts["completed"]) + " completed / " + str(attempts["failed"]) + " failed</div><div class=\"metric\"><b>Open blockers</b><br><span class=\"bad\">" + str(quality["blocking_open"]) + "</span></div><div class=\"metric\"><b>Quality gain / compute minute</b><br>" + str(efficiency["quality_gain_per_compute_minute"] if efficiency["quality_gain_per_compute_minute"] is not None else "unavailable") + "</div></div>" + spend_chart_html + chart_html + "<section><h2>Asset patches in the last 5 minutes</h2><table><thead><tr><th>Lane</th><th>Status</th><th>Attempt</th><th>Output hashes</th><th>Completed</th></tr></thead><tbody>" + patch_rows + "</tbody></table></section><section><h2>Measured model spend</h2><table><thead><tr><th>Model</th><th>Provenance</th><th>Requests</th><th>Input</th><th>Cached</th><th>Output</th><th>USD cost</th></tr></thead><tbody>" + model_rows + "</tbody></table><p class=\"muted\">Costs apply each model's published uncached-input, cached-input, and output rates. Blender scripts use compute time and zero model calls. Models with unavailable task usage remain unpriced rather than counted as free.</p></section><h2>Last four completed developments</h2><div class=\"grid\">" + "".join(cards) + "</div></main></body></html>"
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="300"><meta name="viewport" content="width=device-width"><title>Asset production progress</title><style>body{margin:0;background:#07111f;color:#e5eefb;font:15px system-ui;padding:24px}main{max-width:1200px;margin:auto}.grid,.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}section,.metric{background:#111c2d;padding:16px;border-radius:12px;margin:18px 0}img{width:100%;border-radius:8px;background:#030712}small,.muted{color:#9fb1c8}li{margin:.4em 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #26364d}.bad{color:#fda4af}.good{color:#86efac}</style></head><body><main><h1>Cloud asset production progress</h1><small>Run """ + html.escape(run_root.name) + " · generated " + html.escape(generated) + " · refreshes every 5 minutes</small><div class=\"metrics\"><div class=\"metric\"><b>Measured API spend</b><br>$" + f'{spend["measured_model_cost_usd"]:.4f}' + "</div><div class=\"metric\"><b>Accepted gain / $</b><br>" + str(efficiency["accepted_quality_gain_per_usd"] if efficiency["accepted_quality_gain_per_usd"] is not None else "unavailable") + "</div><div class=\"metric\"><b>Attempts</b><br>" + str(attempts["completed"]) + " completed / " + str(attempts["failed"]) + " failed</div><div class=\"metric\"><b>Open blockers</b><br><span class=\"bad\">" + str(quality["blocking_open"]) + "</span></div><div class=\"metric\"><b>Quality gain / compute minute</b><br>" + str(efficiency["quality_gain_per_compute_minute"] if efficiency["quality_gain_per_compute_minute"] is not None else "unavailable") + "</div></div>" + spend_chart_html + chart_html + "<section><h2>Asset patches in the last 5 minutes</h2><table><thead><tr><th>Lane</th><th>Status</th><th>Attempt</th><th>Output hashes</th><th>Completed</th></tr></thead><tbody>" + patch_rows + "</tbody></table></section><section><h2>Measured model spend</h2><table><thead><tr><th>Model</th><th>Provenance</th><th>Requests</th><th>Uncached input USD</th><th>Cached input USD</th><th>Output USD</th><th>Total USD</th></tr></thead><tbody>" + model_rows + "</tbody></table><p class=\"muted\">Each dollar amount is calculated from recorded usage and that model's published rates at the time of the call. Raw usage counts remain in the machine-readable manifest for auditability. Blender scripts use compute time and zero model calls. Models with unavailable task usage remain unpriced rather than counted as free.</p></section><h2>Last four completed developments</h2><div class=\"grid\">" + "".join(cards) + "</div></main></body></html>"
     (output / "index.html").write_text(page, encoding="utf-8")
     manifest = {"format": "myth-maker.asset-progress-dashboard/v2", "run_id": run_root.name, "generated_at": generated, "refresh_seconds": 300, "telemetry": telemetry, "assets": assets}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
