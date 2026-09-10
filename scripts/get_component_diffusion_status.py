@@ -26,7 +26,14 @@ def main() -> int:
     function = modal.Function.from_name(
         config.app_name, "get_component_diffusion_status", environment_name=config.environment)
     function.hydrate()
+    stats = function.get_current_stats()
     status = function.remote(args.run_id, args.work_id, args.attempt, args.component_id)
+    status["function_stats"] = {
+        "backlog": stats.backlog,
+        "num_total_runners": stats.num_total_runners,
+        "num_running_inputs": stats.num_running_inputs,
+        "input_headroom": stats.input_headroom,
+    }
     if args.provider_call_id:
         call = modal.FunctionCall.from_id(args.provider_call_id)
         status["provider_call_id"] = args.provider_call_id
