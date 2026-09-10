@@ -20,7 +20,7 @@ from mathutils import Vector
 
 KIT_VERSION = "myth-maker.asset-core-kit/v1"
 REVIEW_PROTOCOL = "myth-maker.asset-review/v2"
-REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v4"
+REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"
 KIT_PRIMITIVES = {
     "panel-profile": {"bevel_ratio": 0.003, "bevel_segments": 2, "armor_role": "removable-armor"},
     "joint-pivot": {"name_tokens": ["joint", "ankle", "elbow", "hip", "knee", "shoulder", "waist", "wrist"]},
@@ -252,10 +252,10 @@ def apply_reference_corrections(job_type: str) -> int:
         # The reference's defining bow blades must read in the fixed side view.
         # Keep every promoted receiver component unchanged and add only these
         # tapered profiles around the cyan rail.
-        _add_side_wedge("bow-blade-upper", ((2.15, 0.24), (4.42, 0.48), (4.12, 0.20), (2.48, 0.14)),
-                        0.14, "armor-white", owner)
-        _add_side_wedge("bow-blade-lower", ((2.48, -0.14), (4.12, -0.20), (4.42, -0.48), (2.15, -0.24)),
-                        0.14, "armor-white", owner)
+        _add_side_wedge("bow-blade-upper", ((4.20, 0.18), (4.24, 0.34), (3.18, 0.56), (3.46, 0.28)),
+                        0.10, "armor-white", owner)
+        _add_side_wedge("bow-blade-lower", ((3.46, -0.28), (3.18, -0.56), (4.24, -0.34), (4.20, -0.18)),
+                        0.10, "armor-white", owner)
         changed += 2
     if changed == 0:
         raise RuntimeError("reference correction batch matched no owned geometry")

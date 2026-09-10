@@ -65,7 +65,7 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('scene.world = bpy.data.worlds.new("asset-review-world")', driver)
         self.assertIn("def isolate_worker_ownership", driver)
         self.assertIn("def apply_reference_corrections", driver)
-        self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v4"', driver)
+        self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
         self.assertIn('"bow-blade-upper"', driver)
         self.assertIn("reference correction batch matched no owned geometry", driver)
