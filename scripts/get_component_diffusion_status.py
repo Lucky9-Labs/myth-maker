@@ -33,7 +33,7 @@ def main() -> int:
         try:
             status["provider_result"] = call.get(timeout=0)
             status["provider_call_status"] = "completed"
-        except modal.exception.TimeoutError:
+        except (TimeoutError, modal.exception.TimeoutError):
             status["provider_call_status"] = "running"
         except Exception as error:
             status["provider_call_status"] = "failed"
