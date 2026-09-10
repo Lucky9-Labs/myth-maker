@@ -32,6 +32,7 @@ from asset_production import (create_run_ledger, run_asset_production_job as exe
 from asset_progress import build_dashboard, dashboard_bundle, evaluate_reference_progress
 from component_diffusion import (read_component_diffusion_status, run_component_diffusion,
                                  validate_component_diffusion_job)
+from component_isolation import run_component_isolation, validate_component_isolation_job
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -62,6 +63,7 @@ image = (image
          .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
          .add_local_file(HERE / "asset_production_blender.py", "/opt/asset_production_blender.py", copy=True)
          .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True))
+image = image.add_local_file(HERE / "component_isolation.py", "/opt/component_isolation.py", copy=True)
 
 diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu22.04", add_python="3.12")
     .apt_install("git", "libgl1", "libglib2.0-0")
@@ -92,6 +94,7 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
     .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
     .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
     .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True)
+    .add_local_file(HERE / "component_isolation.py", "/opt/component_isolation.py", copy=True)
     .env({"HF_HOME": "/submissions/model-cache/huggingface", "PYTHONPATH": "/opt"}))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
@@ -298,6 +301,26 @@ def run_component_diffusion_job(job: dict) -> dict:
     try:
         volume.reload()
         receipt = run_component_diffusion(checked, SUBMISSIONS_ROOT, checkpoint=volume.commit)
+        volume.commit()
+        return receipt
+    finally:
+        if part_leases.get(lease_key) == lease_value:
+            part_leases.pop(lease_key)
+
+
+@app.function(image=image, cpu=1, memory=2048, timeout=8 * 60, retries=0,
+              max_containers=4, secrets=[secret], volumes={"/submissions": volume})
+def run_component_isolation_job(job: dict) -> dict:
+    """Turn one frozen-reference region into a clean single-part 3D conditioning image."""
+    checked = validate_component_isolation_job(job)
+    lease_key = "component-isolation:" + checked["run_id"] + ":" + checked["component_id"]
+    lease_value = checked["work_id"] + ":a" + str(checked["attempt"])
+    if not part_leases.put(lease_key, lease_value, skip_if_exists=True):
+        raise RuntimeError("component isolation lane already claimed")
+    try:
+        from openai import OpenAI
+        volume.reload()
+        receipt = run_component_isolation(checked, SUBMISSIONS_ROOT, OpenAI())
         volume.commit()
         return receipt
     finally:
