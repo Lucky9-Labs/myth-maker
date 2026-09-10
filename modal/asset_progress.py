@@ -47,6 +47,10 @@ def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str
 def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
     """Resolve one frozen reference, promoted baseline, and newest candidate per asset."""
     developments = completed_developments(run_root)
+    accepted_baselines = {}
+    for row in reference_progress_history(run_root):
+        if row["accepted"]:
+            accepted_baselines[row["asset_id"]] = row["render_sha256"]
     result = {}
     for asset_id in ("mech", "railgun"):
         values = developments[asset_id]
@@ -64,7 +68,10 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
         if latest["render_sha256"] in historical_scores:
             continue
         prior = values[:-1]
-        baseline = max(prior, key=lambda item: historical_scores.get(item["render_sha256"], -1)) if prior else None
+        promoted_digest = accepted_baselines.get(asset_id)
+        baseline = next((item for item in reversed(prior) if item["render_sha256"] == promoted_digest), None)
+        if baseline is None and prior:
+            baseline = max(prior, key=lambda item: historical_scores.get(item["render_sha256"], -1))
         if baseline:
             baseline_signature = _asset_component_signature(run_root, asset_id, baseline["render_sha256"])
             latest_signature = _asset_component_signature(run_root, asset_id, latest["render_sha256"])
@@ -227,7 +234,7 @@ def reference_progress_history(run_root: Path) -> list[dict]:
         rows = (receipt.get("evaluation") or {}).get("evaluations") or []
         for asset_id in ("mech", "railgun"):
             asset_rows = [row for row in rows if row.get("asset_id") == asset_id]
-            if len(asset_rows) < 2:
+            if len(asset_rows) != 2:
                 continue
             candidate = asset_rows[-1]
             identity = (asset_id, candidate.get("render_sha256"))
