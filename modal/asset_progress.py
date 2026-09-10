@@ -17,7 +17,7 @@ RUBRIC = {"silhouette": 0.30, "proportions": 0.25, "component_geometry": 0.20,
           "material_identity": 0.10, "detail_readability": 0.10, "fit": 0.05}
 
 def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
-    """Resolve one frozen reference and up to four verified revisions per asset."""
+    """Resolve one frozen reference, promoted baseline, and newest candidate per asset."""
     developments = completed_developments(run_root)
     result = {}
     for asset_id in ("mech", "railgun"):
@@ -26,6 +26,17 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
             continue
         latest_protocol = values[-1].get("review_protocol", "legacy")
         values = [item for item in values if item.get("review_protocol", "legacy") == latest_protocol]
+        historical_scores = {}
+        for path in (run_root / "observability" / "evaluations").glob("*.json"):
+            receipt = _read_json(path) or {}
+            for row in ((receipt.get("evaluation") or {}).get("evaluations") or []):
+                if row.get("asset_id") == asset_id and isinstance(row.get("weighted_score"), (int, float)):
+                    historical_scores[row.get("render_sha256")] = row["weighted_score"]
+        latest = values[-1]
+        prior = values[:-1]
+        baseline = max(prior, key=lambda item: historical_scores.get(item["render_sha256"], -1)) if prior else None
+        values = ([baseline] if baseline else []) + [latest]
+        values = list({item["render_sha256"]: item for item in values}.values())
         reference = None
         for item in reversed(values):
             job = _read_json(item["render"].parents[2] / "job.json")
@@ -222,7 +233,8 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     gains = []
     for asset_id in ("mech", "railgun"):
         asset_scores = [item["weighted_score"] for item in scores if item["asset_id"] == asset_id]
-        gains.extend(max(0, current - prior) for prior, current in zip(asset_scores, asset_scores[1:]))
+        if len(asset_scores) >= 2:
+            gains.append(asset_scores[-1] - asset_scores[0])
     measured_tokens = sum(row["total_tokens"] or 0 for row in model_rows.values() if row["provenance"] == "measured")
     compute_minutes = sum((item["duration_ms"] or 0) for item in attempts) / 60000
     return {"window_started_at": cutoff.isoformat(), "patches_last_5m": patches,
@@ -234,7 +246,7 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
                     "cosmetic_backlog": sum(item.get("disposition") == "backlog" for item in defects),
                     "accepted_asset_set": False},
         "reference_convergence": {"provenance": "measured" if evaluation else "unavailable",
-                                  "latest_evaluation": evaluation, "positive_quality_gain": round(sum(gains), 2) if evaluation else None},
+                                  "latest_evaluation": evaluation, "net_quality_gain": round(sum(gains), 2) if evaluation else None},
         "efficiency": {"quality_gain_per_1k_tokens": round(sum(gains) * 1000 / measured_tokens, 3) if evaluation and measured_tokens else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
                        "tokens_per_accepted_asset_set": {"provenance": "unavailable", "value": None},
