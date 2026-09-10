@@ -98,12 +98,14 @@ class AssetProgressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run-one"; evaluations = root / "observability" / "evaluations"
             evaluations.mkdir(parents=True)
-            for index, (candidate, scores) in enumerate((("b", (30, 34)), ("b", (31, 35)), ("c", (34, 33))), 1):
+            for index, (candidate, scores) in enumerate((("b", (30, 34)), ("b", (31, 35)),
+                                                          ("c", (34, 33)), ("d", (40, 40.3))), 1):
                 rows = [{"asset_id": "mech", "render_sha256": "a", "weighted_score": scores[0]},
                         {"asset_id": "mech", "render_sha256": candidate, "weighted_score": scores[1]}]
                 (evaluations / f"{index}.json").write_text(json.dumps({"status": "completed",
                     "created_at": f"2026-09-09T00:0{index}:00+00:00", "evaluation": {"evaluations": rows}}))
             history = reference_progress_history(root)
             self.assertEqual([(row["render_sha256"], row["delta"], row["accepted"], row["cumulative_accepted_gain"]) for row in history],
-                             [("b", 4, True, 4), ("c", -1, False, 4)])
+                             [("b", 4, True, 4), ("c", -1, False, 4), ("d", 0.3, False, 4)])
+            self.assertEqual(history[-1]["disposition"], "below-threshold")
 if __name__ == "__main__": unittest.main()
