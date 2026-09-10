@@ -379,7 +379,7 @@ def validate_correction_spec(value: dict) -> dict:
     for command in value["commands"]:
         if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "import-component-glb", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -444,6 +444,7 @@ def validate_correction_spec(value: dict) -> dict:
                     or not numbers(command.get("dimensions"), 3, True)
                     or not numbers(command.get("rotation_degrees"), 3, limit=180)
                     or not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or not 0.01 <= ratio <= 1
+                    or command.get("surface_mode") not in {"raw", "convex-hull"}
                     or command.get("material") not in materials):
                 raise ValueError("import-component-glb correction is invalid")
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}

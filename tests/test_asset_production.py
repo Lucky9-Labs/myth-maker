@@ -65,6 +65,7 @@ class AssetProductionTests(unittest.TestCase):
             "owner": "mount-canopyarmor", "staged_name": "canopy.glb",
             "location": [0, 0, 0], "dimensions": [1.4, .7, 1.7],
             "rotation_degrees": [0, 0, 0], "decimate_ratio": .12,
+            "surface_mode": "convex-hull",
             "material": "lens"}]}
         self.assertEqual(validate_correction_spec(spec), spec)
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["staged_name"] = "../canopy.glb"

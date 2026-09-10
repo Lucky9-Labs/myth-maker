@@ -432,6 +432,12 @@ def _import_component_glb(command: dict, inputs: Path, owner) -> None:
     obj = bpy.context.view_layer.objects.active
     obj.name = command["name"]
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if command["surface_mode"] == "convex-hull":
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.convex_hull(delete_unused=True, use_existing_faces=False,
+                                 make_holes=False, join_triangles=True)
+        bpy.ops.object.mode_set(mode="OBJECT")
     bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="BOUNDS")
     dimensions = Vector(command["dimensions"])
     current = obj.dimensions
@@ -444,6 +450,11 @@ def _import_component_glb(command: dict, inputs: Path, owner) -> None:
         modifier.ratio = command["decimate_ratio"]
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier=modifier.name)
+    if command["surface_mode"] == "convex-hull":
+        bevel = obj.modifiers.new("diffusion-surface-bevel", "BEVEL")
+        bevel.width = min(dimensions) * 0.018
+        bevel.segments = 2
+        bevel.limit_method = "ANGLE"
     obj.data.materials.clear()
     obj.data.materials.append(bpy.data.materials[command["material"]])
     obj["asset_role"] = "removable-armor" if command["material"] in {"armor-white", "armor-blue", "lens"} else "structure"
