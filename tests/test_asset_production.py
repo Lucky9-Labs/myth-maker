@@ -71,6 +71,7 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('obj.get("asset_source_lane") != "c"', driver)
         self.assertIn('job["job_type"] == "railgun" and view == "side"', driver)
         self.assertIn('camera_data.ortho_scale = max(height, width / aspect, 0.1) * 1.12', driver)
+        self.assertIn('bpy.context.view_layer.update()', driver)
         self.assertIn('visible = [obj for obj in meshes if not obj.hide_render]', driver)
         self.assertIn('assembly mech coverage collapsed', driver)
         self.assertIn('"review_protocol": REVIEW_PROTOCOL', driver)
@@ -253,6 +254,19 @@ class AssetProductionTests(unittest.TestCase):
             self.assertEqual([item["attempt"] for item in corrected], [4, 4, 4, 4])
             self.assertTrue(all({"kind": "apply-reference-corrections"} in item["operations"] for item in corrected[:3]))
             self.assertEqual(corrected[0]["inputs"][0]["sha256"], "1" * 64)
+
+            # The next immutable baseline already contains that patch, so the
+            # operation is not compounded on a review-only follow-up wave.
+            for item in corrected[:3]:
+                attempt = root / item["work_id"] / "attempt-0004"; attempt.mkdir(parents=True)
+                (attempt / "job.json").write_text(json.dumps(item))
+                receipt = {"worker_slot": item["worker_slot"], "work_id": item["work_id"], "attempt": 4,
+                           "status": "completed", "artifacts": {"asset.blend": {
+                               "volume_path": f"asset-production/run/{item['work_id']}/attempt-4.blend",
+                               "bytes": 200, "sha256": str({"worker-a": 5, "worker-b": 6, "worker-c": 7}[item["worker_slot"]]) * 64}}}
+                (attempt / "receipt.json").write_text(json.dumps(receipt))
+            reviewed = prepare_correction_wave(root, {"source_sha": "d" * 40, "function_id": "fu-review"})
+            self.assertTrue(all({"kind": "apply-reference-corrections"} not in item["operations"] for item in reviewed[:3]))
 
     def test_run_ledger_includes_every_attempt_and_keeps_acceptance_pending(self):
         wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),

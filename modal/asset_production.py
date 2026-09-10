@@ -205,7 +205,12 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict) -> list[di
                   if slot != "worker-d" else [dict(item) for item in prior["inputs"]])
         attempts = [item.get("attempt", 0) for _path, item in receipts if item.get("work_id") == receipt["work_id"]]
         operations = [dict(item) for item in prior["operations"]]
-        if slot != "worker-d" and {item["kind"] for item in operations}.isdisjoint({"apply-reference-corrections"}):
+        # A correction is baked into the immutable native baseline. Replaying
+        # the same operation on every wave compounds scale changes and spends
+        # compute without representing a new defect decision.
+        if slot != "worker-d" and any(item["kind"] == "apply-reference-corrections" for item in operations):
+            operations = [item for item in operations if item["kind"] != "apply-reference-corrections"]
+        elif slot != "worker-d":
             operations.append({"kind": "apply-reference-corrections"})
         wave.append(validate_job_manifest({**prior, "attempt": max(attempts) + 1,
             "runtime_deployment": dict(runtime_deployment), "source_revision": native["sha256"],
