@@ -55,7 +55,11 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
                     break
             if reference:
                 break
-        if reference:
+        # Assembly renders change whenever any component changes. Do not spend
+        # a model call rescoring the mech when only Worker C mutated, or the
+        # railgun when only the mech lanes mutated.
+        attributed = _candidate_is_attributed(run_root, asset_id, latest["render_sha256"])
+        if reference and attributed is not False:
             result[asset_id] = {"reference": reference, "developments": values}
     return result
 
@@ -141,7 +145,7 @@ def latest_reference_evaluation(run_root: Path) -> dict | None:
     receipts = [value for path in (run_root / "observability" / "evaluations").glob("*.json") if (value := _read_json(path))]
     return max(receipts, key=lambda item: item.get("created_at") or "") if receipts else None
 
-MINIMUM_ACCEPTED_REFERENCE_DELTA = 1.0
+MINIMUM_ACCEPTED_REFERENCE_DELTA = 3.0
 
 
 def _job_mutates_geometry(job: dict) -> bool:
@@ -167,6 +171,8 @@ def _candidate_is_attributed(run_root: Path, asset_id: str, render_sha256: str |
     if not job:
         return None
     if asset_id == "railgun":
+        if receipt.get("worker_slot") is None or "operations" not in job:
+            return None
         return receipt.get("worker_slot") == "worker-c" and _job_mutates_geometry(job)
     dependencies = set(job.get("dependencies") or [])
     components = [(component_receipt, component_job) for _component_path, component_receipt, component_job in attempts
