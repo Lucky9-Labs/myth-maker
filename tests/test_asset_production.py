@@ -134,6 +134,8 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('command["op"] == "add-mounted-arc-shell"', driver)
         self.assertIn('command["op"] == "add-mounted-frame"', driver)
         self.assertIn('command["op"] == "hide-prefix"', driver)
+        self.assertIn('shader.inputs.get("Transmission Weight")', driver)
+        self.assertIn('material.surface_render_method = "DITHERED"', driver)
         self.assertIn("def _add_polyline_frame", driver)
         self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
