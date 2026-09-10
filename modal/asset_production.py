@@ -198,21 +198,30 @@ def _best_scored_baselines(run_root: Path, receipts: list[tuple[Path, dict]]) ->
         return {}
     latest = max(evaluations, key=lambda item: item.get("created_at", ""))
     scores = (latest.get("evaluation") or {}).get("evaluations") or []
+    from asset_progress import reference_progress_history
+    accepted_renders = {}
+    for row in reference_progress_history(run_root):
+        if row["accepted"]:
+            accepted_renders[row["asset_id"]] = row["render_sha256"]
 
     def receipt_for_render(asset_id: str) -> tuple[Path, dict] | None:
         asset_scores = [item for item in scores if item.get("asset_id") == asset_id]
-        if not asset_scores:
+        promoted_digest = accepted_renders.get(asset_id)
+        if promoted_digest:
+            candidates = [{"render_sha256": promoted_digest, "weighted_score": float("inf")}]
+        elif not asset_scores:
             return None
         # Evaluations are ordered baseline then candidate. A candidate becomes the
         # next production baseline only when its same-call gain clears the gate.
-        candidates = [asset_scores[0]]
-        baseline_score = asset_scores[0].get("weighted_score")
-        candidate = asset_scores[-1]
-        candidate_score = candidate.get("weighted_score")
-        if (len(asset_scores) > 1 and isinstance(baseline_score, (int, float))
-                and isinstance(candidate_score, (int, float)) and candidate_score - baseline_score >= 3.0):
-            candidates.append(candidate)
-        candidates.sort(key=lambda item: item.get("weighted_score", -1), reverse=True)
+        else:
+            candidates = [asset_scores[0]]
+            baseline_score = asset_scores[0].get("weighted_score")
+            candidate = asset_scores[-1]
+            candidate_score = candidate.get("weighted_score")
+            if (len(asset_scores) > 1 and isinstance(baseline_score, (int, float))
+                    and isinstance(candidate_score, (int, float)) and candidate_score - baseline_score >= 3.0):
+                candidates.append(candidate)
+            candidates.sort(key=lambda item: item.get("weighted_score", -1), reverse=True)
         for score in candidates:
             digest = score.get("render_sha256")
             for path, receipt in receipts:
