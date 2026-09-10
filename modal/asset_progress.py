@@ -23,6 +23,13 @@ MODEL_PRICING = {
         "source": "https://developers.openai.com/api/docs/models/gpt-6-astra",
         "verified_at": "2026-09-10",
     },
+    "gpt-5.6-luna": {
+        "input_usd_per_million": 0.20,
+        "cached_input_usd_per_million": 0.02,
+        "output_usd_per_million": 1.20,
+        "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+        "verified_at": "2026-09-10",
+    },
 }
 
 
@@ -473,7 +480,9 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     # desired comparison visible without turning unavailable telemetry into 0.
     model_rows.setdefault("gpt-5.6-luna", {"model": "gpt-5.6-luna", "requests": None,
         "input_tokens": None, "cached_input_tokens": None, "output_tokens": None,
-        "total_tokens": None, "duration_ms": None, "provenance": "unavailable"})
+        "total_tokens": None, "duration_ms": None, "provenance": "unavailable",
+        "telemetry_scope": "codex-account-only",
+        "unavailable_reason": "Codex exposes an account-wide allowance, not per-task Luna token usage; no Luna API receipt exists in this run."})
     for row in model_rows.values():
         row["cost"] = priced_model_usage(row["model"], row)
     attempts.sort(key=lambda item: item.get("completed_at") or "", reverse=True)
@@ -527,7 +536,9 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
         "efficiency": {"accepted_quality_gain_per_usd": round(sum(gains) / measured_cost, 3) if evaluation and measured_cost else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
                        "accepted_asset_sets_per_usd": {"provenance": "unavailable", "value": None},
-                       "luna_comparison": "unavailable until Codex task usage is exported into the run ledger"}}
+                       "luna_comparison": {"provenance": "unavailable",
+                                           "reason": "Codex exposes an account-wide allowance, not per-task Luna token usage; no Luna API receipt exists in this run.",
+                                           "resolution": "Invoke Luna through the metered cloud API path and record response usage in the run ledger."}}}
 
 def _read_json(path: Path) -> dict | None:
     try:
