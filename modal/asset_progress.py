@@ -33,6 +33,8 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
                 if row.get("asset_id") == asset_id and isinstance(row.get("weighted_score"), (int, float)):
                     historical_scores[row.get("render_sha256")] = row["weighted_score"]
         latest = values[-1]
+        if latest["render_sha256"] in historical_scores:
+            continue
         prior = values[:-1]
         baseline = max(prior, key=lambda item: historical_scores.get(item["render_sha256"], -1)) if prior else None
         values = ([baseline] if baseline else []) + [latest]
