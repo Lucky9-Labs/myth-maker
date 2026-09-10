@@ -230,6 +230,13 @@ def _add_side_wedge(name: str, profile: tuple[tuple[float, float], ...], thickne
     bevel.width = min(thickness * 0.22, 0.035); bevel.segments = 2; bevel.limit_method = "ANGLE"
 
 
+def _mount_created(obj, owner, location=(0.0, 0.0, 0.0)) -> None:
+    """Attach new geometry in an articulation mount's local coordinate system."""
+    obj.parent = owner
+    obj.location = location
+    obj.rotation_euler = (0.0, 0.0, 0.0)
+
+
 def apply_reference_corrections(job_type: str) -> int:
     """Apply one bounded, versioned defect batch observed against the frozen refs."""
     changed = 0
@@ -286,8 +293,14 @@ def apply_parameterized_correction(spec: dict) -> int:
             raise RuntimeError("parameterized correction owner is unavailable: " + command.get("owner", ""))
         if command["op"] == "add-box":
             _add_box(command["name"], tuple(command["location"]), tuple(command["dimensions"]), command["material"], owner)
+        elif command["op"] == "add-mounted-box":
+            _add_box(command["name"], (0.0, 0.0, 0.0), tuple(command["dimensions"]), command["material"], owner)
+            _mount_created(bpy.data.objects[command["name"]], owner, tuple(command["location"]))
         elif command["op"] == "add-side-wedge":
             _add_side_wedge(command["name"], tuple(tuple(point) for point in command["profile"]), command["thickness"], command["material"], owner)
+        elif command["op"] == "add-mounted-side-wedge":
+            _add_side_wedge(command["name"], tuple(tuple(point) for point in command["profile"]), command["thickness"], command["material"], owner)
+            _mount_created(bpy.data.objects[command["name"]], owner)
         else:
             target = bpy.data.objects.get(command["name"])
             if target is None: raise RuntimeError("parameterized correction target is unavailable: " + command["name"])
