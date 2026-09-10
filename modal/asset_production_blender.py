@@ -325,6 +325,7 @@ def render_views(output: Path, views: list[str], job: dict) -> None:
             visible = [obj for obj in visible if obj.get("asset_source_lane") != "c"]
         if not visible:
             raise RuntimeError(f"review view {view} has no renderable mesh geometry")
+        bpy.context.view_layer.update()
         low, high = bounds(visible)
         center, size = (low + high) * 0.5, max((high - low).length, 1.0)
         direction = Vector(positions[view]).normalized()
@@ -337,6 +338,13 @@ def render_views(output: Path, views: list[str], job: dict) -> None:
         # Fit the projected bounds after orienting the camera. Orthographic scale
         # is vertical, so a world-space diagonal is neither necessary nor
         # sufficient when an imported asset has arbitrary axes.
+        bpy.context.view_layer.update()
+        inverse = camera.matrix_world.inverted()
+        projected = [inverse @ (obj.matrix_world @ Vector(corner))
+                     for obj in visible for corner in obj.bound_box]
+        mid_x = (max(point.x for point in projected) + min(point.x for point in projected)) * 0.5
+        mid_y = (max(point.y for point in projected) + min(point.y for point in projected)) * 0.5
+        camera.location += camera.matrix_world.to_quaternion() @ Vector((mid_x, mid_y, 0))
         bpy.context.view_layer.update()
         inverse = camera.matrix_world.inverted()
         projected = [inverse @ (obj.matrix_world @ Vector(corner))
