@@ -417,6 +417,33 @@ class AssetProductionTests(unittest.TestCase):
             promoted = _best_scored_baselines(root, receipts)
             self.assertEqual(promoted["worker-c"][1]["artifacts"]["asset.blend"]["sha256"], "3" * 64)
 
+    def test_baseline_resolution_retains_accepted_lineage_when_latest_baseline_was_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            railgun = job("worker-c", "railgun")
+            receipts = []
+            for attempt_number, native, render in ((1, "1" * 64, "a" * 64), (2, "2" * 64, "b" * 64),
+                                                    (3, "3" * 64, "c" * 64), (4, "4" * 64, "d" * 64)):
+                attempt = root / railgun["work_id"] / f"attempt-{attempt_number:04d}"; attempt.mkdir(parents=True)
+                stored = dict(railgun)
+                if attempt_number > 1: stored["correction_spec"] = {"version": "myth-maker.geometry-correction/v1", "commands": [{"op": "scale", "name": "receiver", "scale": [1, 1, 1]}]}
+                (attempt / "job.json").write_text(json.dumps(stored))
+                receipt = {"worker_slot": "worker-c", "work_id": railgun["work_id"], "attempt": attempt_number,
+                    "status": "completed", "artifacts": {"asset.blend": {"volume_path": f"run/{attempt_number}.blend",
+                    "bytes": 100, "sha256": native}, "renders/side.png": {"sha256": render}}}
+                (attempt / "receipt.json").write_text(json.dumps(receipt)); receipts.append((attempt / "receipt.json", receipt))
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            for name, created, rows in (
+                ("accepted", "2026-09-10T00:01:00Z", [("a", 40), ("b", 44)]),
+                ("rejected", "2026-09-10T00:02:00Z", [("b", 50), ("c", 51)]),
+                ("wrong", "2026-09-10T00:03:00Z", [("c", 60), ("d", 61)])):
+                (evaluations / f"{name}.json").write_text(json.dumps({"status": "completed", "created_at": created,
+                    "evaluation": {"evaluations": [{"asset_id": "railgun", "render_sha256": digest * 64,
+                    "weighted_score": score} for digest, score in rows]}}))
+            from asset_production import _best_scored_baselines
+            promoted = _best_scored_baselines(root, receipts)
+            self.assertEqual(promoted["worker-c"][1]["artifacts"]["asset.blend"]["sha256"], "2" * 64)
+
 
 if __name__ == "__main__":
     unittest.main()
