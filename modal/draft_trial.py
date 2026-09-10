@@ -340,12 +340,12 @@ def refresh_asset_progress_dashboards() -> dict:
     if root.is_dir():
         for run_root in sorted(root.iterdir()):
             if run_root.is_dir():
-                # Route scheduled and on-demand evaluations through the same
-                # max_containers=1 function.  Separate callers previously
-                # raced after both observed a missing digest, paid for the
-                # same Astra comparison twice, and could disagree about which
-                # revision was promoted.
-                refreshed.append(evaluate_asset_reference_progress.remote(run_root.name))
+                # The five-minute schedule is observability-only. Paid Astra
+                # evaluation is an explicit production gate after deterministic
+                # and visual inspection; running it here silently spends money
+                # on every new candidate, including cheap-gate rejects.
+                refreshed.append(build_dashboard(run_root))
+        volume.commit()
     return {"status": "completed", "runs": len(refreshed), "dashboards": refreshed}
 
 

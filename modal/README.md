@@ -47,7 +47,8 @@ Only the final Unity receipt and explicit visual acceptance may move a run to
 only hash-verified, completed production receipts and creates an animated GIF
 from the newest four revisions for `mech`, `railgun`, and `assembly`. Failed,
 partial, missing, and hash-mismatched renders remain outside the animation.
-Dashboards stay on the private Volume. Fetch one through authenticated Modal
+The scheduled refresh never calls Astra; reference evaluation is an explicit,
+measured production gate. Dashboards stay on the private Volume. Fetch one through authenticated Modal
 function access:
 
 ```sh
