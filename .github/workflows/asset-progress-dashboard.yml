@@ -2,6 +2,12 @@ name: Asset progress dashboard
 
 on:
   workflow_dispatch:
+    inputs:
+      evaluate:
+        description: Run the paid Astra reference evaluation before building the dashboard
+        required: false
+        default: true
+        type: boolean
   schedule:
     - cron: '*/5 * * * *'
 
@@ -31,12 +37,14 @@ jobs:
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          EVALUATE: ${{ inputs.evaluate || 'true' }}
         run: |
           set -euo pipefail
-          python3 scripts/fetch_asset_progress_dashboard.py \
-            --environment dev \
-            --run-id raptor-mech-railgun-pilot-001 \
-            --output output/asset-progress
+          args=(--environment dev --run-id raptor-mech-railgun-pilot-001 --output output/asset-progress)
+          if [[ "$EVALUATE" != "true" ]]; then
+            args+=(--skip-evaluation)
+          fi
+          python3 scripts/fetch_asset_progress_dashboard.py "${args[@]}"
       - name: Upload dashboard snapshot
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
