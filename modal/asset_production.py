@@ -352,7 +352,7 @@ def validate_critique_request(value: dict) -> dict:
 def validate_correction_spec(value: dict) -> dict:
     """Validate a bounded geometry patch that can run without a runtime redeploy."""
     _closed(value, {"version", "commands"}, set(), "correction spec")
-    if value["version"] != "myth-maker.geometry-correction/v1" or not isinstance(value["commands"], list) or not 1 <= len(value["commands"]) <= 24:
+    if value["version"] != "myth-maker.geometry-correction/v1" or not isinstance(value["commands"], list) or not 1 <= len(value["commands"]) <= 64:
         raise ValueError("correction spec has an invalid version or command count")
     materials = {"structural", "armor-white", "armor-blue", "cyan-emission", "lens"}
     def numbers(items, count=None, positive=False, limit=20):
@@ -360,7 +360,7 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-arc-shell", "add-mounted-frame", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-arc-shell", "add-mounted-frame", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material"}:
             raise ValueError("correction spec contains an invalid command")
         common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
@@ -408,6 +408,8 @@ def validate_correction_spec(value: dict) -> dict:
             raise ValueError("transform correction is invalid")
         if command["op"] == "hide" and set(command) != expected:
             raise ValueError("hide correction is invalid")
+        if command["op"] == "hide-prefix" and (set(command) != {"op", "name"} or len(command["name"]) < 4):
+            raise ValueError("hide-prefix correction is invalid")
         if command["op"] == "set-material" and (set(command) != {"op", "name", "material"}
                 or command.get("material") not in materials):
             raise ValueError("set-material correction is invalid")

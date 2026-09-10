@@ -372,6 +372,10 @@ def apply_parameterized_correction(spec: dict) -> int:
                                 command["bar_width"], command["thickness"], command["closed"],
                                 command["material"], owner)
             _mount_created(bpy.data.objects[command["name"]], owner, tuple(command["location"]))
+        elif command["op"] == "hide-prefix":
+            targets = [obj for obj in bpy.data.objects if obj.name.lower().startswith(command["name"].lower())]
+            if not targets: raise RuntimeError("parameterized correction prefix matched no objects: " + command["name"])
+            for target in targets: target.hide_render = True
         else:
             target = bpy.data.objects.get(command["name"])
             if target is None: raise RuntimeError("parameterized correction target is unavailable: " + command["name"])
