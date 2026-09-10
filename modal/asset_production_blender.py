@@ -181,6 +181,21 @@ def _scale_local(obj, x: float = 1.0, y: float = 1.0, z: float = 1.0) -> None:
     obj.scale.z *= z
 
 
+def _taper_ends(obj, factor: float) -> None:
+    """Narrow both ends of a casting along its longest local mesh axis."""
+    coordinates = [[vertex.co[axis] for vertex in obj.data.vertices] for axis in range(3)]
+    ranges = [max(values) - min(values) if values else 0 for values in coordinates]
+    longest = max(range(3), key=lambda axis: ranges[axis])
+    center = (max(coordinates[longest]) + min(coordinates[longest])) * 0.5
+    half = max(ranges[longest] * 0.5, 1e-6)
+    for vertex in obj.data.vertices:
+        distance = min(1.0, abs(vertex.co[longest] - center) / half)
+        cross_scale = 1.0 - (1.0 - factor) * distance
+        for axis in range(3):
+            if axis != longest: vertex.co[axis] *= cross_scale
+    obj.data.update()
+
+
 def _add_box(name: str, location: tuple[float, float, float], dimensions: tuple[float, float, float],
              material: str, owner) -> None:
     """Add one deterministic beveled hard-surface component in weapon coordinates."""
@@ -279,6 +294,7 @@ def apply_parameterized_correction(spec: dict) -> int:
             if command["op"] == "scale": _scale_local(target, *command["scale"])
             elif command["op"] == "thicken": _thicken(target, command["factor"])
             elif command["op"] == "lengthen": _lengthen(target, command["factor"])
+            elif command["op"] == "taper-ends": _taper_ends(target, command["factor"])
             elif command["op"] == "hide": target.hide_render = True
         changed += 1
     return changed
