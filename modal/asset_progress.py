@@ -506,15 +506,14 @@ def build_dashboard(run_root: Path) -> dict:
     output = run_root / "observability"
     output.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now(timezone.utc)
-    developments = completed_developments(run_root)
+    all_developments = completed_developments(run_root, limit=None)
+    developments = {asset_id: values[-4:] for asset_id, values in all_developments.items()}
     telemetry = production_observability(run_root, generated_at)
     chart = _progress_svg(telemetry["reference_convergence"]["history"], output / "reference-convergence.svg")
-    evaluation_inputs = reference_evaluation_inputs(run_root)
     assets, cards = {}, []
     for asset_id, values in developments.items():
         gif = _gif(values, output / f"{asset_id}-last-four.gif")
-        verified_reference = (_verified_reference(completed_developments(run_root, limit=None)[asset_id], asset_id)
-                              if values else None)
+        verified_reference = _verified_reference(all_developments[asset_id], asset_id) if values else None
         reference, measurements = None, None
         if verified_reference:
             data = verified_reference["path"].read_bytes()
