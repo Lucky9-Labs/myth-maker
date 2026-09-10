@@ -76,6 +76,18 @@ class AssetProductionTests(unittest.TestCase):
              "thickness": .45, "material": "armor-white"}]}
         self.assertEqual(validate_correction_spec(spec), spec)
 
+    def test_validates_bounded_mounted_arc_shell(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
+            {"op": "add-mounted-arc-shell", "name": "cockpit-rim", "owner": "mount-cockpit",
+             "location": [0, 0, 0], "inner_radius": .8, "outer_radius": 1.05,
+             "start_degrees": 20, "end_degrees": 160, "segments": 12,
+             "thickness": .35, "material": "armor-blue"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        for key, value in (("segments", 33), ("inner_radius", 2)):
+            invalid = json.loads(json.dumps(spec)); invalid["commands"][0][key] = value
+            with self.assertRaisesRegex(ValueError, "add-mounted-arc-shell"):
+                validate_correction_spec(invalid)
+
     def test_validates_material_reassignment(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
             {"op": "set-material", "name": "armor-torso", "material": "structural"}]}
@@ -100,6 +112,7 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn("def apply_reference_corrections", driver)
         self.assertIn("def _mount_created", driver)
         self.assertIn('command["op"] == "add-mounted-box"', driver)
+        self.assertIn('command["op"] == "add-mounted-arc-shell"', driver)
         self.assertIn('REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v5"', driver)
         self.assertIn('"frame-foot-toe"', driver)
         self.assertIn('"bow-blade-upper"', driver)

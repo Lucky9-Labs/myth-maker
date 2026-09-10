@@ -230,6 +230,32 @@ def _add_side_wedge(name: str, profile: tuple[tuple[float, float], ...], thickne
     bevel.width = min(thickness * 0.22, 0.035); bevel.segments = 2; bevel.limit_method = "ANGLE"
 
 
+def _add_arc_shell(name: str, inner_radius: float, outer_radius: float,
+                   start_degrees: float, end_degrees: float, segments: int,
+                   thickness: float, material: str, owner) -> None:
+    """Extrude an annular X/Z sector through Y for curved armor and joint housings."""
+    half = thickness * 0.5
+    angles = [math.radians(start_degrees + (end_degrees - start_degrees) * index / segments)
+              for index in range(segments + 1)]
+    profile = ([(math.cos(angle) * outer_radius, math.sin(angle) * outer_radius) for angle in angles]
+               + [(math.cos(angle) * inner_radius, math.sin(angle) * inner_radius) for angle in reversed(angles)])
+    vertices = [(x, -half, z) for x, z in profile] + [(x, half, z) for x, z in profile]
+    count = len(profile)
+    faces = [tuple(reversed(range(count))), tuple(range(count, count * 2))]
+    for index in range(count):
+        following = (index + 1) % count
+        faces.append((index, following, following + count, index + count))
+    mesh = bpy.data.meshes.new(name + "-mesh"); mesh.from_pydata(vertices, [], faces); mesh.update()
+    obj = bpy.data.objects.new(name, mesh); bpy.context.scene.collection.objects.link(obj)
+    for key in ("asset_production_run", "asset_production_work", "asset_core_kit"):
+        if owner.get(key) is not None: obj[key] = owner[key]
+    obj["asset_role"] = "removable-armor" if material in {"armor-white", "armor-blue"} else "structure"
+    obj.data.materials.append(bpy.data.materials[material])
+    bevel = obj.modifiers.new("reference-arc-bevel", "BEVEL")
+    bevel.width = min((outer_radius - inner_radius) * 0.14, thickness * 0.18, 0.04)
+    bevel.segments = 2; bevel.limit_method = "ANGLE"
+
+
 def _mount_created(obj, owner, location=(0.0, 0.0, 0.0)) -> None:
     """Attach new geometry in an articulation mount's local coordinate system."""
     obj.parent = owner
@@ -301,6 +327,11 @@ def apply_parameterized_correction(spec: dict) -> int:
         elif command["op"] == "add-mounted-side-wedge":
             _add_side_wedge(command["name"], tuple(tuple(point) for point in command["profile"]), command["thickness"], command["material"], owner)
             _mount_created(bpy.data.objects[command["name"]], owner)
+        elif command["op"] == "add-mounted-arc-shell":
+            _add_arc_shell(command["name"], command["inner_radius"], command["outer_radius"],
+                           command["start_degrees"], command["end_degrees"], command["segments"],
+                           command["thickness"], command["material"], owner)
+            _mount_created(bpy.data.objects[command["name"]], owner, tuple(command["location"]))
         else:
             target = bpy.data.objects.get(command["name"])
             if target is None: raise RuntimeError("parameterized correction target is unavailable: " + command["name"])

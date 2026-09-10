@@ -360,9 +360,9 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-arc-shell", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "set-material"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale", "delta", "factor"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -375,6 +375,18 @@ def validate_correction_spec(value: dict) -> dict:
                     or isinstance(command.get("thickness"), bool) or not 0 < command["thickness"] <= 5
                     or command.get("material") not in materials):
                 raise ValueError("add-side-wedge correction is invalid")
+        if command["op"] == "add-mounted-arc-shell":
+            numeric = lambda key: isinstance(command.get(key), (int, float)) and not isinstance(command.get(key), bool)
+            if (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
+                    or not numeric("inner_radius") or not numeric("outer_radius")
+                    or not 0.05 <= command["inner_radius"] < command["outer_radius"] <= 10
+                    or not numeric("start_degrees") or not numeric("end_degrees")
+                    or not -360 <= command["start_degrees"] < command["end_degrees"] <= 360
+                    or command["end_degrees"] - command["start_degrees"] > 300
+                    or not numeric("thickness") or not 0 < command["thickness"] <= 5
+                    or not isinstance(command.get("segments"), int) or isinstance(command.get("segments"), bool)
+                    or not 3 <= command["segments"] <= 32 or command.get("material") not in materials):
+                raise ValueError("add-mounted-arc-shell correction is invalid")
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
         if command["op"] == "scale" and (set(command) != expected or not numbers(command.get("scale"), 3, True)):
             raise ValueError("scale correction is invalid")
