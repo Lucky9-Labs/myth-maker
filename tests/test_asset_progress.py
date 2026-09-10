@@ -108,4 +108,24 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual([(row["render_sha256"], row["delta"], row["accepted"], row["cumulative_accepted_gain"]) for row in history],
                              [("b", 4, True, 4), ("c", -1, False, 4), ("d", 0.3, False, 4)])
             self.assertEqual(history[-1]["disposition"], "below-threshold")
+
+    def test_progress_history_skips_unrelated_assembly_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            dependencies = []
+            for slot in ("worker-a", "worker-b"):
+                attempt = root / slot / "attempt-0001"; attempt.mkdir(parents=True)
+                digest = ("a" if slot == "worker-a" else "b") * 64; dependencies.append(digest)
+                (attempt / "job.json").write_text(json.dumps({"operations": [{"kind": "normalize"}]}))
+                (attempt / "receipt.json").write_text(json.dumps({"worker_slot": slot,
+                    "artifacts": {"asset.blend": {"sha256": digest}}}))
+            assembly = root / "worker-d" / "attempt-0001"; assembly.mkdir(parents=True)
+            (assembly / "job.json").write_text(json.dumps({"dependencies": dependencies}))
+            (assembly / "receipt.json").write_text(json.dumps({"worker_slot": "worker-d",
+                "artifacts": {"renders/full-body.png": {"sha256": "d" * 64}}}))
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "one.json").write_text(json.dumps({"status": "completed", "created_at": "2026-09-10T00:00:00Z",
+                "evaluation": {"evaluations": [{"asset_id": "mech", "render_sha256": "c" * 64, "weighted_score": 40},
+                                                {"asset_id": "mech", "render_sha256": "d" * 64, "weighted_score": 45}]}}))
+            self.assertEqual(reference_progress_history(root), [])
 if __name__ == "__main__": unittest.main()

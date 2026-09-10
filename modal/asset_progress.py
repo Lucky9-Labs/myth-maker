@@ -144,6 +144,37 @@ def latest_reference_evaluation(run_root: Path) -> dict | None:
 MINIMUM_ACCEPTED_REFERENCE_DELTA = 1.0
 
 
+def _job_mutates_geometry(job: dict) -> bool:
+    mutating = {"apply-reference-corrections", "apply-parameterized-correction"}
+    return bool(job.get("correction_spec") or any(item.get("kind") in mutating for item in job.get("operations") or []))
+
+
+def _candidate_is_attributed(run_root: Path, asset_id: str, render_sha256: str | None) -> bool | None:
+    """Say whether the render came from a targeted mutation of this asset.
+
+    None preserves older evidence whose receipt/job provenance cannot be resolved.
+    """
+    attempts = []
+    for path in run_root.glob("*/attempt-*/receipt.json"):
+        receipt = _read_json(path)
+        if receipt: attempts.append((path, receipt, _read_json(path.parent / "job.json")))
+    rendered = [(path, receipt, job) for path, receipt, job in attempts
+                if any(name.startswith("renders/") and item.get("sha256") == render_sha256
+                       for name, item in (receipt.get("artifacts") or {}).items())]
+    if not rendered:
+        return None
+    _path, receipt, job = rendered[-1]
+    if not job:
+        return None
+    if asset_id == "railgun":
+        return receipt.get("worker_slot") == "worker-c" and _job_mutates_geometry(job)
+    dependencies = set(job.get("dependencies") or [])
+    components = [(component_receipt, component_job) for _component_path, component_receipt, component_job in attempts
+                  if component_receipt.get("worker_slot") in {"worker-a", "worker-b"}
+                  and (component_receipt.get("artifacts") or {}).get("asset.blend", {}).get("sha256") in dependencies]
+    return any(_job_mutates_geometry(component_job or {}) for component_receipt, component_job in components) if components else None
+
+
 def reference_progress_history(run_root: Path) -> list[dict]:
     """Return one same-request delta for each newly observed candidate render."""
     receipts = sorted(
@@ -161,6 +192,9 @@ def reference_progress_history(run_root: Path) -> list[dict]:
             identity = (asset_id, candidate.get("render_sha256"))
             if identity in seen:
                 continue
+            attributed = _candidate_is_attributed(run_root, asset_id, candidate.get("render_sha256"))
+            if attributed is False:
+                continue
             seen.add(identity)
             delta = round(candidate["weighted_score"] - asset_rows[0]["weighted_score"], 2)
             accepted = delta >= MINIMUM_ACCEPTED_REFERENCE_DELTA
@@ -168,6 +202,7 @@ def reference_progress_history(run_root: Path) -> list[dict]:
                 cumulative[asset_id] = round(cumulative[asset_id] + delta, 2)
             history.append({"created_at": receipt.get("created_at"), "asset_id": asset_id,
                             "render_sha256": candidate.get("render_sha256"), "delta": delta,
+                            "attribution": "measured" if attributed else "unavailable",
                             "accepted": accepted,
                             "disposition": "accepted" if accepted else ("below-threshold" if delta > 0 else "rejected"),
                             "cumulative_accepted_gain": cumulative[asset_id]})
