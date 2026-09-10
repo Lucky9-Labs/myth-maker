@@ -15,7 +15,7 @@ FORMAT = "myth-maker.asset-production-job/v1"
 SLOTS = ("worker-a", "worker-b", "worker-c", "worker-d")
 JOB_TYPES = ("mech-structure", "mech-armor", "railgun", "core-kit", "kit-assembly", "final-validation")
 OPERATIONS = (
-    "normalize", "apply-core-kit", "apply-reference-corrections", "assemble", "bind-rig", "animate",
+    "normalize", "apply-core-kit", "apply-reference-corrections", "apply-parameterized-correction", "assemble", "bind-rig", "animate",
     "render-review", "export-glb", "validate",
 )
 VIEWS = (
@@ -48,7 +48,7 @@ def validate_job_manifest(value: dict) -> dict:
         "source_revision", "runtime_deployment", "inputs", "dependencies",
         "operations", "review_views", "measurement",
     }
-    _closed(value, required, set(), "asset production job")
+    _closed(value, required, {"correction_spec"}, "asset production job")
     if value["format"] != FORMAT:
         raise ValueError("asset production job has an unsupported format")
     for name in ("run_id", "work_id"):
@@ -95,6 +95,11 @@ def validate_job_manifest(value: dict) -> dict:
                    for item in value["operations"])):
         raise ValueError("asset production operations must use the closed core-kit vocabulary")
     operation_kinds = {item["kind"] for item in value["operations"]}
+    spec = value.get("correction_spec")
+    if "apply-parameterized-correction" in operation_kinds:
+        validate_correction_spec(spec)
+    elif spec is not None:
+        raise ValueError("correction spec requires its execution operation")
     required_operations = {"normalize", "apply-core-kit", "render-review", "export-glb", "validate"}
     if not required_operations.issubset(operation_kinds):
         raise ValueError("asset production job omits a required cloud production operation")
@@ -231,7 +236,8 @@ def _read_json(path: Path) -> dict | None:
 
 def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
                             apply_reference_batch: bool = False,
-                            reference_batch_slot: str | None = None) -> list[dict]:
+                            reference_batch_slot: str | None = None,
+                            correction_spec: dict | None = None) -> list[dict]:
     """Advance from promoted baselines; apply a new batch only when explicitly requested."""
     if set(runtime_deployment) != {"source_sha", "function_id"}:
         raise ValueError("correction wave requires the current runtime deployment")
@@ -260,10 +266,17 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
             operations = [item for item in operations if item["kind"] != "apply-reference-corrections"]
         if slot != "worker-d" and apply_reference_batch and (reference_batch_slot is None or slot == reference_batch_slot):
             operations.append({"kind": "apply-reference-corrections"})
-        wave.append(validate_job_manifest({**prior, "attempt": max(attempts) + 1,
+        if correction_spec is not None and slot == reference_batch_slot:
+            validate_correction_spec(correction_spec)
+            operations.append({"kind": "apply-parameterized-correction"})
+        candidate = {**prior, "attempt": max(attempts) + 1,
             "runtime_deployment": dict(runtime_deployment), "source_revision": native["sha256"],
             "inputs": inputs, "dependencies": [] if slot != "worker-d" else list(prior["dependencies"]),
-            "operations": operations}))
+            "operations": operations}
+        candidate.pop("correction_spec", None)
+        if correction_spec is not None and slot == reference_batch_slot:
+            candidate["correction_spec"] = correction_spec
+        wave.append(validate_job_manifest(candidate))
     return plan_production_wave(wave)
 
 
@@ -309,6 +322,40 @@ def validate_critique_request(value: dict) -> dict:
         if (not _safe_relative(item["path"]) or not isinstance(item["bytes"], int) or item["bytes"] < 1
                 or not SHA256.fullmatch(item["sha256"]) or item["media_type"] != "image/png"):
             raise ValueError("asset critique artifact is invalid")
+    return json.loads(json.dumps(value))
+
+
+def validate_correction_spec(value: dict) -> dict:
+    """Validate a bounded geometry patch that can run without a runtime redeploy."""
+    _closed(value, {"version", "commands"}, set(), "correction spec")
+    if value["version"] != "myth-maker.geometry-correction/v1" or not isinstance(value["commands"], list) or not 1 <= len(value["commands"]) <= 24:
+        raise ValueError("correction spec has an invalid version or command count")
+    materials = {"structural", "armor-white", "armor-blue", "cyan-emission", "lens"}
+    def numbers(items, count=None, positive=False):
+        return (isinstance(items, list) and (count is None or len(items) == count)
+                and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -20 <= item <= 20
+                        and (not positive or item > 0) for item in items))
+    for command in value["commands"]:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "scale", "hide"}:
+            raise ValueError("correction spec contains an invalid command")
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "scale"}
+        if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
+            raise ValueError("correction command has an invalid shape or name")
+        if command["op"] == "add-box" and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
+                or not numbers(command.get("dimensions"), 3, True) or command.get("material") not in materials):
+            raise ValueError("add-box correction is invalid")
+        if command["op"] == "add-side-wedge":
+            profile = command.get("profile")
+            if (not isinstance(command.get("owner"), str) or not isinstance(profile, list) or not 3 <= len(profile) <= 8
+                    or not all(numbers(point, 2) for point in profile) or not isinstance(command.get("thickness"), (int, float))
+                    or isinstance(command.get("thickness"), bool) or not 0 < command["thickness"] <= 5
+                    or command.get("material") not in materials):
+                raise ValueError("add-side-wedge correction is invalid")
+        expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
+        if command["op"] == "scale" and (set(command) != expected or not numbers(command.get("scale"), 3, True)):
+            raise ValueError("scale correction is invalid")
+        if command["op"] == "hide" and set(command) != expected:
+            raise ValueError("hide correction is invalid")
     return json.loads(json.dumps(value))
 
 

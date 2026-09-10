@@ -14,6 +14,11 @@ on:
         default: ''
         type: choice
         options: ['', 'worker-a', 'worker-b', 'worker-c']
+      correction_spec:
+        description: Validated geometry-correction JSON for the selected lane
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -42,6 +47,7 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           SOURCE_SHA: ${{ github.sha }}
+          CORRECTION_SPEC: ${{ inputs.correction_spec }}
         run: |
           set -euo pipefail
           python3 scripts/run_asset_correction_wave.py \

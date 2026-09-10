@@ -22,6 +22,7 @@ from asset_production import (
     stage_volume_inputs,
     summarize_efficiency,
     validate_job_manifest,
+    validate_correction_spec,
     validate_visual_critique,
 )
 
@@ -58,6 +59,14 @@ def job(slot: str = "worker-a", kind: str = "mech-structure") -> dict:
 
 
 class AssetProductionTests(unittest.TestCase):
+    def test_validates_bounded_parameterized_geometry(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{"op": "add-side-wedge",
+            "name": "shin-panel-left", "owner": "receiver", "profile": [[0, 0], [1, 0], [0, 1]],
+            "thickness": .1, "material": "armor-white"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["thickness"] = 99
+        with self.assertRaisesRegex(ValueError, "add-side-wedge"): validate_correction_spec(invalid)
+
     def test_blender_52_driver_uses_current_eevee_engine_name(self):
         driver = (MODAL_DIR / "asset_production_blender.py").read_text(encoding="utf-8")
         self.assertIn('scene.render.engine = "BLENDER_EEVEE"', driver)
