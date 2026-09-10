@@ -18,6 +18,10 @@ on:
       provider_call_id:
         required: false
         type: string
+      cancel_provider_call:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -41,12 +45,17 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
         run: |
+          cancel_arg=()
+          if [[ '${{ inputs.cancel_provider_call }}' == 'true' ]]; then
+            cancel_arg+=(--cancel-provider-call)
+          fi
           python3 scripts/get_component_diffusion_status.py \
             --run-id '${{ inputs.run_id }}' \
             --work-id '${{ inputs.work_id }}' \
             --attempt '${{ inputs.attempt }}' \
             --component-id '${{ inputs.component_id }}' \
             --provider-call-id '${{ inputs.provider_call_id }}' \
+            "${cancel_arg[@]}" \
             --output receipts/component-diffusion-status.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
