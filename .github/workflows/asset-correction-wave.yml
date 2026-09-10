@@ -2,6 +2,12 @@ name: Run asset correction wave
 
 on:
   workflow_dispatch:
+    inputs:
+      apply_reference_batch:
+        description: Apply the currently deployed versioned geometry batch
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -36,6 +42,7 @@ jobs:
             --environment dev \
             --run-id raptor-mech-railgun-pilot-001 \
             --source-sha "$SOURCE_SHA" \
+            ${{ inputs.apply_reference_batch && '--apply-reference-batch' || '' }} \
             --output receipts/asset-correction-wave.json
       - name: Upload correction receipt
         if: always()

@@ -256,7 +256,8 @@ class AssetProductionTests(unittest.TestCase):
                 receipt = {"worker_slot": item["worker_slot"], "work_id": item["work_id"], "attempt": 3,
                            "status": "completed", "artifacts": {"asset.blend": native}}
                 (attempt / "receipt.json").write_text(json.dumps(receipt))
-            corrected = prepare_correction_wave(root, {"source_sha": "c" * 40, "function_id": "fu-next"})
+            corrected = prepare_correction_wave(root, {"source_sha": "c" * 40, "function_id": "fu-next"},
+                                                apply_reference_batch=True)
             self.assertEqual([item["attempt"] for item in corrected], [4, 4, 4, 4])
             self.assertTrue(all({"kind": "apply-reference-corrections"} in item["operations"] for item in corrected[:3]))
             self.assertEqual(corrected[0]["inputs"][0]["sha256"], "1" * 64)
@@ -301,6 +302,47 @@ class AssetProductionTests(unittest.TestCase):
         self.assertEqual(len(later["jobs"]), 4)
         self.assertEqual(later["measurement"]["compute_ms"]["value"], 40)
         self.assertEqual(later["started_at"], ledger["started_at"])
+
+    def test_correction_wave_promotes_best_scored_components_instead_of_latest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wave = [job("worker-a", "mech-structure"), job("worker-b", "mech-armor"),
+                    job("worker-c", "railgun"), job("worker-d", "core-kit")]
+            hashes = {"worker-a": "1" * 64, "worker-b": "2" * 64, "worker-c": "3" * 64}
+            for item in wave:
+                attempt = root / item["work_id"] / "attempt-0001"; attempt.mkdir(parents=True)
+                stored = dict(item)
+                if item["worker_slot"] == "worker-d":
+                    stored["dependencies"] = list(hashes.values())
+                    stored["inputs"] = [{"path": f"ingest/{slot}.blend", "bytes": 100, "sha256": digest,
+                                         "media_type": "application/x-blender", "staged_name": f"{slot}.blend"}
+                                        for slot, digest in hashes.items()]
+                    stored["inputs"].append(artifact("ingest/reference.png", b"PNG-reference", "image/png"))
+                (attempt / "job.json").write_text(json.dumps(stored))
+                native = hashes.get(item["worker_slot"], "4" * 64)
+                artifacts = {"asset.blend": {"volume_path": f"asset-production/run/{item['work_id']}/asset.blend",
+                    "bytes": 100, "sha256": native}}
+                if item["worker_slot"] == "worker-c": artifacts["renders/side.png"] = {"sha256": "c" * 64}
+                if item["worker_slot"] == "worker-d": artifacts["renders/full-body.png"] = {"sha256": "d" * 64}
+                (attempt / "receipt.json").write_text(json.dumps({"worker_slot": item["worker_slot"],
+                    "work_id": item["work_id"], "attempt": 1, "status": "completed", "artifacts": artifacts}))
+            # Newer C exists but scored evaluation promotes attempt 1.
+            cjob = wave[2]; newer = root / cjob["work_id"] / "attempt-0002"; newer.mkdir()
+            (newer / "job.json").write_text(json.dumps(cjob))
+            (newer / "receipt.json").write_text(json.dumps({"worker_slot": "worker-c", "work_id": cjob["work_id"],
+                "attempt": 2, "status": "completed", "artifacts": {"asset.blend": {
+                    "volume_path": "asset-production/run/c/new.blend", "bytes": 100, "sha256": "5" * 64},
+                    "renders/side.png": {"sha256": "e" * 64}}}))
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "latest.json").write_text(json.dumps({"status": "completed", "created_at": "2026-09-10T00:00:00Z",
+                "evaluation": {"evaluations": [
+                    {"asset_id": "mech", "render_sha256": "d" * 64, "weighted_score": 40},
+                    {"asset_id": "railgun", "render_sha256": "c" * 64, "weighted_score": 50},
+                    {"asset_id": "railgun", "render_sha256": "e" * 64, "weighted_score": 45}]}}))
+            promoted = prepare_correction_wave(root, {"source_sha": "a" * 40, "function_id": "fu-promote"})
+            self.assertEqual(promoted[2]["inputs"][0]["sha256"], "3" * 64)
+            self.assertEqual(promoted[0]["inputs"][0]["sha256"], "1" * 64)
+            self.assertNotIn({"kind": "apply-reference-corrections"}, promoted[2]["operations"])
 
 
 if __name__ == "__main__":

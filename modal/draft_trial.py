@@ -379,12 +379,14 @@ def get_asset_progress_dashboard(run_id: str) -> dict:
 
 @app.function(image=image, cpu=0.25, memory=512, timeout=120, retries=0,
               max_containers=1, volumes={"/submissions": volume})
-def prepare_asset_correction_wave(run_id: str, runtime_deployment: dict) -> list[dict]:
+def prepare_asset_correction_wave(run_id: str, runtime_deployment: dict,
+                                  apply_reference_batch: bool = False) -> list[dict]:
     """Build the next immutable defect-correction wave from cloud baselines."""
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", run_id or ""):
         raise ValueError("invalid asset production run id")
     volume.reload()
-    return prepare_correction_wave(SUBMISSIONS_ROOT / "asset-production" / run_id, runtime_deployment)
+    return prepare_correction_wave(SUBMISSIONS_ROOT / "asset-production" / run_id, runtime_deployment,
+                                   apply_reference_batch=apply_reference_batch)
 
 def screenshot(path: Path) -> bytes:
     subprocess.run(["scrot", "-o", str(path)], check=True, capture_output=True, timeout=5)
