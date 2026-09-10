@@ -160,10 +160,12 @@ def reference_progress_history(run_root: Path) -> list[dict]:
                 continue
             seen.add(identity)
             delta = round(candidate["weighted_score"] - asset_rows[0]["weighted_score"], 2)
-            cumulative[asset_id] = round(cumulative[asset_id] + delta, 2)
+            accepted = delta > 0
+            if accepted:
+                cumulative[asset_id] = round(cumulative[asset_id] + delta, 2)
             history.append({"created_at": receipt.get("created_at"), "asset_id": asset_id,
                             "render_sha256": candidate.get("render_sha256"), "delta": delta,
-                            "cumulative_net_gain": cumulative[asset_id]})
+                            "accepted": accepted, "cumulative_accepted_gain": cumulative[asset_id]})
     return history
 
 def _progress_svg(history: list[dict], output: Path) -> dict | None:
@@ -171,18 +173,20 @@ def _progress_svg(history: list[dict], output: Path) -> dict | None:
         return None
     points, polylines, labels = [], [], []
     colors = {"mech": "#67e8f9", "railgun": "#fbbf24"}
-    extrema = [0.0] + [row["cumulative_net_gain"] for row in history]
+    extrema = [0.0] + [row["cumulative_accepted_gain"] for row in history]
     low, high = min(extrema), max(extrema)
     span = max(1.0, high - low)
     for asset_id in ("mech", "railgun"):
         asset_rows = [row for row in history if row["asset_id"] == asset_id]
         coordinates = []
         for index, row in enumerate(asset_rows):
-            x = 90 + index * (780 / max(1, len(asset_rows) - 1)); y = 330 - ((row["cumulative_net_gain"] - low) / span) * 270
-            coordinates.append(f"{x:.1f},{y:.1f}"); points.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="{colors[asset_id]}"/><text x="{x:.1f}" y="{y-12:.1f}" text-anchor="middle" fill="#e5eefb">{row["cumulative_net_gain"]:+.1f}</text>')
+            x = 90 + index * (780 / max(1, len(asset_rows) - 1)); y = 330 - ((row["cumulative_accepted_gain"] - low) / span) * 270
+            coordinates.append(f"{x:.1f},{y:.1f}")
+            point_color = colors[asset_id] if row["accepted"] else "#fb7185"
+            points.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="6" fill="{point_color}"/><text x="{x:.1f}" y="{y-12:.1f}" text-anchor="middle" fill="#e5eefb">{row["delta"]:+.1f}</text>')
         if coordinates: polylines.append(f'<polyline points="{" ".join(coordinates)}" fill="none" stroke="{colors[asset_id]}" stroke-width="4"/>')
         labels.append(f'<text x="{100 + len(labels)*180}" y="385" fill="{colors[asset_id]}">● {asset_id}</text>')
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410"><rect width="960" height="410" fill="#111c2d"/><text x="40" y="35" fill="#f8fafc" font-size="20">Cumulative net reference progress by candidate</text>{"".join(polylines)}{"".join(points)}{"".join(labels)}</svg>'
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410"><rect width="960" height="410" fill="#111c2d"/><text x="40" y="35" fill="#f8fafc" font-size="20">Cumulative accepted reference progress</text>{"".join(polylines)}{"".join(points)}{"".join(labels)}<text x="460" y="385" fill="#fb7185">● rejected candidate</text></svg>'
     output.write_text(svg, encoding="utf-8")
     data = output.read_bytes()
     return {"path": output.name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
@@ -257,7 +261,8 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
     evaluation = latest_reference_evaluation(run_root)
     history = reference_progress_history(run_root)
     scores = (evaluation or {}).get("evaluation", {}).get("evaluations", [])
-    gains = [row["delta"] for row in history]
+    gains = [row["delta"] for row in history if row["accepted"]]
+    candidate_net = sum(row["delta"] for row in history)
     measured_tokens = sum(row["total_tokens"] or 0 for row in model_rows.values() if row["provenance"] == "measured")
     compute_minutes = sum((item["duration_ms"] or 0) for item in attempts) / 60000
     return {"window_started_at": cutoff.isoformat(), "patches_last_5m": patches,
@@ -270,7 +275,9 @@ def production_observability(run_root: Path, now: datetime | None = None) -> dic
                     "accepted_asset_set": False},
         "reference_convergence": {"provenance": "measured" if evaluation else "unavailable",
                                   "latest_evaluation": evaluation, "history": history,
-                                  "net_quality_gain": round(sum(gains), 2) if evaluation else None},
+                                  "accepted_quality_gain": round(sum(gains), 2) if evaluation else None,
+                                  "candidate_net_delta": round(candidate_net, 2) if evaluation else None,
+                                  "rejected_candidates": sum(not row["accepted"] for row in history)},
         "efficiency": {"quality_gain_per_1k_tokens": round(sum(gains) * 1000 / measured_tokens, 3) if evaluation and measured_tokens else None,
                        "quality_gain_per_compute_minute": round(sum(gains) / compute_minutes, 3) if evaluation and compute_minutes else None,
                        "tokens_per_accepted_asset_set": {"provenance": "unavailable", "value": None},

@@ -104,6 +104,6 @@ class AssetProgressTests(unittest.TestCase):
                 (evaluations / f"{index}.json").write_text(json.dumps({"status": "completed",
                     "created_at": f"2026-09-09T00:0{index}:00+00:00", "evaluation": {"evaluations": rows}}))
             history = reference_progress_history(root)
-            self.assertEqual([(row["render_sha256"], row["delta"], row["cumulative_net_gain"]) for row in history],
-                             [("b", 4, 4), ("c", -1, 3)])
+            self.assertEqual([(row["render_sha256"], row["delta"], row["accepted"], row["cumulative_accepted_gain"]) for row in history],
+                             [("b", 4, True, 4), ("c", -1, False, 4)])
 if __name__ == "__main__": unittest.main()
