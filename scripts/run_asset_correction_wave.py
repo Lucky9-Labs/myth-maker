@@ -25,7 +25,10 @@ def main() -> int:
     selected = set(args.reference_batch_slot.split("+")) if args.reference_batch_slot else {"worker-a", "worker-b", "worker-c"}
     jobs = [job for job in wave[:3] if job["worker_slot"] in selected]
     calls = [production.spawn(job) for job in jobs]; receipts = [call.get(timeout=20 * 60) for call in calls]
+    output = Path(args.output); output.parent.mkdir(parents=True, exist_ok=True)
     if any(item.get("status") != "completed" for item in receipts):
+        output.write_text(json.dumps({"wave": wave, "receipts": receipts, "ledger": None},
+                                     indent=2, sort_keys=True) + "\n")
         raise RuntimeError("one or more correction lanes failed; inspect returned receipts")
     # Unchanged lanes already have immutable, hash-verified promoted Blender
     # inputs. Feed those artifacts straight to Worker D instead of paying to
@@ -39,7 +42,6 @@ def main() -> int:
             "asset.blend": {"volume_path": native["path"], "bytes": native["bytes"], "sha256": native["sha256"]}}})
     assembly = fan_in_assembly_job(wave, fan_in_receipts); receipts.append(production.remote(assembly))
     ledger = modal.Function.from_name(config.app_name, config.asset_ledger_function_name, environment_name=config.environment).remote(wave, receipts)
-    output = Path(args.output); output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps({"wave": wave, "receipts": receipts, "ledger": ledger}, indent=2, sort_keys=True) + "\n")
     if receipts[-1].get("status") != "completed": raise RuntimeError("corrected assembly failed")
     return 0
