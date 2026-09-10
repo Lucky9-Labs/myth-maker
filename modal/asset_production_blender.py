@@ -20,6 +20,7 @@ from mathutils import Vector
 
 KIT_VERSION = "myth-maker.asset-core-kit/v1"
 REVIEW_PROTOCOL = "myth-maker.asset-review/v2"
+REFERENCE_CORRECTION_BATCH = "raptor-reference-batch/v2"
 KIT_PRIMITIVES = {
     "panel-profile": {"bevel_ratio": 0.003, "bevel_segments": 2, "armor_role": "removable-armor"},
     "joint-pivot": {"name_tokens": ["joint", "ankle", "elbow", "hip", "knee", "shoulder", "waist", "wrist"]},
@@ -166,32 +167,61 @@ def _thicken(obj, factor: float) -> None:
     dimensions = list(obj.dimensions)
     longest = max(range(3), key=lambda index: dimensions[index])
     for axis in range(3):
-        if axis != longest: obj.scale[axis] *= factor
+            if axis != longest: obj.scale[axis] *= factor
+
+
+def _lengthen(obj, factor: float) -> None:
+    longest = max(range(3), key=lambda index: obj.dimensions[index])
+    obj.scale[longest] *= factor
+
+
+def _scale_local(obj, x: float = 1.0, y: float = 1.0, z: float = 1.0) -> None:
+    obj.scale.x *= x
+    obj.scale.y *= y
+    obj.scale.z *= z
 
 
 def apply_reference_corrections(job_type: str) -> int:
-    """Apply the bounded first defect batch observed against the frozen refs."""
+    """Apply one bounded, versioned defect batch observed against the frozen refs."""
     changed = 0
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH": continue
         name = obj.name.lower()
         if job_type == "mech-structure":
-            if any(token in name for token in ("thigh", "calf", "shin", "forearm", "upperarm", "upper-arm")):
-                _thicken(obj, 1.18); changed += 1
-            elif "hand" in name or "finger" in name:
-                _thicken(obj, 1.30); changed += 1
-            elif "foot" in name or "toe" in name:
-                _thicken(obj, 1.22); changed += 1
+            if "frame-foot-carrier" in name:
+                _scale_local(obj, y=1.18, z=0.68); changed += 1
+            elif "frame-foot-toe" in name:
+                _scale_local(obj, y=1.65, z=0.72); changed += 1
+            elif "frame-foot-heel" in name:
+                _scale_local(obj, y=0.86, z=0.72); changed += 1
+            elif any(token in name for token in ("upper-leg-maincasting", "lower-leg-casting")):
+                _thicken(obj, 1.14); changed += 1
+            elif any(token in name for token in ("joint-hand-index", "joint-hand-middle", "joint-hand-ring",
+                                                  "joint-hand-little", "joint-hand-thumb")):
+                _lengthen(obj, 1.28); changed += 1
         elif job_type == "mech-armor":
-            if obj.get("asset_role") == "removable-armor":
-                _thicken(obj, 1.10); changed += 1
-                if "canopy" in name or "cockpit" in name:
-                    obj.rotation_euler.x += math.radians(-7); changed += 1
+            if "armor-foot-armor" in name:
+                _scale_local(obj, y=1.28, z=0.72); changed += 1
+            elif "armor-shoulder-armor" in name:
+                _scale_local(obj, x=0.84, y=0.84, z=0.84); changed += 1
+            elif "armor-canopy" in name:
+                _scale_local(obj, y=1.28, z=0.86)
+                obj.rotation_euler.x += math.radians(-8); changed += 2
+            elif "shinarmor" in name:
+                _thicken(obj, 1.12); changed += 1
         elif job_type == "railgun":
-            if any(token in name for token in ("muzzle", "front", "barrel")):
-                _thicken(obj, 0.86); changed += 1
-            elif "sight" in name or "optic" in name:
-                obj.scale *= 1.12; changed += 1
+            if name == "receiver":
+                _scale_local(obj, x=1.10, y=1.18, z=1.18); changed += 1
+            elif name.startswith(("railupper", "railower", "rail-side-panel")):
+                _thicken(obj, 1.34); changed += 1
+            elif name.startswith("muzle"):
+                _thicken(obj, 1.32); _lengthen(obj, 1.10); changed += 2
+            elif name.startswith(("platef", "hubl")):
+                _thicken(obj, 1.18); changed += 1
+            elif name.startswith("sight"):
+                _thicken(obj, 1.22); changed += 1
+            elif name in {"triggergrip", "guard", "handguard"}:
+                _thicken(obj, 1.18); changed += 1
     if changed == 0:
         raise RuntimeError("reference correction batch matched no owned geometry")
     return changed
@@ -385,7 +415,7 @@ def scene_manifest(job: dict) -> dict:
     return {
         "format": "myth-maker.normalized-asset-scene/v1", "run_id": job["run_id"],
         "work_id": job["work_id"], "core_kit": KIT_VERSION,
-        "review_protocol": REVIEW_PROTOCOL,
+        "review_protocol": REVIEW_PROTOCOL, "reference_correction_batch": REFERENCE_CORRECTION_BATCH,
         "objects": objects,
         "materials": sorted(material.name for material in bpy.data.materials),
         "actions": sorted(action.name for action in bpy.data.actions),
