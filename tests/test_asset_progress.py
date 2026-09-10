@@ -79,4 +79,18 @@ class AssetProgressTests(unittest.TestCase):
                 "evaluations": [{"asset_id": "mech", "render_sha256": revision, "criteria": criteria,
                     "confidence": .8, "observable_delta": "Baseline.", "blocking_visual_defects": []}]}, inputs)
             self.assertEqual(checked["evaluations"][0]["weighted_score"], 67)
+
+    def test_reference_input_uses_best_historical_baseline_and_latest_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            for attempt in range(1, 5): self._attempt(root, "mech", attempt, "kit-assembly")
+            values = completed_developments(root)["mech"]
+            evaluations = root / "observability" / "evaluations"; evaluations.mkdir(parents=True)
+            (evaluations / "prior.json").write_text(json.dumps({"status": "completed", "evaluation": {"evaluations": [
+                {"asset_id": "mech", "render_sha256": values[0]["render_sha256"], "weighted_score": 20},
+                {"asset_id": "mech", "render_sha256": values[1]["render_sha256"], "weighted_score": 40},
+                {"asset_id": "mech", "render_sha256": values[2]["render_sha256"], "weighted_score": 30}]}}))
+            selected = reference_evaluation_inputs(root)["mech"]["developments"]
+            self.assertEqual([item["render_sha256"] for item in selected],
+                             [values[1]["render_sha256"], values[3]["render_sha256"]])
 if __name__ == "__main__": unittest.main()
