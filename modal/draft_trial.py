@@ -452,7 +452,8 @@ def prepare_asset_correction_wave(run_id: str, runtime_deployment: dict,
                                   apply_reference_batch: bool = False,
                                   reference_batch_slot: str | None = None,
                                   correction_spec: dict | None = None,
-                                  correction_specs: dict[str, dict] | None = None) -> list[dict]:
+                                  correction_specs: dict[str, dict] | None = None,
+                                  extra_inputs: dict[str, list[dict]] | None = None) -> list[dict]:
     """Build the next immutable defect-correction wave from cloud baselines."""
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,95}", run_id or ""):
         raise ValueError("invalid asset production run id")
@@ -461,7 +462,8 @@ def prepare_asset_correction_wave(run_id: str, runtime_deployment: dict,
                                    apply_reference_batch=apply_reference_batch,
                                    reference_batch_slot=reference_batch_slot,
                                    correction_spec=correction_spec,
-                                   correction_specs=correction_specs)
+                                   correction_specs=correction_specs,
+                                   extra_inputs=extra_inputs)
 
 def screenshot(path: Path) -> bytes:
     subprocess.run(["scrot", "-o", str(path)], check=True, capture_output=True, timeout=5)

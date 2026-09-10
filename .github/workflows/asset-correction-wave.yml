@@ -24,6 +24,11 @@ on:
         required: false
         default: ''
         type: string
+      extra_inputs:
+        description: Map of worker lane to immutable additional Modal-volume inputs
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -54,6 +59,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           CORRECTION_SPEC: ${{ inputs.correction_spec }}
           CORRECTION_SPECS: ${{ inputs.correction_specs }}
+          EXTRA_INPUTS: ${{ inputs.extra_inputs }}
         run: |
           set -euo pipefail
           python3 scripts/run_asset_correction_wave.py \
