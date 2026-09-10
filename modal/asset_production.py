@@ -360,14 +360,21 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-arc-shell", "add-mounted-frame", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-arc-shell", "add-mounted-frame", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
                 or not numbers(command.get("dimensions"), 3, True) or command.get("material") not in materials):
             raise ValueError("add-box correction is invalid")
+        if command["op"] == "add-mounted-tapered-prism" and (not isinstance(command.get("owner"), str)
+                or not numbers(command.get("location"), 3) or not numbers(command.get("dimensions"), 3, True)
+                or not numbers(command.get("end_scale"), 2, True, limit=2)
+                or not numbers(command.get("rotation_degrees"), 3, limit=180)
+                or not isinstance(command.get("bevel"), (int, float)) or isinstance(command.get("bevel"), bool)
+                or not 0 <= command["bevel"] <= 0.25 or command.get("material") not in materials):
+            raise ValueError("add-mounted-tapered-prism correction is invalid")
         if command["op"] in {"add-side-wedge", "add-mounted-side-wedge"}:
             profile = command.get("profile")
             if (not isinstance(command.get("owner"), str) or not isinstance(profile, list) or not 3 <= len(profile) <= 8

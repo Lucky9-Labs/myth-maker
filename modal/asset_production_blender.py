@@ -243,6 +243,31 @@ def _add_side_wedge(name: str, profile: tuple[tuple[float, float], ...], thickne
     bevel.width = min(thickness * 0.22, 0.035); bevel.segments = 2; bevel.limit_method = "ANGLE"
 
 
+def _add_tapered_prism(name: str, dimensions: tuple[float, float, float],
+                        end_scale: tuple[float, float], bevel_width: float,
+                        material: str, owner) -> None:
+    """Create a centered Z-axis prism whose positive end tapers independently in X/Y."""
+    width, depth, length = dimensions
+    sx, sy = end_scale
+    low = [(-width / 2, -depth / 2, -length / 2), (width / 2, -depth / 2, -length / 2),
+           (width / 2, depth / 2, -length / 2), (-width / 2, depth / 2, -length / 2)]
+    high = [(-width * sx / 2, -depth * sy / 2, length / 2),
+            (width * sx / 2, -depth * sy / 2, length / 2),
+            (width * sx / 2, depth * sy / 2, length / 2),
+            (-width * sx / 2, depth * sy / 2, length / 2)]
+    faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+             (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    mesh = bpy.data.meshes.new(name + "-mesh"); mesh.from_pydata(low + high, [], faces); mesh.update()
+    obj = bpy.data.objects.new(name, mesh); bpy.context.scene.collection.objects.link(obj)
+    for key in ("asset_production_run", "asset_production_work", "asset_core_kit"):
+        if owner.get(key) is not None: obj[key] = owner[key]
+    obj["asset_role"] = "removable-armor" if material in {"armor-white", "armor-blue"} else "structure"
+    obj.data.materials.append(bpy.data.materials[material])
+    if bevel_width:
+        bevel = obj.modifiers.new("reference-prism-bevel", "BEVEL")
+        bevel.width = bevel_width; bevel.segments = 2; bevel.limit_method = "ANGLE"
+
+
 def _add_arc_shell(name: str, inner_radius: float, outer_radius: float,
                    start_degrees: float, end_degrees: float, segments: int,
                    thickness: float, material: str, owner) -> None:
@@ -399,6 +424,12 @@ def apply_parameterized_correction(spec: dict) -> int:
         elif command["op"] == "add-mounted-side-wedge":
             _add_side_wedge(command["name"], tuple(tuple(point) for point in command["profile"]), command["thickness"], command["material"], owner)
             _mount_created(bpy.data.objects[command["name"]], owner)
+        elif command["op"] == "add-mounted-tapered-prism":
+            _add_tapered_prism(command["name"], tuple(command["dimensions"]), tuple(command["end_scale"]),
+                               command["bevel"], command["material"], owner)
+            created = bpy.data.objects[command["name"]]
+            _mount_created(created, owner, tuple(command["location"]))
+            created.rotation_euler = tuple(math.radians(value) for value in command["rotation_degrees"])
         elif command["op"] == "add-mounted-arc-shell":
             _add_arc_shell(command["name"], command["inner_radius"], command["outer_radius"],
                            command["start_degrees"], command["end_degrees"], command["segments"],

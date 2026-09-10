@@ -76,6 +76,16 @@ class AssetProductionTests(unittest.TestCase):
              "thickness": .45, "material": "armor-white"}]}
         self.assertEqual(validate_correction_spec(spec), spec)
 
+    def test_validates_rotated_tapered_prism(self):
+        spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{
+            "op": "add-mounted-tapered-prism", "name": "shin-shell-l", "owner": "mount-lowerleg-l",
+            "location": [0, 0, 0], "dimensions": [.7, .5, 1.4], "end_scale": [.65, .8],
+            "rotation_degrees": [0, 12, 0], "bevel": .04, "material": "armor-white"}]}
+        self.assertEqual(validate_correction_spec(spec), spec)
+        invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["end_scale"] = [0, 1]
+        with self.assertRaisesRegex(ValueError, "add-mounted-tapered-prism"):
+            validate_correction_spec(invalid)
+
     def test_validates_bounded_mounted_arc_shell(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [
             {"op": "add-mounted-arc-shell", "name": "cockpit-rim", "owner": "mount-cockpit",
