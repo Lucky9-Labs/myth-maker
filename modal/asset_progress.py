@@ -327,4 +327,26 @@ def build_dashboard(run_root: Path) -> dict:
 def dashboard_bundle(run_root: Path) -> dict:
     manifest = build_dashboard(run_root)
     files = {path.name: base64.b64encode(path.read_bytes()).decode("ascii") for path in sorted((run_root / "observability").iterdir()) if path.is_file()}
+    # Include the latest structural evidence so a broken crop or missing lane is
+    # diagnosable from the same private dashboard download.
+    latest = {}
+    for receipt_path in run_root.glob("*/attempt-*/receipt.json"):
+        try:
+            receipt = _read_json(receipt_path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(receipt, dict) or receipt.get("status") != "completed":
+            continue
+        key = str(receipt.get("job_type"))
+        if key not in {"kit-assembly", "railgun"}:
+            continue
+        prior = latest.get(key)
+        if prior is None or int(receipt.get("attempt", 0)) > prior[0]:
+            latest[key] = (int(receipt.get("attempt", 0)), receipt_path.parent)
+    for job_type, (attempt, attempt_root) in latest.items():
+        for artifact_name in ("scene-manifest.json", "fit-report.json"):
+            path = attempt_root / "output" / artifact_name
+            if path.is_file():
+                name = f"latest-{job_type}-attempt-{attempt:04d}-{artifact_name}"
+                files[name] = base64.b64encode(path.read_bytes()).decode("ascii")
     return {"manifest": manifest, "files_base64": files}

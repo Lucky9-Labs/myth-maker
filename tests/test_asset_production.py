@@ -70,7 +70,9 @@ class AssetProductionTests(unittest.TestCase):
         self.assertIn('obj["asset_source_lane"]', driver)
         self.assertIn('obj.get("asset_source_lane") != "c"', driver)
         self.assertIn('job["job_type"] == "railgun" and view == "side"', driver)
-        self.assertIn('camera_data.ortho_scale = size * 1.15', driver)
+        self.assertIn('camera_data.ortho_scale = max(height, width / aspect, 0.1) * 1.12', driver)
+        self.assertIn('visible = [obj for obj in meshes if not obj.hide_render]', driver)
+        self.assertIn('assembly mech coverage collapsed', driver)
         self.assertIn('"review_protocol": REVIEW_PROTOCOL', driver)
 
     def test_manifest_accepts_bounded_reference_correction_operation(self):
