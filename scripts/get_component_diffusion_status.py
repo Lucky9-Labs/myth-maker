@@ -19,6 +19,7 @@ def main() -> int:
     parser.add_argument("--work-id", required=True)
     parser.add_argument("--attempt", required=True, type=int)
     parser.add_argument("--component-id", required=True)
+    parser.add_argument("--provider-call-id", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     config = runtime(args.environment)
@@ -26,6 +27,17 @@ def main() -> int:
         config.app_name, "get_component_diffusion_status", environment_name=config.environment)
     function.hydrate()
     status = function.remote(args.run_id, args.work_id, args.attempt, args.component_id)
+    if args.provider_call_id:
+        call = modal.FunctionCall.from_id(args.provider_call_id)
+        status["provider_call_id"] = args.provider_call_id
+        try:
+            status["provider_result"] = call.get(timeout=0)
+            status["provider_call_status"] = "completed"
+        except modal.exception.TimeoutError:
+            status["provider_call_status"] = "running"
+        except Exception as error:
+            status["provider_call_status"] = "failed"
+            status["provider_error"] = {"type": type(error).__name__, "message": str(error)}
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(status, indent=2, sort_keys=True) + "\n")
