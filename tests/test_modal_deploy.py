@@ -41,6 +41,17 @@ class ModalDeployTest(unittest.TestCase):
         self.assertIn('status["diffusion_function_stats"]', observer)
         self.assertNotIn('status["function_stats"]', observer)
 
+    def test_diffusion_image_contains_shared_entrypoint_imports(self):
+        source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
+        diffusion_image = source.split("diffusion_image =", 1)[1].split("volume =", 1)[0]
+        for dependency in (
+            "draft_support.py", "draft_checkpoints.py", "desktop_readiness.py",
+            "deterministic_encounter.py", "encounter_worker_adapter.py",
+            "glb_source_importer.py", "infrastructure.py", "modal_volume_inputs.py",
+            "asset_production.py", "asset_progress.py", "component_diffusion.py",
+        ):
+            self.assertIn(dependency, diffusion_image)
+
     def test_named_secret_is_force_refreshed_from_this_ci_run(self):
         with patch.dict(modal_deploy.os.environ, {"OPENAI_API_KEY": "test-key"}, clear=False), patch.object(modal_deploy, "json_command", return_value=[{"Name": modal_deploy.VOLUME_NAME}]), patch.object(modal_deploy, "run") as run:
             modal_deploy.ensure_named_resources("dev")

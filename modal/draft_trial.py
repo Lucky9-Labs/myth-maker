@@ -77,6 +77,20 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
     .run_commands(
         "git clone --filter=blob:none https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /opt/Hunyuan3D-2.1",
         "cd /opt/Hunyuan3D-2.1 && git checkout 82920d643c0dc2f7bfd7255f45f62d386edfe60c")
+    # Modal imports this file as the function service even when it starts only
+    # run_component_diffusion_job. Keep the entrypoint's complete local import
+    # closure in the GPU image so container startup cannot crash before the
+    # component job writes its first durable checkpoint.
+    .add_local_file(HERE / "draft_support.py", "/opt/draft_support.py", copy=True)
+    .add_local_file(HERE / "draft_checkpoints.py", "/opt/draft_checkpoints.py", copy=True)
+    .add_local_file(HERE / "desktop_readiness.py", "/opt/desktop_readiness.py", copy=True)
+    .add_local_file(HERE / "deterministic_encounter.py", "/opt/deterministic_encounter.py", copy=True)
+    .add_local_file(HERE / "encounter_worker_adapter.py", "/opt/encounter_worker_adapter.py", copy=True)
+    .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True)
+    .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py", copy=True)
+    .add_local_file(HERE / "modal_volume_inputs.py", "/opt/modal_volume_inputs.py", copy=True)
+    .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
+    .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
     .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True)
     .env({"HF_HOME": "/submissions/model-cache/huggingface", "PYTHONPATH": "/opt"}))
 
