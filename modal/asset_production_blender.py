@@ -328,6 +328,7 @@ def render_views(output: Path, views: list[str], job: dict) -> None:
         # Fit the projected bounds after orienting the camera. Orthographic scale
         # is vertical, so a world-space diagonal is neither necessary nor
         # sufficient when an imported asset has arbitrary axes.
+        bpy.context.view_layer.update()
         inverse = camera.matrix_world.inverted()
         projected = [inverse @ (obj.matrix_world @ Vector(corner))
                      for obj in visible for corner in obj.bound_box]
