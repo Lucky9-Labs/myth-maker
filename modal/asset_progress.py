@@ -389,13 +389,23 @@ def build_dashboard(run_root: Path) -> dict:
     developments = completed_developments(run_root)
     telemetry = production_observability(run_root, generated_at)
     chart = _progress_svg(telemetry["reference_convergence"]["history"], output / "reference-convergence.svg")
+    evaluation_inputs = reference_evaluation_inputs(run_root)
     assets, cards = {}, []
     for asset_id, values in developments.items():
         gif = _gif(values, output / f"{asset_id}-last-four.gif")
-        assets[asset_id] = {"gif": gif, "developments": [{k: v for k, v in item.items() if k != "render"} for item in values]}
+        reference = None
+        if asset_id in evaluation_inputs:
+            data = evaluation_inputs[asset_id]["reference"]["path"].read_bytes()
+            reference_path = output / f"{asset_id}-frozen-reference.png"; reference_path.write_bytes(data)
+            reference = {"path": reference_path.name, "bytes": len(data),
+                         "sha256": hashlib.sha256(data).hexdigest()}
+        assets[asset_id] = {"gif": gif, "reference": reference,
+                            "developments": [{k: v for k, v in item.items() if k != "render"} for item in values]}
         rows = "".join(f"<li><b>{html.escape(str(item['job_type']))}</b> attempt {item['attempt']} · {html.escape(str(item.get('completed_at') or 'time unavailable'))}</li>" for item in values)
-        visual = f'<img src="{gif["path"]}?sha={gif["sha256"]}" alt="{asset_id} last four completed developments">' if gif else "<p>No completed render revisions yet.</p>"
-        cards.append(f'<section><h2>{html.escape(asset_id.title())}</h2>{visual}<ol>{rows}</ol></section>')
+        reference_visual = (f'<h3>Frozen reference</h3><img src="{reference["path"]}?sha={reference["sha256"]}" '
+                            f'alt="{asset_id} frozen reference">' if reference else "<p>Frozen reference unavailable.</p>")
+        visual = f'<h3>Last four developments</h3><img src="{gif["path"]}?sha={gif["sha256"]}" alt="{asset_id} last four completed developments">' if gif else "<p>No completed render revisions yet.</p>"
+        cards.append(f'<section><h2>{html.escape(asset_id.title())}</h2>{reference_visual}{visual}<ol>{rows}</ol></section>')
     generated = generated_at.isoformat()
     patches = telemetry["patches_last_5m"]
     patch_rows = "".join(f"<tr><td>{html.escape(str(item['job_type']))}</td><td>{html.escape(str(item['status']))}</td><td>{item['attempt']}</td><td>{len(item['output_hashes'])}</td><td>{html.escape(str(item.get('completed_at') or 'unavailable'))}</td></tr>" for item in patches)
