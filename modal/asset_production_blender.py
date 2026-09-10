@@ -262,6 +262,26 @@ def apply_reference_corrections(job_type: str) -> int:
     return changed
 
 
+def apply_parameterized_correction(spec: dict) -> int:
+    """Execute a control-plane validated, lane-local geometry patch."""
+    ensure_materials(); changed = 0
+    for command in spec["commands"]:
+        owner = bpy.data.objects.get(command.get("owner", ""))
+        if command["op"].startswith("add-") and owner is None:
+            raise RuntimeError("parameterized correction owner is unavailable: " + command.get("owner", ""))
+        if command["op"] == "add-box":
+            _add_box(command["name"], tuple(command["location"]), tuple(command["dimensions"]), command["material"], owner)
+        elif command["op"] == "add-side-wedge":
+            _add_side_wedge(command["name"], tuple(tuple(point) for point in command["profile"]), command["thickness"], command["material"], owner)
+        else:
+            target = bpy.data.objects.get(command["name"])
+            if target is None: raise RuntimeError("parameterized correction target is unavailable: " + command["name"])
+            if command["op"] == "scale": _scale_local(target, *command["scale"])
+            elif command["op"] == "hide": target.hide_render = True
+        changed += 1
+    return changed
+
+
 def mount_railgun_to_mech() -> int:
     """Translate Worker C's immutable group from its primary grip to the mech hands."""
     railgun = [obj for obj in bpy.context.scene.objects if "worker-c" in str(obj.get("asset_production_work", ""))]
@@ -510,6 +530,8 @@ def main() -> int:
     isolate_worker_ownership(job["job_type"])
     if "apply-reference-corrections" in kinds:
         apply_reference_corrections(job["job_type"])
+    if "apply-parameterized-correction" in kinds:
+        apply_parameterized_correction(job["correction_spec"])
     if "apply-core-kit" in kinds:
         apply_core_kit()
     if job["job_type"] == "railgun" or "animate" in kinds:
