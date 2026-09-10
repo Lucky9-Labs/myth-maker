@@ -17,6 +17,87 @@ RUBRIC = {"silhouette": 0.30, "proportions": 0.25, "component_geometry": 0.20,
           "material_identity": 0.10, "detail_readability": 0.10, "fit": 0.05}
 
 
+def image_space_profile(path: Path) -> dict:
+    """Measure coarse composition without asking a vision model.
+
+    The border median estimates the background independently for light concept
+    art and dark Blender renders.  These measurements intentionally describe
+    only registration and silhouette; they are not an artistic similarity
+    score.
+    """
+    from PIL import Image, ImageFilter, ImageStat
+    with Image.open(path) as source:
+        image = source.convert("RGB")
+    image.thumbnail((512, 512))
+    width, height = image.size
+    samples = []
+    pixels = image.load()
+    for x in range(width):
+        samples.extend((pixels[x, 0], pixels[x, height - 1]))
+    for y in range(1, height - 1):
+        samples.extend((pixels[0, y], pixels[width - 1, y]))
+    background = tuple(sorted(pixel[channel] for pixel in samples)[len(samples) // 2] for channel in range(3))
+    mask = Image.new("L", image.size)
+    mask.putdata([255 if sum((pixel[i] - background[i]) ** 2 for i in range(3)) ** .5 >= 36 else 0
+                  for pixel in image.getdata()])
+    mask = mask.filter(ImageFilter.MedianFilter(3))
+    bbox = mask.getbbox()
+    if bbox is None:
+        return {"foreground": False, "background_rgb": list(background)}
+    left, top, right, bottom = bbox
+    values = list(mask.getdata()); count = sum(value > 0 for value in values)
+    xs = [index % width for index, value in enumerate(values) if value > 0]
+    ys = [index // width for index, value in enumerate(values) if value > 0]
+    edges = mask.filter(ImageFilter.FIND_EDGES)
+    return {"foreground": True, "background_rgb": list(background),
+            "bbox": [round(left / width, 4), round(top / height, 4), round(right / width, 4), round(bottom / height, 4)],
+            "centroid": [round((sum(xs) / count) / width, 4), round((sum(ys) / count) / height, 4)],
+            "occupancy": round(count / (width * height), 4),
+            "aspect_ratio": round(((right - left) / width) / max((bottom - top) / height, 1e-6), 4),
+            "edge_density": round(ImageStat.Stat(edges).mean[0] / 255, 4)}
+
+
+def image_space_comparison(reference: Path, baseline: Path, candidate: Path) -> dict:
+    """Compare candidate and baseline coarse geometry to the same reference."""
+    profiles = {"reference": image_space_profile(reference), "baseline": image_space_profile(baseline),
+                "candidate": image_space_profile(candidate)}
+    fields = ("occupancy", "aspect_ratio", "edge_density")
+    def distance(value: dict) -> float | None:
+        target = profiles["reference"]
+        if not target.get("foreground") or not value.get("foreground"):
+            return None
+        terms = [abs(value[field] - target[field]) / max(abs(target[field]), .05) for field in fields]
+        terms.extend(abs(value["centroid"][index] - target["centroid"][index]) for index in (0, 1))
+        return round(sum(terms) / len(terms), 4)
+    baseline_distance, candidate_distance = distance(profiles["baseline"]), distance(profiles["candidate"])
+    delta = None if baseline_distance is None or candidate_distance is None else round(baseline_distance - candidate_distance, 4)
+    return {"format": "myth-maker.image-space-comparison/v1", "profiles": profiles,
+            "baseline_distance": baseline_distance, "candidate_distance": candidate_distance,
+            "improvement": delta,
+            "decision": "reject-before-model" if delta is not None and delta < -.08 else "model-review"}
+
+
+def _verified_reference(developments: list[dict], asset_id: str) -> dict | None:
+    """Find the frozen, hash-verified reference even when no critique is due."""
+    for item in reversed(developments):
+        job = _read_json(item["render"].parents[2] / "job.json")
+        if not job:
+            continue
+        artifacts = [artifact for artifact in job.get("inputs", [])
+                     if artifact.get("media_type") in {"image/png", "image/jpeg"}]
+        artifacts.sort(key=lambda artifact: asset_id not in
+                       (artifact.get("staged_name", "") + artifact.get("path", "")).lower())
+        for artifact in artifacts:
+            candidate = item["render"].parents[2] / "inputs" / artifact.get("staged_name", Path(artifact["path"]).name)
+            try:
+                data = candidate.read_bytes()
+            except OSError:
+                continue
+            if len(data) == artifact.get("bytes") and hashlib.sha256(data).hexdigest() == artifact.get("sha256"):
+                return {"path": candidate, "sha256": artifact["sha256"]}
+    return None
+
+
 def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str) -> tuple[str, ...] | None:
     """Resolve the immutable component hashes that define one asset render."""
     attempts = []
@@ -87,24 +168,7 @@ def reference_evaluation_inputs(run_root: Path) -> dict[str, dict]:
                 continue
         values = ([baseline] if baseline else []) + [latest]
         values = list({item["render_sha256"]: item for item in values}.values())
-        reference = None
-        for item in reversed(values):
-            job = _read_json(item["render"].parents[2] / "job.json")
-            if not job:
-                continue
-            artifacts = [artifact for artifact in job.get("inputs", []) if artifact.get("media_type") in {"image/png", "image/jpeg"}]
-            artifacts.sort(key=lambda artifact: asset_id not in (artifact.get("staged_name", "") + artifact.get("path", "")).lower())
-            for artifact in artifacts:
-                candidate = item["render"].parents[2] / "inputs" / artifact.get("staged_name", Path(artifact["path"]).name)
-                try:
-                    data = candidate.read_bytes()
-                except OSError:
-                    continue
-                if len(data) == artifact.get("bytes") and hashlib.sha256(data).hexdigest() == artifact.get("sha256"):
-                    reference = {"path": candidate, "sha256": artifact["sha256"]}
-                    break
-            if reference:
-                break
+        reference = _verified_reference(values, asset_id)
         # Assembly renders change whenever any component changes. Do not spend
         # a model call rescoring the mech when only Worker C mutated, or the
         # railgun when only the mech lanes mutated.
@@ -449,13 +513,18 @@ def build_dashboard(run_root: Path) -> dict:
     assets, cards = {}, []
     for asset_id, values in developments.items():
         gif = _gif(values, output / f"{asset_id}-last-four.gif")
-        reference = None
-        if asset_id in evaluation_inputs:
-            data = evaluation_inputs[asset_id]["reference"]["path"].read_bytes()
+        verified_reference = (_verified_reference(completed_developments(run_root, limit=None)[asset_id], asset_id)
+                              if values else None)
+        reference, measurements = None, None
+        if verified_reference:
+            data = verified_reference["path"].read_bytes()
             reference_path = output / f"{asset_id}-frozen-reference.png"; reference_path.write_bytes(data)
             reference = {"path": reference_path.name, "bytes": len(data),
                          "sha256": hashlib.sha256(data).hexdigest()}
+            if len(values) >= 2:
+                measurements = image_space_comparison(verified_reference["path"], values[-2]["render"], values[-1]["render"])
         assets[asset_id] = {"gif": gif, "reference": reference,
+                            "image_space_measurements": measurements,
                             "developments": [{k: v for k, v in item.items() if k != "render"} for item in values]}
         rows = "".join(f"<li><b>{html.escape(str(item['job_type']))}</b> attempt {item['attempt']} · {html.escape(str(item.get('completed_at') or 'time unavailable'))}</li>" for item in values)
         reference_visual = (f'<h3>Frozen reference</h3><img src="{reference["path"]}?sha={reference["sha256"]}" '
