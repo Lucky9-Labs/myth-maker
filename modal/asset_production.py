@@ -183,20 +183,67 @@ def plan_production_wave(values: list[dict]) -> list[dict]:
     return sorted(checked, key=lambda item: SLOTS.index(item["worker_slot"]))
 
 
-def prepare_correction_wave(run_root: Path, runtime_deployment: dict) -> list[dict]:
-    """Advance A-C from their latest completed native assets and retain D as fan-in template."""
+def _best_scored_baselines(run_root: Path, receipts: list[tuple[Path, dict]]) -> dict[str, tuple[Path, dict]]:
+    """Resolve promoted component receipts from the strongest same-protocol renders."""
+    evaluations = []
+    for path in (run_root / "observability" / "evaluations").glob("*.json"):
+        value = _read_json(path)
+        if value and value.get("status") == "completed": evaluations.append(value)
+    if not evaluations:
+        return {}
+    latest = max(evaluations, key=lambda item: item.get("created_at", ""))
+    scores = (latest.get("evaluation") or {}).get("evaluations") or []
+
+    def receipt_for_render(asset_id: str) -> tuple[Path, dict] | None:
+        candidates = sorted((item for item in scores if item.get("asset_id") == asset_id),
+                            key=lambda item: item.get("weighted_score", -1), reverse=True)
+        for score in candidates:
+            digest = score.get("render_sha256")
+            for path, receipt in receipts:
+                artifacts = receipt.get("artifacts") or {}
+                if any(name.startswith("renders/") and item.get("sha256") == digest
+                       for name, item in artifacts.items()):
+                    return path, receipt
+        return None
+
+    promoted = {}
+    mech = receipt_for_render("mech")
+    if mech:
+        assembly_job = _read_json(mech[0].parent / "job.json") or {}
+        dependencies = set(assembly_job.get("dependencies") or [])
+        for slot in SLOTS[:2]:
+            matches = [(path, receipt) for path, receipt in receipts
+                       if receipt.get("worker_slot") == slot
+                       and (receipt.get("artifacts") or {}).get("asset.blend", {}).get("sha256") in dependencies]
+            if matches: promoted[slot] = max(matches, key=lambda pair: pair[1].get("attempt", 0))
+    railgun = receipt_for_render("railgun")
+    if railgun: promoted["worker-c"] = railgun
+    return promoted
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
+                            apply_reference_batch: bool = False) -> list[dict]:
+    """Advance from promoted baselines; apply a new batch only when explicitly requested."""
     if set(runtime_deployment) != {"source_sha", "function_id"}:
         raise ValueError("correction wave requires the current runtime deployment")
     receipts = []
     for path in run_root.glob("*/attempt-*/receipt.json"):
-        try: receipt = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError): continue
+        receipt = _read_json(path)
         if isinstance(receipt, dict): receipts.append((path, receipt))
+    promoted = _best_scored_baselines(run_root, receipts)
     wave = []
     for slot in SLOTS:
         candidates = [(path, item) for path, item in receipts if item.get("worker_slot") == slot and item.get("status") == "completed" and (item.get("artifacts") or {}).get("asset.blend")]
         if not candidates: raise ValueError("correction wave has no completed native baseline for " + slot)
-        receipt_path, receipt = max(candidates, key=lambda pair: pair[1].get("attempt", 0))
+        receipt_path, receipt = promoted.get(slot) or max(candidates, key=lambda pair: pair[1].get("attempt", 0))
         prior = json.loads((receipt_path.parent / "job.json").read_text(encoding="utf-8"))
         native = receipt["artifacts"]["asset.blend"]
         references = [dict(item) for item in prior["inputs"] if item["media_type"] in {"image/png", "image/jpeg"}]
@@ -208,9 +255,9 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict) -> list[di
         # A correction is baked into the immutable native baseline. Replaying
         # the same operation on every wave compounds scale changes and spends
         # compute without representing a new defect decision.
-        if slot != "worker-d" and any(item["kind"] == "apply-reference-corrections" for item in operations):
+        if slot != "worker-d":
             operations = [item for item in operations if item["kind"] != "apply-reference-corrections"]
-        elif slot != "worker-d":
+        if slot != "worker-d" and apply_reference_batch:
             operations.append({"kind": "apply-reference-corrections"})
         wave.append(validate_job_manifest({**prior, "attempt": max(attempts) + 1,
             "runtime_deployment": dict(runtime_deployment), "source_revision": native["sha256"],
