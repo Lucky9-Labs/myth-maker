@@ -6,6 +6,13 @@ from pathlib import Path
 
 FORMAT="myth-maker.component-review-job/v1"; MODEL="gpt-6-astra"; IDENTIFIER=re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
 CRITERIA=("reference_fidelity","surface_coherence","part_completeness","attachment_readiness","articulation_readiness")
+REVIEW_SCHEMA={"type":"object","additionalProperties":False,"required":["format","component_id","scores","blocking_defects","cleanup_actions","integration_guidance","decision"],"properties":{
+    "format":{"type":"string","const":"myth-maker.component-review/v1"},"component_id":{"type":"string"},
+    "scores":{"type":"object","additionalProperties":False,"required":list(CRITERIA),"properties":{key:{"type":"number","minimum":0,"maximum":100} for key in CRITERIA}},
+    "blocking_defects":{"type":"array","items":{"type":"string"}},
+    "cleanup_actions":{"type":"array","items":{"type":"string"}},
+    "integration_guidance":{"type":"array","items":{"type":"string"}},
+    "decision":{"type":"string","enum":["clean","regenerate","ready-to-stitch"]}}}
 
 def _artifact(value, media):
     return (isinstance(value,dict) and set(value)=={"path","bytes","sha256","media_type"} and value.get("media_type")==media
@@ -54,7 +61,8 @@ def run_component_review(job, submissions_root, blender, client):
       "Judge this isolated generated 3D component against its isolated design reference. Diagnose geometry before assembly. Return JSON only with format myth-maker.component-review/v1, component_id, scores for reference_fidelity, surface_coherence, part_completeness, attachment_readiness, articulation_readiness (0-100), blocking_defects, cleanup_actions, integration_guidance, and decision clean, regenerate, or ready-to-stitch. Cleanup actions must be bounded Blender operations with concrete parameters. Favor regenerate when the primary silhouette or topology is fundamentally wrong. Required attachment surfaces: "+", ".join(checked["attachment_surfaces"])+". Mesh stats: "+json.dumps(stats))}]
     content+=_image(reference,"ISOLATED DESIGN REFERENCE")
     for name in ("three-quarter","front","side"): content+=_image(root/f"renders/{name}.png",name.upper()+" GENERATED MESH")
-    response=client.responses.create(model=checked["model"],input=[{"role":"user","content":content}],reasoning={"effort":"high"},max_output_tokens=3500,timeout=300)
+    response=client.responses.create(model=checked["model"],input=[{"role":"user","content":content}],reasoning={"effort":"high"},
+        text={"format":{"type":"json_schema","name":"component_review","strict":True,"schema":REVIEW_SCHEMA}},max_output_tokens=3500,timeout=300)
     if response.status!="completed" or not response.output_text: raise RuntimeError("Astra component review did not complete")
     review=_validate_result(json.loads(response.output_text),checked["component_id"]); usage=response.usage.model_dump() if response.usage else None
     artifacts={}
