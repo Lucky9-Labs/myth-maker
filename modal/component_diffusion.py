@@ -27,7 +27,7 @@ def validate_component_diffusion_job(value: dict) -> dict:
                 "model", "reference_polygon", "seeds", "num_inference_steps", "octree_resolution"}
     if not isinstance(value, dict) or frozenset(value) not in {frozenset(required), frozenset(required | {"conditioning"})}:
         raise ValueError("component diffusion job has an invalid closed shape")
-    if value["format"] != FORMAT or value["asset_id"] != "mech" or value["model"] != MODEL:
+    if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"} or value["model"] != MODEL:
         raise ValueError("component diffusion job has an unsupported format, asset, or model")
     import re
     name = re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
@@ -150,7 +150,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
                             checkpoint: Callable[[], None] | None = None) -> dict:
     checked = validate_component_diffusion_job(job)
     run_root = submissions_root / "asset-production" / checked["run_id"]
-    reference = run_root / "observability" / "mech-frozen-reference-preview.jpg"
+    reference = run_root / "observability" / f'{checked["asset_id"]}-frozen-reference-preview.jpg'
     if not reference.is_file():
         raise ValueError("frozen mech reference is unavailable in the cloud run")
     attempt_root = run_root / "component-diffusion" / checked["work_id"] / f"attempt-{checked['attempt']:04d}"
@@ -219,7 +219,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     estimated_cost = duration * (gpu_usd_per_second + 4 * CPU_USD_PER_CORE_SECOND + 32 * MEMORY_USD_PER_GIB_SECOND)
     receipt = {
         "format": RECEIPT_FORMAT, "status": "completed", "run_id": checked["run_id"],
-        "work_id": checked["work_id"], "attempt": checked["attempt"], "asset_id": "mech",
+        "work_id": checked["work_id"], "attempt": checked["attempt"], "asset_id": checked["asset_id"],
         "component_id": checked["component_id"], "model": MODEL, "model_tokens": 0,
         "reference": {"path": str(reference.relative_to(submissions_root)), "bytes": len(reference_data),
                       "sha256": hashlib.sha256(reference_data).hexdigest()},
