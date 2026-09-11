@@ -151,6 +151,16 @@ class Tests(unittest.TestCase):
     def test_accepts_hash_locked_planning_request(self):
         self.assertEqual(validate_agentic_stitch_job(request()), request())
 
+    def test_accepts_hash_locked_plan_for_zero_call_reexecution(self):
+        value = request()
+        value["accepted_plan"] = {
+            "path": "asset-production/pilot/agentic-stitch/central/attempt-0005/plan.json",
+            "bytes": 11427,
+            "sha256": "d" * 64,
+            "media_type": "application/json",
+        }
+        self.assertEqual(validate_agentic_stitch_job(value), value)
+
     def test_rejects_transform_only_loose_layout(self):
         value = job()
         value["_test_plan"]["operations"] = [{

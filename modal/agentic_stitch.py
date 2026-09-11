@@ -343,6 +343,22 @@ def _image_artifact(value: object) -> bool:
     )
 
 
+def _plan_artifact(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and set(value) == {"path", "bytes", "sha256", "media_type"}
+        and value.get("media_type") == "application/json"
+        and isinstance(value.get("path"), str)
+        and not Path(value["path"]).is_absolute()
+        and ".." not in Path(value["path"]).parts
+        and isinstance(value.get("bytes"), int)
+        and not isinstance(value.get("bytes"), bool)
+        and value["bytes"] > 0
+        and isinstance(value.get("sha256"), str)
+        and bool(SHA256.fullmatch(value["sha256"]))
+    )
+
+
 def validate_agentic_stitch_job(value: object) -> dict:
     """Validate the immutable inputs from which Astra must author the plan."""
     required = {
@@ -351,7 +367,7 @@ def validate_agentic_stitch_job(value: object) -> dict:
     }
     if (
         not isinstance(value, dict)
-        or set(value) != required
+        or set(value) not in (required, required | {"accepted_plan"})
         or value.get("format") != FORMAT
         or value.get("asset_id") != "mech"
     ):
@@ -378,6 +394,8 @@ def validate_agentic_stitch_job(value: object) -> dict:
         or any(not _image_artifact(item) for item in value["evidence"])
     ):
         raise ValueError("agentic stitch evidence is invalid")
+    if "accepted_plan" in value and not _plan_artifact(value["accepted_plan"]):
+        raise ValueError("agentic stitch accepted plan artifact is invalid")
     return json.loads(json.dumps(value))
 
 
@@ -476,54 +494,57 @@ def run_agentic_stitch(
 
     started = datetime.now(timezone.utc)
     clock = time.monotonic()
-    response = client.responses.create(
-        model=checked["model"],
-        input=[{"role": "user", "content": content}],
-        # The strict plan is already heavily constrained by PLAN_SCHEMA. Medium
-        # reasoning leaves more of the output budget for the executable graph.
-        reasoning={"effort": "medium"},
-        text={"format": {"type": "json_schema", "name": "agentic_stitch_plan", "strict": True, "schema": PLAN_SCHEMA}},
-        max_output_tokens=16000,
-        timeout=600,
-    )
-    if response.status != "completed" or not response.output_text:
+    usage = None
+    reused_plan_sha256 = None
+    if "accepted_plan" in checked:
+        plan_bytes = _checked_bytes(submissions_root, checked["accepted_plan"], "accepted plan")
+        plan = json.loads(plan_bytes)
+        request_id = (plan.get("author") or {}).get("request_id")
+        reused_plan_sha256 = checked["accepted_plan"]["sha256"]
+        usage = {"input_tokens": 0, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 0}
+        publish_stage("plan-reuse", status="completed", request_id=request_id,
+                      plan_sha256=reused_plan_sha256)
+    else:
+        response = client.responses.create(
+            model=checked["model"],
+            input=[{"role": "user", "content": content}],
+            reasoning={"effort": "medium"},
+            text={"format": {"type": "json_schema", "name": "agentic_stitch_plan", "strict": True, "schema": PLAN_SCHEMA}},
+            max_output_tokens=16000,
+            timeout=600,
+        )
         usage = response.usage.model_dump() if response.usage else None
-        incomplete = getattr(response, "incomplete_details", None)
-        if hasattr(incomplete, "model_dump"):
-            incomplete = incomplete.model_dump()
-        failure = {
-            "format": "myth-maker.agentic-stitch-failure/v1",
-            "status": "failed",
-            "stage": "astra-global-plan",
-            "run_id": checked["run_id"],
-            "work_id": checked["work_id"],
-            "attempt": checked["attempt"],
-            "provider": {"name": "openai", "model": checked["model"], "request_id": getattr(response, "id", None)},
-            "response_status": getattr(response, "status", None),
-            "incomplete_details": incomplete,
-            "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
-            "started_at": started.isoformat(),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-            "duration_ms": round((time.monotonic() - clock) * 1000),
-        }
-        (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
-        publish_stage("astra-global-plan", status="failed")
-        return failure
-    plan = json.loads(response.output_text)
-    plan["author"] = {"model": checked["model"], "request_id": response.id}
+        if response.status != "completed" or not response.output_text:
+            incomplete = getattr(response, "incomplete_details", None)
+            if hasattr(incomplete, "model_dump"):
+                incomplete = incomplete.model_dump()
+            failure = {
+                "format": "myth-maker.agentic-stitch-failure/v1", "status": "failed", "stage": "astra-global-plan",
+                "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
+                "provider": {"name": "openai", "model": checked["model"], "request_id": getattr(response, "id", None)},
+                "response_status": getattr(response, "status", None), "incomplete_details": incomplete,
+                "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
+                "duration_ms": round((time.monotonic() - clock) * 1000),
+            }
+            (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+            publish_stage("astra-global-plan", status="failed")
+            return failure
+        plan = json.loads(response.output_text)
+        request_id = response.id
+        plan["author"] = {"model": checked["model"], "request_id": request_id}
     try:
         execution = close_agentic_stitch_job(
             run_id=checked["run_id"], work_id=checked["work_id"], attempt=checked["attempt"],
             components=checked["components"], retired_sha256=checked["retired_sha256"], global_plan=plan,
         )
     except ValueError as error:
-        usage = response.usage.model_dump() if response.usage else None
         (root / "rejected-plan.json").write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
         failure = {
             "format": "myth-maker.agentic-stitch-failure/v1", "status": "failed",
             "stage": "plan-validation", "reason": str(error),
             "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
-            "provider": {"name": "openai", "model": checked["model"], "request_id": response.id},
+            "provider": {"name": "openai", "model": checked["model"], "request_id": request_id},
             "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
             "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
             "duration_ms": round((time.monotonic() - clock) * 1000),
@@ -536,7 +557,7 @@ def run_agentic_stitch(
     publish_stage(
         "blender-execution",
         status="running",
-        request_id=response.id,
+        request_id=request_id,
         connection_count=len(plan["connections"]),
     )
 
@@ -547,12 +568,11 @@ def run_agentic_stitch(
     expected = [root / name for name in ("assembly.blend", "assembly.glb", "three-quarter.png", "front.png", "side.png", "stitch-report.json")]
     if completed.returncode or not all(path.is_file() for path in expected):
         detail = ((completed.stderr or "") + "\n" + (completed.stdout or ""))[-4000:]
-        usage = response.usage.model_dump() if response.usage else None
         failure = {
             "format": "myth-maker.agentic-stitch-failure/v1", "status": "failed",
             "stage": "blender-execution", "reason": detail,
             "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
-            "provider": {"name": "openai", "model": checked["model"], "request_id": response.id},
+            "provider": {"name": "openai", "model": checked["model"], "request_id": request_id, "model_call_performed": reused_plan_sha256 is None},
             "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
             "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
             "duration_ms": round((time.monotonic() - clock) * 1000),
@@ -578,17 +598,17 @@ def run_agentic_stitch(
             "path": str(path.relative_to(submissions_root)), "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(), "media_type": media[path.suffix],
         }
-    usage = response.usage.model_dump() if response.usage else None
     receipt = {
         "format": "myth-maker.agentic-stitch-receipt/v1", "status": "completed",
         "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
         "asset_id": "mech", "component_hashes": {item["component_id"]: item["artifact"]["sha256"] for item in checked["components"]},
         "plan_sha256": hashlib.sha256((root / "plan.json").read_bytes()).hexdigest(), "connectivity": report.get("connectivity"), "artifacts": artifacts,
-        "provider": {"name": "openai", "model": checked["model"], "request_id": response.id},
+        "provider": {"name": "openai", "model": checked["model"], "request_id": request_id, "model_call_performed": reused_plan_sha256 is None},
+        "reused_plan_sha256": reused_plan_sha256,
         "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
         "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": round((time.monotonic() - clock) * 1000),
     }
     (root / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-    publish_stage("completed", status="completed", request_id=response.id)
+    publish_stage("completed", status="completed", request_id=request_id)
     return receipt
