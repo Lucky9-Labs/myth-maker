@@ -27,6 +27,22 @@ def bounded_location(obj, origin, delta, bound):
     obj.location = origin + offset
 
 
+def world_bounds(obj):
+    return [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
+
+
+def point_aabb_distance(point, obj):
+    corners = world_bounds(obj)
+    low = Vector(tuple(min(value[i] for value in corners) for i in range(3)))
+    high = Vector(tuple(max(value[i] for value in corners) for i in range(3)))
+    nearest = Vector(tuple(max(low[i], min(high[i], point[i])) for i in range(3)))
+    return (nearest - point).length
+
+
+def mesh_is_manifold(obj):
+    return all(edge.is_manifold for edge in obj.data.edges)
+
+
 def cylinder_between(name, start, end, radius, mat, parent, connection_id):
     delta = end - start
     # A solved interface still needs material spanning both mating lands.
@@ -101,8 +117,10 @@ def main():
         obj.location = transform['location_m']
         obj.rotation_euler = [math.radians(value) for value in transform['rotation_degrees']]
         obj.scale = transform['scale']
-        obj.data.materials.clear()
-        obj.data.materials.append(mats['source'])
+        # Hunyuan materials are part of the component identity. Never replace
+        # cockpit glass, armor, or emission regions with a review-only material.
+        if not obj.data.materials:
+            obj.data.materials.append(mats['source'])
         obj.parent = root
         obj['component_id'] = component['component_id']
         obj['source_sha256'] = component['artifact']['sha256']
@@ -147,7 +165,10 @@ def main():
         connector = cylinder_between(connection['connection_id'] + '-connector', start, end, radius, mats['connector'], root, connection['connection_id'])
         collar(connection['connection_id'] + '-from-collar', start, direction, dimensions['radius_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
         collar(connection['connection_id'] + '-to-collar', end, direction, dimensions['radius_m'] + dimensions['clearance_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
-        connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(gap, 6), 'connector_object': connector.name, 'topology_changed': True})
+        source_contact_m = point_aabb_distance(start, source)
+        target_contact_m = point_aabb_distance(end, target)
+        connector_manifold = mesh_is_manifold(connector)
+        connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(gap, 6), 'connector_object': connector.name, 'topology_changed': True, 'source_contact_m': round(source_contact_m, 6), 'target_contact_m': round(target_contact_m, 6), 'connector_manifold': connector_manifold})
     if unresolved:
         raise RuntimeError('agentic stitch left unresolved connections: ' + json.dumps(unresolved, sort_keys=True))
     for component in job['components']:
@@ -168,6 +189,11 @@ def main():
             'all_required_connections_resolved': len(connections) == len(job['global_plan']['connections']),
         },
     }
+    required_seams_manifold = all(item['connector_manifold'] for item in connections)
+    physically_connected = (
+        len(connections) == len(job['global_plan']['connections'])
+        and all(item['source_contact_m'] <= .001 and item['target_contact_m'] <= .001 for item in connections)
+    )
     report = {
         'format': 'myth-maker.agentic-stitch-report/v1',
         'status': 'completed',
@@ -176,8 +202,8 @@ def main():
         # A connected plan plus generated, overlapping interface solids is the
         # physical assembly graph. Articulated components intentionally remain
         # separate mesh objects rather than being destructively voxel-unioned.
-        'single_connected_body': True,
-        'manifold_required_seams': True,
+        'single_connected_body': physically_connected,
+        'manifold_required_seams': required_seams_manifold,
         'articulation_clearance': all(connection['connector']['clearance_m'] >= 0 for connection in job['global_plan']['connections']),
         'source_components': source_records,
         'connections': connections,
@@ -198,12 +224,20 @@ def main():
     camera_data = bpy.data.cameras.new('review-camera')
     camera = bpy.data.objects.new('review-camera', camera_data)
     bpy.context.collection.objects.link(camera); scene.camera = camera
-    def render(name, location):
-        camera.location = location
-        camera.rotation_euler = (Vector((0, 0, 3.4)) - camera.location).to_track_quat('-Z', 'Y').to_euler()
+    visible = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+    points = [point for obj in visible for point in world_bounds(obj)]
+    low = Vector(tuple(min(point[i] for point in points) for i in range(3)))
+    high = Vector(tuple(max(point[i] for point in points) for i in range(3)))
+    target = (low + high) * .5
+    extent = max((high - low).length, .1)
+    camera_data.type = 'ORTHO'
+    camera_data.ortho_scale = max(high.x - low.x, high.z - low.z, .1) * 1.35
+    def render(name, direction):
+        camera.location = target + Vector(direction).normalized() * extent * 2
+        camera.rotation_euler = (target - camera.location).to_track_quat('-Z', 'Y').to_euler()
         scene.render.filepath = str(out / name)
         bpy.ops.render.render(write_still=True)
-    render('three-quarter.png', (7, -10, 6)); render('front.png', (0, -12, 3.5)); render('side.png', (12, 0, 3.5))
+    render('three-quarter.png', (1, -1.5, .65)); render('front.png', (0, -1, 0)); render('side.png', (1, 0, 0))
     bpy.ops.wm.save_as_mainfile(filepath=str(out / 'assembly.blend'), check_existing=False)
     bpy.ops.export_scene.gltf(filepath=str(out / 'assembly.glb'), export_format='GLB', export_apply=True, export_animations=False)
 
