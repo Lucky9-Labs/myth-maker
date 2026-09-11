@@ -98,6 +98,8 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
     .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
     .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True)
     .add_local_file(HERE / "component_isolation.py", "/opt/component_isolation.py", copy=True)
+    .add_local_file(HERE / "component_review.py", "/opt/component_review.py", copy=True)
+    .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True)
     .env({"HF_HOME": "/submissions/model-cache/huggingface", "PYTHONPATH": "/opt"}))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
