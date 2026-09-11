@@ -32,11 +32,18 @@ class AgenticStitchBlenderTests(unittest.TestCase):
 
     def test_preserves_component_materials_and_measures_acceptance(self):
         source = DRIVER.read_text()
-        self.assertNotIn("obj.data.materials.clear()", source)
+        self.assertIn("if not obj.data.materials", source)
         self.assertIn("point_aabb_distance(start, source)", source)
         self.assertIn("mesh_is_manifold(connector)", source)
         self.assertIn("'single_connected_body': physically_connected", source)
         self.assertIn("'manifold_required_seams': required_seams_manifold", source)
+
+    def test_has_bounded_cockpit_fit_primitive(self):
+        source = DRIVER.read_text()
+        self.assertIn("def fit_cockpit_glass", source)
+        self.assertIn("target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))", source)
+        self.assertIn("cockpit-continuous-perimeter-frame", source)
+        self.assertIn("cyan-cockpit-glass", source)
 
     def test_review_camera_frames_generated_geometry(self):
         source = DRIVER.read_text()
