@@ -75,7 +75,8 @@ class AssetProductionTests(unittest.TestCase):
             validate_correction_spec(invalid)
         fitted = json.loads(json.dumps(spec)); fitted["commands"][0].update({
             "fit_target": "frame-cockpit-lowerseat", "fit_band_ratio": .015,
-            "fit_offset": .001, "fit_max_displacement_ratio": .01})
+            "fit_offset": .001, "fit_max_displacement_ratio": .01,
+            "fit_prealign_max_translation_ratio": .35})
         self.assertEqual(validate_correction_spec(fitted), fitted)
         partial = json.loads(json.dumps(spec)); partial["commands"][0]["fit_target"] = "frame-cockpit-lowerseat"
         with self.assertRaisesRegex(ValueError, "attachment fit"):

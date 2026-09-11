@@ -12,6 +12,7 @@ import json
 import math
 from pathlib import Path
 import re
+import statistics
 import sys
 
 import bpy
@@ -481,6 +482,27 @@ def _import_component_glb(command: dict, inputs: Path, owner) -> None:
         indices = [vertex.index for vertex in obj.data.vertices if vertex.co.z <= local_min + band]
         if not indices:
             raise RuntimeError("component fit found no attachment-band vertices")
+        prealign_limit_ratio = command.get("fit_prealign_max_translation_ratio")
+        if prealign_limit_ratio is not None:
+            inverse_target = target.matrix_world.inverted()
+            offsets = []
+            for index in indices:
+                world_point = obj.matrix_world @ obj.data.vertices[index].co
+                found, target_point, _normal, _face = target.closest_point_on_mesh(inverse_target @ world_point)
+                if found:
+                    offsets.append(target.matrix_world @ target_point - world_point)
+            if not offsets:
+                raise RuntimeError("component prealignment found no receiving surface points")
+            rigid_offset = Vector(tuple(statistics.median(value[axis] for value in offsets) for axis in range(3)))
+            prealign_limit = max(obj.dimensions) * prealign_limit_ratio
+            if rigid_offset.length > prealign_limit:
+                raise RuntimeError(f"component prealignment exceeded translation limit: {rigid_offset.length:.6f} > {prealign_limit:.6f}")
+            world = obj.matrix_world.copy()
+            world.translation += rigid_offset
+            obj.matrix_world = world
+            bpy.context.view_layer.update()
+            obj["attachment_prealign_translation"] = list(rigid_offset)
+            obj["attachment_prealign_distance"] = rigid_offset.length
         group = obj.vertex_groups.new(name="canopy-frame-seat")
         group.add(indices, 1.0, "REPLACE")
         before = {index: obj.data.vertices[index].co.copy() for index in indices}
