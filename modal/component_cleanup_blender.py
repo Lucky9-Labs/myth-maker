@@ -20,6 +20,7 @@ def main():
     p.add_argument('--smooth-factor', type=float, required=True); p.add_argument('--smooth-iterations', type=int, required=True)
     p.add_argument('--max-smooth-displacement-ratio', type=float, required=True)
     p.add_argument('--lower-trim-ratio', type=float, required=True); p.add_argument('--seat-band-ratio', type=float, required=True)
+    p.add_argument('--salvage-bounds')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -42,6 +43,23 @@ def main():
     obj = bpy.context.view_layer.objects.active; obj.name = a.component_id
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     before = mesh_stats(obj); longest = max(float(v) for v in obj.dimensions)
+    salvage_removed_vertices = 0
+    if a.salvage_bounds:
+        bounds = json.loads(a.salvage_bounds)
+        working = bmesh.new(); working.from_mesh(obj.data)
+        mins = {axis: min(getattr(v.co, axis) for v in working.verts) for axis in 'xyz'}
+        spans = {axis: max(getattr(v.co, axis) for v in working.verts) - mins[axis] for axis in 'xyz'}
+        doomed = []
+        for vert in working.verts:
+            outside = False
+            for axis in 'xyz':
+                normalized = (getattr(vert.co, axis) - mins[axis]) / max(spans[axis], 1e-12)
+                outside = outside or normalized < bounds[axis][0] or normalized > bounds[axis][1]
+            if outside: doomed.append(vert)
+        salvage_removed_vertices = len(doomed)
+        if doomed: bmesh.ops.delete(working, geom=doomed, context='VERTS')
+        if not working.verts or not working.faces: raise RuntimeError('salvage bounds removed the component')
+        working.to_mesh(obj.data); working.free(); obj.data.update()
     bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
     if a.merge_distance_ratio > 0:
         bpy.ops.mesh.remove_doubles(threshold=longest * a.merge_distance_ratio)
@@ -88,7 +106,9 @@ def main():
     bpy.ops.export_scene.gltf(filepath=str(out / 'cleaned.glb'), export_format='GLB', use_selection=True,
                               export_apply=True, export_animations=False)
     (out / 'cleanup-stats.json').write_text(json.dumps({'before': before, 'after': after,
-        'seat_vertex_group':'canopy-frame-seat' if seat_vertices else None,'seat_vertices':seat_vertices}, indent=2, sort_keys=True)+'\n')
+        'seat_vertex_group':'canopy-frame-seat' if seat_vertices else None,'seat_vertices':seat_vertices,
+        'salvage_bounds':json.loads(a.salvage_bounds) if a.salvage_bounds else None,
+        'salvage_removed_vertices':salvage_removed_vertices}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()
