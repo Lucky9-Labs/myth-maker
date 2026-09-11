@@ -35,6 +35,8 @@ from component_diffusion import (read_component_diffusion_status, run_component_
 from component_isolation import run_component_isolation, validate_component_isolation_job
 from component_review import run_component_review, validate_component_review_job
 from component_cleanup import run_component_cleanup, validate_component_cleanup_job
+from pure_component_assembly import run_pure_component_assembly, validate_pure_component_assembly_job
+from component_coordinator import run_component_coordinator, validate_component_coordinator_job
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -69,7 +71,10 @@ image = image.add_local_file(HERE / "component_isolation.py", "/opt/component_is
 image = (image.add_local_file(HERE / "component_review.py", "/opt/component_review.py", copy=True)
          .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True)
          .add_local_file(HERE / "component_cleanup.py", "/opt/component_cleanup.py", copy=True)
-         .add_local_file(HERE / "component_cleanup_blender.py", "/opt/component_cleanup_blender.py", copy=True))
+         .add_local_file(HERE / "component_cleanup_blender.py", "/opt/component_cleanup_blender.py", copy=True)
+         .add_local_file(HERE / "pure_component_assembly.py", "/opt/pure_component_assembly.py", copy=True)
+         .add_local_file(HERE / "pure_component_assembly_blender.py", "/opt/pure_component_assembly_blender.py", copy=True)
+         .add_local_file(HERE / "component_coordinator.py", "/opt/component_coordinator.py", copy=True))
 
 diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu22.04", add_python="3.12")
     .apt_install("git", "libgl1", "libglib2.0-0")
@@ -377,6 +382,52 @@ def run_component_cleanup_job(job: dict) -> dict:
     finally:
         if part_leases.get(lease_key) == lease_value:
             part_leases.pop(lease_key)
+
+
+@app.function(image=image, cpu=4, memory=8192, timeout=12 * 60, retries=0,
+              max_containers=1, volumes={str(SUBMISSIONS_ROOT): volume})
+def run_pure_component_assembly_job(job: dict) -> dict:
+    """Build a sculpture composite from explicit component hashes and an empty scene."""
+    checked = validate_pure_component_assembly_job(job)
+    receipt = run_pure_component_assembly(checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender")
+    volume.commit()
+    return receipt
+
+
+@app.function(image=image, cpu=1, memory=4096, timeout=8 * 60, retries=0,
+              max_containers=1, secrets=[secret], volumes={str(SUBMISSIONS_ROOT): volume})
+def run_component_coordinator_cycle(job: dict) -> dict:
+    """Choose and dispatch at most four prepared mech actions from immutable evidence."""
+    checked = validate_component_coordinator_job(job)
+    from openai import OpenAI
+    volume.reload()
+    receipt = run_component_coordinator(checked, SUBMISSIONS_ROOT, OpenAI())
+    prepared = {item["action_id"]: item for item in checked["prepared_actions"]}
+    targets = {
+        "revise-sheet": "run_component_isolation_job",
+        "generate-multiview": "run_component_isolation_job",
+        "generate-3d": "run_component_diffusion_job",
+        "review-3d": "run_component_review_job",
+        "cleanup-3d": "run_component_cleanup_job",
+        "stitch-preview": "run_pure_component_assembly_job",
+    }
+    dispatched = []
+    for action_id in receipt["selected_action_ids"]:
+        action = prepared[action_id]
+        if action["action_type"] == "hold":
+            dispatched.append({"action_id": action_id, "status": "held"})
+            continue
+        fn = modal.Function.from_name(RUNTIME.app_name, targets[action["action_type"]])
+        call = fn.spawn(action["job"])
+        dispatched.append({"action_id": action_id, "action_type": action["action_type"],
+                           "component_id": action["component_id"], "status": "dispatched",
+                           "provider_call_id": call.object_id})
+    receipt["dispatches"] = dispatched
+    (SUBMISSIONS_ROOT / "asset-production" / checked["run_id"] / "coordinator" /
+     checked["work_id"] / f"attempt-{checked['attempt']:04d}" / "dispatches.json").write_text(
+         json.dumps(dispatched, indent=2, sort_keys=True) + "\n")
+    volume.commit()
+    return receipt
 
 
 @app.function(image=image, timeout=60, cpu=0.125, retries=0, max_containers=2,
