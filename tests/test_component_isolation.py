@@ -29,6 +29,18 @@ class ComponentIsolationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "view mode"):
             validate_component_isolation_job({**job(), "view_mode": "turntable-video"})
 
+    def test_accepts_closed_masks_for_each_multiview_quadrant(self):
+        polygon = [[.2, .1], [.8, .1], [.7, .9], [.3, .9]]
+        value = {**job(), "view_mode": "orthographic-multiview",
+                 "view_masks": {name: polygon for name in ("front", "left", "back", "right")}}
+        self.assertEqual(validate_component_isolation_job(value), value)
+
+    def test_rejects_partial_multiview_masks(self):
+        value = {**job(), "view_mode": "orthographic-multiview",
+                 "view_masks": {"front": [[0, 0], [1, 0], [1, 1]]}}
+        with self.assertRaisesRegex(ValueError, "all orthographic views"):
+            validate_component_isolation_job(value)
+
     def test_multiview_prompt_forbids_cross_view_topology_drift(self):
         instruction = _view_instruction(True)
         self.assertIn("Topology must agree across all four views", instruction)
