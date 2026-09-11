@@ -241,7 +241,19 @@ class Tests(unittest.TestCase):
                 status="completed", output_text=json.dumps(plan), id="resp-measured",
                 usage=SimpleNamespace(model_dump=lambda: {"input_tokens": 1200, "output_tokens": 400, "input_tokens_details": {"cached_tokens": 100}}),
             )
-            client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_kwargs: response))
+            visual_review = {
+                "format": "myth-maker.agentic-stitch-visual-review/v1", "decision": "accept",
+                "scores": {"reference_fidelity": 80, "integration_quality": 82,
+                           "material_identity": 90, "component_preservation": 88},
+                "blocking_defects": [], "summary": "The section is visually coherent.",
+            }
+            review_response = SimpleNamespace(
+                status="completed", output_text=json.dumps(visual_review), id="resp-review",
+                usage=SimpleNamespace(model_dump=lambda: {"input_tokens": 600, "output_tokens": 120,
+                                                          "input_tokens_details": {"cached_tokens": 200}}),
+            )
+            responses = iter((response, review_response))
+            client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_kwargs: next(responses)))
 
             def blender(command, **_kwargs):
                 output = Path(command[command.index("--output") + 1])
@@ -257,9 +269,11 @@ class Tests(unittest.TestCase):
             with patch("agentic_stitch.subprocess.run", side_effect=blender):
                 receipt = run_agentic_stitch(request_value, root, "/bin/blender", client)
             self.assertEqual(receipt["provider"]["request_id"], "resp-measured")
-            self.assertEqual(receipt["model_usage"]["input_tokens"], 1200)
-            self.assertEqual(receipt["model_usage"]["cached_input_tokens"], 100)
-            self.assertEqual(receipt["model_usage"]["output_tokens"], 400)
+            self.assertEqual(receipt["model_usage"]["input_tokens"], 1800)
+            self.assertEqual(receipt["model_usage"]["cached_input_tokens"], 300)
+            self.assertEqual(receipt["model_usage"]["output_tokens"], 520)
+            self.assertEqual(receipt["review_usage"]["input_tokens"], 600)
+            self.assertEqual(receipt["visual_review"]["decision"], "accept")
 
     def test_runner_persists_terminal_incomplete_model_response(self):
         request_value = request()
