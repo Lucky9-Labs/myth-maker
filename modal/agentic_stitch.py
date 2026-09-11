@@ -20,6 +20,7 @@ from typing import Callable
 FORMAT = "myth-maker.agentic-stitch-job/v1"
 CLOSED_FORMAT = "myth-maker.agentic-stitch-execution/v1"
 PLAN_FORMAT = "myth-maker.agentic-stitch-plan/v1"
+REVIEW_FORMAT = "myth-maker.agentic-stitch-visual-review/v1"
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 STITCH_METHODS = {"bridge", "remesh", "reshape-and-bridge", "socket-fit"}
@@ -75,6 +76,53 @@ PLAN_SCHEMA = {
         }},
     },
 }
+
+REVIEW_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "required": ["format", "decision", "scores", "blocking_defects", "summary"],
+    "properties": {
+        "format": {"type": "string", "const": REVIEW_FORMAT},
+        "decision": {"type": "string", "enum": ["accept", "revise"]},
+        "scores": {
+            "type": "object", "additionalProperties": False,
+            "required": ["reference_fidelity", "integration_quality", "material_identity", "component_preservation"],
+            "properties": {
+                key: {"type": "integer", "minimum": 0, "maximum": 100}
+                for key in ("reference_fidelity", "integration_quality", "material_identity", "component_preservation")
+            },
+        },
+        "blocking_defects": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["component_id", "evidence_view", "observable_problem", "severity", "recommended_correction"],
+                "properties": {
+                    "component_id": {"type": "string"},
+                    "evidence_view": {"type": "string", "enum": ["three-quarter", "front", "side", "multiple"]},
+                    "observable_problem": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["blocking", "major"]},
+                    "recommended_correction": {"type": "string"},
+                },
+            },
+        },
+        "summary": {"type": "string"},
+    },
+}
+
+
+def _usage(value: object) -> dict:
+    raw = value.model_dump() if hasattr(value, "model_dump") else {}
+    return {
+        "input_tokens": raw.get("input_tokens", 0),
+        "cached_input_tokens": (raw.get("input_tokens_details") or {}).get("cached_tokens", 0),
+        "output_tokens": raw.get("output_tokens", 0),
+    }
+
+
+def _total_usage(*items: dict) -> dict:
+    return {key: sum(item.get(key, 0) for item in items) for key in (
+        "input_tokens", "cached_input_tokens", "output_tokens"
+    )}
 
 
 def _name(value: object) -> bool:
@@ -494,14 +542,13 @@ def run_agentic_stitch(
 
     started = datetime.now(timezone.utc)
     clock = time.monotonic()
-    usage = None
+    planning_usage = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0}
     reused_plan_sha256 = None
     if "accepted_plan" in checked:
         plan_bytes = _checked_bytes(submissions_root, checked["accepted_plan"], "accepted plan")
         plan = json.loads(plan_bytes)
         request_id = (plan.get("author") or {}).get("request_id")
         reused_plan_sha256 = checked["accepted_plan"]["sha256"]
-        usage = {"input_tokens": 0, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 0}
         publish_stage("plan-reuse", status="completed", request_id=request_id,
                       plan_sha256=reused_plan_sha256)
     else:
@@ -513,7 +560,7 @@ def run_agentic_stitch(
             max_output_tokens=16000,
             timeout=600,
         )
-        usage = response.usage.model_dump() if response.usage else None
+        planning_usage = _usage(response.usage)
         if response.status != "completed" or not response.output_text:
             incomplete = getattr(response, "incomplete_details", None)
             if hasattr(incomplete, "model_dump"):
@@ -523,7 +570,7 @@ def run_agentic_stitch(
                 "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
                 "provider": {"name": "openai", "model": checked["model"], "request_id": getattr(response, "id", None)},
                 "response_status": getattr(response, "status", None), "incomplete_details": incomplete,
-                "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+                "model_usage": {"provenance": "measured", **planning_usage},
                 "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                 "duration_ms": round((time.monotonic() - clock) * 1000),
             }
@@ -545,7 +592,7 @@ def run_agentic_stitch(
             "stage": "plan-validation", "reason": str(error),
             "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
             "provider": {"name": "openai", "model": checked["model"], "request_id": request_id},
-            "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+            "model_usage": {"provenance": "measured", **planning_usage},
             "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
             "duration_ms": round((time.monotonic() - clock) * 1000),
         }
@@ -573,7 +620,7 @@ def run_agentic_stitch(
             "stage": "blender-execution", "reason": detail,
             "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
             "provider": {"name": "openai", "model": checked["model"], "request_id": request_id, "model_call_performed": reused_plan_sha256 is None},
-            "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+            "model_usage": {"provenance": "measured", **planning_usage},
             "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
             "duration_ms": round((time.monotonic() - clock) * 1000),
         }
@@ -590,6 +637,73 @@ def run_agentic_stitch(
     ):
         raise RuntimeError("agentic stitch output did not close its acceptance contract")
 
+    publish_stage("astra-visual-review", status="running", request_id=request_id)
+    review_content = [{
+        "type": "input_text",
+        "text": (
+            "Judge the rendered result of this Hunyuan component stitch against the supplied reference evidence. "
+            "Reject bookkeeping-only connectivity, generic connector geometry, floating or oversized parts, loss of "
+            "material identity, visible intersections, deformation of good source components, or failure to execute "
+            "the plan's visible intent. Accept only when reference fidelity, integration quality, material identity, "
+            "and component preservation are each at least 70 and there are no blocking defects. Return JSON only.\n"
+            f"OBJECTIVE: {checked['objective']}\nPLAN: {json.dumps(plan)}\nSTRUCTURAL_REPORT: {json.dumps(report)}"
+        ),
+    }]
+    for name in ("three-quarter.png", "front.png", "side.png"):
+        review_content.append({
+            "type": "input_image",
+            "image_url": "data:image/png;base64," + base64.b64encode((root / name).read_bytes()).decode(),
+            "detail": "original",
+        })
+    for evidence in checked["evidence"]:
+        review_content.append({
+            "type": "input_image",
+            "image_url": "data:image/png;base64," + base64.b64encode(
+                _checked_bytes(submissions_root, evidence, "evidence")
+            ).decode(),
+            "detail": "original",
+        })
+    review_response = client.responses.create(
+        model=checked["model"], input=[{"role": "user", "content": review_content}],
+        reasoning={"effort": "medium"},
+        text={"format": {"type": "json_schema", "name": "agentic_stitch_visual_review", "strict": True, "schema": REVIEW_SCHEMA}},
+        max_output_tokens=6000, timeout=600,
+    )
+    review_usage = _usage(review_response.usage)
+    total_usage = _total_usage(planning_usage, review_usage)
+    if review_response.status != "completed" or not review_response.output_text:
+        review = {"format": REVIEW_FORMAT, "decision": "revise", "scores": {},
+                  "blocking_defects": [], "summary": "Visual review did not complete."}
+    else:
+        review = json.loads(review_response.output_text)
+    review["author"] = {"model": checked["model"], "request_id": getattr(review_response, "id", None)}
+    (root / "visual-review.json").write_text(json.dumps(review, indent=2, sort_keys=True) + "\n")
+    scores = review.get("scores") or {}
+    visually_accepted = (
+        review.get("decision") == "accept"
+        and not review.get("blocking_defects")
+        and all(scores.get(key, -1) >= 70 for key in (
+            "reference_fidelity", "integration_quality", "material_identity", "component_preservation"
+        ))
+    )
+    if not visually_accepted:
+        failure = {
+            "format": "myth-maker.agentic-stitch-failure/v1", "status": "failed",
+            "stage": "astra-visual-review", "reason": review.get("summary") or "visual acceptance failed",
+            "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
+            "provider": {"name": "openai", "model": checked["model"], "request_id": getattr(review_response, "id", None)},
+            "model_usage": {"provenance": "measured", **total_usage},
+            "planning_usage": {"provenance": "measured", **planning_usage},
+            "review_usage": {"provenance": "measured", **review_usage},
+            "visual_review": review,
+            "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": round((time.monotonic() - clock) * 1000),
+        }
+        (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+        publish_stage("astra-visual-review", status="failed", request_id=getattr(review_response, "id", None))
+        return failure
+
+    expected.append(root / "visual-review.json")
     media = {".blend": "application/x-blender", ".glb": "model/gltf-binary", ".png": "image/png", ".json": "application/json"}
     artifacts = {}
     for path in expected:
@@ -605,7 +719,10 @@ def run_agentic_stitch(
         "plan_sha256": hashlib.sha256((root / "plan.json").read_bytes()).hexdigest(), "connectivity": report.get("connectivity"), "artifacts": artifacts,
         "provider": {"name": "openai", "model": checked["model"], "request_id": request_id, "model_call_performed": reused_plan_sha256 is None},
         "reused_plan_sha256": reused_plan_sha256,
-        "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+        "model_usage": {"provenance": "measured", **total_usage},
+        "planning_usage": {"provenance": "measured", **planning_usage},
+        "review_usage": {"provenance": "measured", **review_usage},
+        "visual_review": review,
         "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": round((time.monotonic() - clock) * 1000),
     }
