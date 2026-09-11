@@ -445,12 +445,22 @@ def _import_component_glb(command: dict, inputs: Path, owner) -> None:
         raise RuntimeError("diffusion component has a collapsed dimension")
     obj.scale = tuple(dimensions[index] / current[index] for index in range(3))
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    if command["surface_mode"] == "voxel-remesh":
+        # Weld diffusion flakes and small islands into a bounded production
+        # surface while retaining the major concavities lost by a convex hull.
+        modifier = obj.modifiers.new("diffusion-voxel-retopology", "REMESH")
+        modifier.mode = "VOXEL"
+        modifier.voxel_size = min(dimensions) * 0.025
+        modifier.use_remove_disconnected = True
+        modifier.threshold = 0.02
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.modifier_apply(modifier=modifier.name)
     if command["decimate_ratio"] < 1:
         modifier = obj.modifiers.new("diffusion-performance-budget", "DECIMATE")
         modifier.ratio = command["decimate_ratio"]
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier=modifier.name)
-    if command["surface_mode"] == "convex-hull":
+    if command["surface_mode"] in {"convex-hull", "voxel-remesh"}:
         bevel = obj.modifiers.new("diffusion-surface-bevel", "BEVEL")
         bevel.width = min(dimensions) * 0.018
         bevel.segments = 2

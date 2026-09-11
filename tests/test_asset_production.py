@@ -68,6 +68,8 @@ class AssetProductionTests(unittest.TestCase):
             "surface_mode": "convex-hull",
             "material": "lens"}]}
         self.assertEqual(validate_correction_spec(spec), spec)
+        remeshed = json.loads(json.dumps(spec)); remeshed["commands"][0]["surface_mode"] = "voxel-remesh"
+        self.assertEqual(validate_correction_spec(remeshed), remeshed)
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["staged_name"] = "../canopy.glb"
         with self.assertRaisesRegex(ValueError, "import-component-glb"):
             validate_correction_spec(invalid)
