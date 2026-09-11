@@ -52,7 +52,11 @@ jobs:
             test -s "$root/assembly.blend"
             test -s "$root/stitch-report.json"
           else
-            test -s "$root/failure.json"
+            # An executor crash can occur after plan checkpointing but before
+            # the terminal failure receipt is written. Preserve that accepted
+            # plan and stage evidence for deterministic re-execution.
+            test -s "$root/stage.json"
+            test -s "$root/plan.json"
           fi
           find "$root" -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > fetched/sha256sums.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
