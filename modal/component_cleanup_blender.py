@@ -4,6 +4,7 @@ import argparse, json
 from pathlib import Path
 import bpy
 import bmesh
+from mathutils import Matrix
 
 
 def mesh_stats(obj):
@@ -27,7 +28,8 @@ def main():
     for imported in meshes:
         world = imported.matrix_world.copy()
         imported.parent = None
-        imported.matrix_world = world
+        imported.data.transform(world)
+        imported.matrix_world = Matrix.Identity(4)
     bpy.ops.object.select_all(action='DESELECT')
     for obj in meshes: obj.select_set(True)
     bpy.context.view_layer.objects.active = meshes[0]
