@@ -547,7 +547,19 @@ def run_agentic_stitch(
     expected = [root / name for name in ("assembly.blend", "assembly.glb", "three-quarter.png", "front.png", "side.png", "stitch-report.json")]
     if completed.returncode or not all(path.is_file() for path in expected):
         detail = ((completed.stderr or "") + "\n" + (completed.stdout or ""))[-4000:]
-        raise RuntimeError("agentic stitch Blender execution failed: " + detail)
+        usage = response.usage.model_dump() if response.usage else None
+        failure = {
+            "format": "myth-maker.agentic-stitch-failure/v1", "status": "failed",
+            "stage": "blender-execution", "reason": detail,
+            "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
+            "provider": {"name": "openai", "model": checked["model"], "request_id": response.id},
+            "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+            "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": round((time.monotonic() - clock) * 1000),
+        }
+        (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+        publish_stage("blender-execution", status="failed")
+        return failure
     report = json.loads((root / "stitch-report.json").read_text())
     if (
         report.get("status") != "completed"
