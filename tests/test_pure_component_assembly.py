@@ -12,6 +12,12 @@ class Tests(unittest.TestCase):
         self.assertIn("scene.display.shading.color_type='MATERIAL'",driver)
         self.assertNotIn('BLENDER_EEVEE_NEXT',driver)
     def test_accepts_hash_locked_component(self): self.assertEqual(validate_pure_component_assembly_job(job()),job())
+    def test_accepts_bounded_review_preview(self):
+        x=job(); x['output_mode']='review-preview'
+        self.assertEqual(validate_pure_component_assembly_job(x),x)
+    def test_rejects_unknown_output_mode(self):
+        x=job(); x['output_mode']='fastish'
+        with self.assertRaisesRegex(ValueError,'output mode'): validate_pure_component_assembly_job(x)
     def test_rejects_retired_hash(self):
         x=job(); x['retired_sha256']=['a'*64]
         with self.assertRaisesRegex(ValueError,'retired'): validate_pure_component_assembly_job(x)

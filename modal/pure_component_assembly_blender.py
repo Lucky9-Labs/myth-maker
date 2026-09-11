@@ -38,7 +38,8 @@ def main():
         direction=Vector((0,0,3.4))-camera.location; camera.rotation_euler=direction.to_track_quat('-Z','Y').to_euler(); scene.render.filepath=str(out/at[0]); bpy.ops.render.render(write_still=True)
     camera.location=(7,-10,6); look(('three-quarter.png',)); camera.location=(0,-12,3.5); look(('front.png',)); camera.location=(12,0,3.5); look(('side.png',))
     Path(out/'manifest.json').write_text(json.dumps({'format':'myth-maker.pure-assembly-scene/v1','objects':manifest},indent=2)+'\n')
-    bpy.ops.wm.save_as_mainfile(filepath=str(out/'assembly.blend'),check_existing=False)
-    bpy.ops.export_scene.gltf(filepath=str(out/'assembly.glb'),export_format='GLB',export_apply=True,export_animations=False)
+    if job.get('output_mode','full') == 'full':
+        bpy.ops.wm.save_as_mainfile(filepath=str(out/'assembly.blend'),check_existing=False)
+        bpy.ops.export_scene.gltf(filepath=str(out/'assembly.glb'),export_format='GLB',export_apply=True,export_animations=False)
 
 if __name__=='__main__': main()
