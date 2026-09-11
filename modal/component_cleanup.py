@@ -24,7 +24,9 @@ def _artifact(value: object, media_type: str) -> bool:
 
 def validate_component_cleanup_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
-                "candidate", "source_review", "merge_distance_ratio", "decimate_ratio"}
+                "candidate", "source_review", "merge_distance_ratio", "decimate_ratio",
+                "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
+                "lower_trim_ratio", "seat_band_ratio"}
     if not isinstance(value, dict) or set(value) != required:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
@@ -44,9 +46,23 @@ def validate_component_cleanup_job(value: dict) -> dict:
         raise ValueError("component cleanup requires a matching accepted Astra review")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
+    smooth = value["smooth_factor"]
+    iterations = value["smooth_iterations"]
+    displacement = value["max_smooth_displacement_ratio"]
+    lower_trim = value["lower_trim_ratio"]
+    seat_band = value["seat_band_ratio"]
     if (not isinstance(merge, (int, float)) or isinstance(merge, bool) or not 0 <= merge <= 0.001
             or not isinstance(decimate, (int, float)) or isinstance(decimate, bool) or not 0.05 <= decimate <= 1):
         raise ValueError("component cleanup parameters are outside bounded limits")
+    if (not isinstance(smooth, (int, float)) or isinstance(smooth, bool) or not 0 <= smooth <= 0.2
+            or not isinstance(iterations, int) or isinstance(iterations, bool) or not 0 <= iterations <= 5
+            or not isinstance(displacement, (int, float)) or isinstance(displacement, bool)
+            or not 0 <= displacement <= 0.005
+            or not isinstance(lower_trim, (int, float)) or isinstance(lower_trim, bool)
+            or not 0 <= lower_trim <= 0.1
+            or not isinstance(seat_band, (int, float)) or isinstance(seat_band, bool)
+            or not 0 <= seat_band <= 0.03):
+        raise ValueError("component cleanup surface parameters are outside bounded limits")
     return json.loads(json.dumps(value))
 
 
@@ -67,7 +83,12 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                "--python", "/opt/component_cleanup_blender.py", "--", "--input", str(source),
                "--output", str(root), "--component-id", checked["component_id"],
                "--merge-distance-ratio", str(checked["merge_distance_ratio"]),
-               "--decimate-ratio", str(checked["decimate_ratio"])]
+               "--decimate-ratio", str(checked["decimate_ratio"]),
+               "--smooth-factor", str(checked["smooth_factor"]),
+               "--smooth-iterations", str(checked["smooth_iterations"]),
+               "--max-smooth-displacement-ratio", str(checked["max_smooth_displacement_ratio"]),
+               "--lower-trim-ratio", str(checked["lower_trim_ratio"]),
+               "--seat-band-ratio", str(checked["seat_band_ratio"])]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -84,7 +105,12 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                "asset_id": checked["asset_id"], "component_id": checked["component_id"],
                "source_candidate_sha256": checked["candidate"]["sha256"], "source_review": checked["source_review"],
                "parameters": {"merge_distance_ratio": checked["merge_distance_ratio"],
-                              "decimate_ratio": checked["decimate_ratio"]},
+                              "decimate_ratio": checked["decimate_ratio"],
+                              "smooth_factor": checked["smooth_factor"],
+                              "smooth_iterations": checked["smooth_iterations"],
+                              "max_smooth_displacement_ratio": checked["max_smooth_displacement_ratio"],
+                              "lower_trim_ratio": checked["lower_trim_ratio"],
+                              "seat_band_ratio": checked["seat_band_ratio"]},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
