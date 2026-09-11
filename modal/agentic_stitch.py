@@ -453,13 +453,35 @@ def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, cli
     response = client.responses.create(
         model=checked["model"],
         input=[{"role": "user", "content": content}],
-        reasoning={"effort": "high"},
+        # The strict plan is already heavily constrained by PLAN_SCHEMA. Medium
+        # reasoning leaves more of the output budget for the executable graph.
+        reasoning={"effort": "medium"},
         text={"format": {"type": "json_schema", "name": "agentic_stitch_plan", "strict": True, "schema": PLAN_SCHEMA}},
-        max_output_tokens=7000,
+        max_output_tokens=16000,
         timeout=600,
     )
     if response.status != "completed" or not response.output_text:
-        raise RuntimeError("agentic stitch planning model call did not complete")
+        usage = response.usage.model_dump() if response.usage else None
+        incomplete = getattr(response, "incomplete_details", None)
+        if hasattr(incomplete, "model_dump"):
+            incomplete = incomplete.model_dump()
+        failure = {
+            "format": "myth-maker.agentic-stitch-failure/v1",
+            "status": "failed",
+            "stage": "astra-global-plan",
+            "run_id": checked["run_id"],
+            "work_id": checked["work_id"],
+            "attempt": checked["attempt"],
+            "provider": {"name": "openai", "model": checked["model"], "request_id": getattr(response, "id", None)},
+            "response_status": getattr(response, "status", None),
+            "incomplete_details": incomplete,
+            "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+            "started_at": started.isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": round((time.monotonic() - clock) * 1000),
+        }
+        (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+        return failure
     plan = json.loads(response.output_text)
     plan["author"] = {"model": checked["model"], "request_id": response.id}
     execution = close_agentic_stitch_job(
