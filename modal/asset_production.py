@@ -276,7 +276,7 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
     extra_inputs = extra_inputs or {}
     if set(correction_specs) - set(SLOTS[:3]):
         raise ValueError("correction wave contains a spec for an invalid component lane")
-    if set(extra_inputs) - set(SLOTS[:3]):
+    if set(extra_inputs) - set(SLOTS):
         raise ValueError("correction wave contains inputs for an invalid component lane")
     if correction_spec is not None and correction_specs:
         raise ValueError("use either the legacy shared correction spec or per-lane correction specs")
@@ -556,6 +556,8 @@ def fan_in_assembly_job(wave: list[dict], receipts: list[dict]) -> dict:
     dependency_hashes = [item["sha256"] for item in inputs]
     inputs.extend(dict(item) for item in template["inputs"]
                   if item["media_type"] in {"image/png", "image/jpeg"})
+    inputs.extend(dict(item) for item in template["inputs"]
+                  if item["media_type"] not in {"application/x-blender", "image/png", "image/jpeg"})
     operations = [dict(item) for item in template["operations"]]
     if {item["kind"] for item in operations}.isdisjoint({"assemble"}):
         operations.append({"kind": "assemble"})
