@@ -382,7 +382,7 @@ def validate_correction_spec(value: dict) -> dict:
     for command in value["commands"]:
         if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "import-component-glb", "fit-attachment-band", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode", "target", "band_ratio", "offset", "max_displacement_ratio", "fit_target", "fit_band_ratio", "fit_offset", "fit_max_displacement_ratio"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode", "target", "band_ratio", "offset", "max_displacement_ratio", "fit_target", "fit_band_ratio", "fit_offset", "fit_max_displacement_ratio", "fit_prealign_max_translation_ratio"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -460,6 +460,11 @@ def validate_correction_spec(value: dict) -> dict:
                     or not numeric_fit("fit_max_displacement_ratio")
                     or not 0 < command["fit_max_displacement_ratio"] <= 0.02):
                 raise ValueError("import-component-glb attachment fit is invalid")
+            prealign = command.get("fit_prealign_max_translation_ratio")
+            if (prealign is not None and (not present
+                    or not isinstance(prealign, (int, float)) or isinstance(prealign, bool)
+                    or not 0 < prealign <= 0.5)):
+                raise ValueError("import-component-glb attachment prealignment is invalid")
         if command["op"] == "fit-attachment-band":
             numeric_fit = lambda key: isinstance(command.get(key), (int, float)) and not isinstance(command.get(key), bool)
             if (set(command) != {"op", "name", "target", "band_ratio", "offset", "max_displacement_ratio"}
