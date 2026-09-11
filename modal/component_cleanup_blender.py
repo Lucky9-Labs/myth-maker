@@ -18,6 +18,7 @@ def main():
     p.add_argument('--component-id', required=True); p.add_argument('--merge-distance-ratio', type=float, required=True)
     p.add_argument('--decimate-ratio', type=float, required=True); a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
+    bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=a.input)
     meshes = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
     if not meshes: raise RuntimeError('component GLB contains no mesh')
