@@ -1,0 +1,54 @@
+name: Fetch pure assembly renders
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        required: true
+        type: string
+      work_id:
+        required: true
+        type: string
+      attempt:
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    environment: dev
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
+      - name: Fetch immutable pure assembly renders
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          RUN_ID: ${{ inputs.run_id }}
+          WORK_ID: ${{ inputs.work_id }}
+          ATTEMPT: ${{ inputs.attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{0,95}$ ]]
+          [[ "$WORK_ID" =~ ^[a-z0-9][a-z0-9-]{0,95}$ ]]
+          [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          printf -v attempt_dir 'attempt-%04d' "$ATTEMPT"
+          remote="asset-production/$RUN_ID/pure-assembly/$WORK_ID/$attempt_dir"
+          mkdir -p fetched
+          modal volume get --env dev --force myth-maker-encounter-submissions "$remote" fetched/
+          test -s fetched/$attempt_dir/three-quarter.png
+          test -s fetched/$attempt_dir/front.png
+          test -s fetched/$attempt_dir/side.png
+          sha256sum fetched/$attempt_dir/three-quarter.png fetched/$attempt_dir/front.png fetched/$attempt_dir/side.png > fetched/sha256sums.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pure-assembly-renders-${{ github.run_id }}
+          path: fetched/
+          retention-days: 30
