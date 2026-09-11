@@ -102,6 +102,39 @@ def masked_component_crop(reference: Path, polygon: list[list[float]], output: P
             "width": side, "height": side}
 
 
+def sanitize_conditioning_image(source: Path, output: Path) -> dict:
+    """Remove low-alpha canvas residue before multiview shape generation."""
+    from PIL import Image
+    import numpy as np
+    from scipy import ndimage
+    with Image.open(source) as opened:
+        rgba = np.asarray(opened.convert("RGBA")).copy()
+    mask = rgba[:, :, 3] >= 128
+    labels, count = ndimage.label(mask)
+    if not count:
+        raise ValueError("conditioning image has no opaque component silhouette")
+    sizes = np.bincount(labels.ravel())
+    largest = int(sizes[1:].max())
+    retained = np.flatnonzero(sizes >= max(64, int(largest * 0.002)))
+    retained = retained[retained != 0]
+    clean = np.isin(labels, retained)
+    ys, xs = np.nonzero(clean)
+    if not len(xs):
+        raise ValueError("conditioning matte cleanup removed the component silhouette")
+    rgba[:, :, :3][~clean] = 255
+    rgba[:, :, 3] = np.where(clean, 255, 0).astype(np.uint8)
+    x0, x1, y0, y1 = int(xs.min()), int(xs.max()) + 1, int(ys.min()), int(ys.max()) + 1
+    span = max(x1 - x0, y1 - y0); pad = max(8, round(span * 0.12))
+    cropped = Image.fromarray(rgba, "RGBA").crop((max(0, x0-pad), max(0, y0-pad), min(rgba.shape[1], x1+pad), min(rgba.shape[0], y1+pad)))
+    side = max(cropped.size); square = Image.new("RGBA", (side, side), (255, 255, 255, 0))
+    square.paste(cropped, ((side-cropped.width)//2, (side-cropped.height)//2), cropped)
+    square = square.resize((1024, 1024), Image.Resampling.LANCZOS)
+    output.parent.mkdir(parents=True, exist_ok=True); square.save(output, format="PNG")
+    data = output.read_bytes()
+    return {"path": str(output), "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+            "retained_regions": int(len(retained)), "removed_opaque_pixels": int(mask.sum()-clean.sum())}
+
+
 def read_component_diffusion_status(run_id: str, work_id: str, attempt: int,
                                     submissions_root: Path) -> dict:
     import re
@@ -177,6 +210,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     crop = masked_component_crop(reference, checked["reference_polygon"], attempt_root / "reference-crop.png")
     condition_path = attempt_root / "reference-crop.png"
     condition_paths = None
+    sanitized_conditioning = None
     conditioning = None
     if "conditioning" in checked:
         declared = checked["conditioning"]
@@ -189,6 +223,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
         conditioning = dict(declared)
     if "conditioning_views" in checked:
         condition_paths = {}
+        sanitized_conditioning = {}
         for view, declared in checked["conditioning_views"].items():
             path = submissions_root / declared["path"]
             if not path.is_file():
@@ -196,7 +231,10 @@ def run_component_diffusion(job: dict, submissions_root: Path,
             view_data = path.read_bytes()
             if len(view_data) != declared["bytes"] or hashlib.sha256(view_data).hexdigest() != declared["sha256"]:
                 raise ValueError(f"component {view} conditioning artifact hash mismatch")
-            condition_paths[view] = path
+            sanitized_path = attempt_root / f"conditioning-{view}.png"
+            sanitized_conditioning[view] = sanitize_conditioning_image(path, sanitized_path)
+            sanitized_conditioning[view]["path"] = str(sanitized_path.relative_to(submissions_root))
+            condition_paths[view] = sanitized_path
         conditioning = json.loads(json.dumps(checked["conditioning_views"]))
     reference_data = reference.read_bytes()
     started = datetime.now(timezone.utc)
@@ -266,7 +304,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
         "reference": {"path": str(reference.relative_to(submissions_root)), "bytes": len(reference_data),
                       "sha256": hashlib.sha256(reference_data).hexdigest()},
         "reference_crop": {**crop, "path": str((attempt_root / "reference-crop.png").relative_to(submissions_root))},
-        "conditioning": conditioning,
+        "conditioning": conditioning, "sanitized_conditioning": sanitized_conditioning,
         "artifacts": artifacts, "started_at": started.isoformat(),
         "completed_at": datetime.now(timezone.utc).isoformat(), "execution_seconds": round(duration, 3),
         "compute": {"gpu": gpu_name, "gpu_usd_per_second": gpu_usd_per_second,

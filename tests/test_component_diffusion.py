@@ -9,7 +9,8 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
 from component_diffusion import (A100_40GB_USD_PER_SECOND, FORMAT, MODEL, MULTIVIEW_MODEL, T4_USD_PER_SECOND,
                                  _gpu_identity, masked_component_crop,
-                                 read_component_diffusion_status, validate_component_diffusion_job)
+                                 read_component_diffusion_status, sanitize_conditioning_image,
+                                 validate_component_diffusion_job)
 
 
 def job():
@@ -77,6 +78,20 @@ class ComponentDiffusionTests(unittest.TestCase):
             with Image.open(output) as crop:
                 self.assertEqual(crop.mode, "RGBA")
                 self.assertEqual(crop.getpixel((0, 0))[3], 0)
+
+    def test_sanitized_conditioning_removes_faint_canvas_and_tiny_speck(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); source = root / "source.png"; output = root / "clean.png"
+            image = Image.new("RGBA", (100, 80), (12, 34, 56, 4))
+            for x in range(30, 70):
+                for y in range(20, 60): image.putpixel((x, y), (80, 120, 150, 240))
+            image.putpixel((2, 2), (255, 255, 255, 255)); image.save(source)
+            artifact = sanitize_conditioning_image(source, output)
+            self.assertEqual(artifact["retained_regions"], 1)
+            self.assertGreater(artifact["removed_opaque_pixels"], 0)
+            with Image.open(output) as cleaned:
+                self.assertEqual(cleaned.size, (1024, 1024))
+                self.assertEqual(cleaned.getpixel((0, 0))[3], 0)
 
     def test_status_reads_latest_persisted_phase_and_terminal_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
