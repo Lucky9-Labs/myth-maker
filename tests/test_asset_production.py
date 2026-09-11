@@ -433,6 +433,18 @@ class AssetProductionTests(unittest.TestCase):
             self.assertEqual(fitted[3]["correction_spec"], assembly_spec)
             self.assertIn({"kind": "apply-parameterized-correction"}, fitted[3]["operations"])
             self.assertNotIn("correction_spec", fitted[0])
+            staged_for_assembly = prepare_correction_wave(
+                root, {"source_sha": "f" * 40, "function_id": "fu-assemblyinput"},
+                extra_inputs={"worker-d": [{"path": "asset-production/run/canopy.glb",
+                    "bytes": 321, "sha256": "8" * 64, "media_type": "model/gltf-binary",
+                    "staged_name": "canopy.glb"}]}, assembly_correction_spec=assembly_spec)
+            component_receipts = [{"worker_slot": item["worker_slot"], "status": "completed",
+                "artifacts": {"asset.blend": {"volume_path": f"asset-production/run/{item['worker_slot']}.blend",
+                    "bytes": 100, "sha256": str(index + 4) * 64}}}
+                for index, item in enumerate(staged_for_assembly[:3])]
+            assembly = fan_in_assembly_job(staged_for_assembly, component_receipts)
+            self.assertEqual([item["staged_name"] for item in assembly["inputs"]
+                              if item["media_type"] == "model/gltf-binary"], ["canopy.glb"])
             with self.assertRaisesRegex(ValueError, "exactly match"):
                 prepare_correction_wave(
                     root, {"source_sha": "f" * 40, "function_id": "fu-incomplete"},
