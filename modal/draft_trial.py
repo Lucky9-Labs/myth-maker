@@ -505,7 +505,7 @@ def evaluate_asset_reference_progress(run_id: str) -> dict:
     return receipt
 
 
-@app.function(image=image, cpu=0.25, memory=512, timeout=120, retries=0,
+@app.function(image=image, cpu=0.25, memory=512, timeout=360, retries=0,
               max_containers=1, volumes={"/submissions": volume})
 def get_asset_progress_dashboard(run_id: str) -> dict:
     """Fetch one private dashboard through authenticated Modal function access."""
