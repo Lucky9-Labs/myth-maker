@@ -81,7 +81,9 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
         "tqdm==4.66.5", "psutil==6.0.0", "pydantic==2.10.6", "timm", "torchdiffeq")
     .run_commands(
         "git clone --filter=blob:none https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git /opt/Hunyuan3D-2.1",
-        "cd /opt/Hunyuan3D-2.1 && git checkout 82920d643c0dc2f7bfd7255f45f62d386edfe60c")
+        "cd /opt/Hunyuan3D-2.1 && git checkout 82920d643c0dc2f7bfd7255f45f62d386edfe60c",
+        "git clone --filter=blob:none https://github.com/Tencent-Hunyuan/Hunyuan3D-2.git /opt/Hunyuan3D-2",
+        "cd /opt/Hunyuan3D-2 && git checkout f8db63096c8282cb27354314d896feba5ba6ff8a")
     # Modal imports this file as the function service even when it starts only
     # run_component_diffusion_job. Keep the entrypoint's complete local import
     # closure in the GPU image so container startup cannot crash before the

@@ -7,7 +7,7 @@ import unittest
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from component_diffusion import (A100_40GB_USD_PER_SECOND, FORMAT, MODEL, T4_USD_PER_SECOND,
+from component_diffusion import (A100_40GB_USD_PER_SECOND, FORMAT, MODEL, MULTIVIEW_MODEL, T4_USD_PER_SECOND,
                                  _gpu_identity, masked_component_crop,
                                  read_component_diffusion_status, validate_component_diffusion_job)
 
@@ -51,6 +51,22 @@ class ComponentDiffusionTests(unittest.TestCase):
         self.assertEqual(validate_component_diffusion_job(conditioned), conditioned)
         railgun = {**job(), "asset_id": "railgun"}
         self.assertEqual(validate_component_diffusion_job(railgun), railgun)
+
+    def test_accepts_three_hash_verified_multiview_conditions(self):
+        artifact = {"path": "asset-production/pilot/front.png", "bytes": 123,
+                    "sha256": "a" * 64, "media_type": "image/png", "component_id": "canopy-system"}
+        views = {view: {**artifact, "path": f"asset-production/pilot/{view}.png"}
+                 for view in ("front", "left", "back")}
+        multiview = {**job(), "model": MULTIVIEW_MODEL, "conditioning_views": views}
+        self.assertEqual(validate_component_diffusion_job(multiview), multiview)
+
+    def test_rejects_multiview_conditions_on_single_view_model(self):
+        artifact = {"path": "asset-production/pilot/front.png", "bytes": 123,
+                    "sha256": "a" * 64, "media_type": "image/png", "component_id": "canopy-system"}
+        views = {view: {**artifact, "path": f"asset-production/pilot/{view}.png"}
+                 for view in ("front", "left", "back")}
+        with self.assertRaisesRegex(ValueError, "multiview"):
+            validate_component_diffusion_job({**job(), "conditioning_views": views})
 
     def test_masked_crop_is_square_and_transparent(self):
         with tempfile.TemporaryDirectory() as temporary:

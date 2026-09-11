@@ -12,6 +12,7 @@ from typing import Callable
 FORMAT = "myth-maker.component-diffusion-job/v1"
 RECEIPT_FORMAT = "myth-maker.component-diffusion-receipt/v1"
 MODEL = "tencent/Hunyuan3D-2.1"
+MULTIVIEW_MODEL = "tencent/Hunyuan3D-2mv"
 L40S_USD_PER_SECOND = 0.000542
 A100_40GB_USD_PER_SECOND = 0.000583
 A100_80GB_USD_PER_SECOND = 0.000694
@@ -25,9 +26,11 @@ MEMORY_USD_PER_GIB_SECOND = 0.00000222
 def validate_component_diffusion_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
                 "model", "reference_polygon", "seeds", "num_inference_steps", "octree_resolution"}
-    if not isinstance(value, dict) or frozenset(value) not in {frozenset(required), frozenset(required | {"conditioning"})}:
+    allowed_shapes = {frozenset(required), frozenset(required | {"conditioning"}),
+                      frozenset(required | {"conditioning_views"})}
+    if not isinstance(value, dict) or frozenset(value) not in allowed_shapes:
         raise ValueError("component diffusion job has an invalid closed shape")
-    if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"} or value["model"] != MODEL:
+    if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"} or value["model"] not in {MODEL, MULTIVIEW_MODEL}:
         raise ValueError("component diffusion job has an unsupported format, asset, or model")
     import re
     name = re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
@@ -60,6 +63,18 @@ def validate_component_diffusion_job(value: dict) -> dict:
                 or not isinstance(condition["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", condition["sha256"])
                 or condition["component_id"] != value["component_id"]):
             raise ValueError("component diffusion conditioning artifact is invalid")
+    if "conditioning_views" in value:
+        views = value["conditioning_views"]
+        if value["model"] != MULTIVIEW_MODEL or not isinstance(views, dict) or set(views) != {"front", "left", "back"}:
+            raise ValueError("component diffusion multiview conditioning is invalid")
+        for artifact in views.values():
+            if (not isinstance(artifact, dict) or set(artifact) != {"path", "bytes", "sha256", "media_type", "component_id"}
+                    or not isinstance(artifact["path"], str) or Path(artifact["path"]).is_absolute()
+                    or ".." in Path(artifact["path"]).parts or artifact["media_type"] != "image/png"
+                    or not isinstance(artifact["bytes"], int) or artifact["bytes"] < 1
+                    or not isinstance(artifact["sha256"], str) or not re.fullmatch(r"[a-f0-9]{64}", artifact["sha256"])
+                    or artifact["component_id"] != value["component_id"]):
+                raise ValueError("component diffusion multiview artifact is invalid")
     return json.loads(json.dumps(value))
 
 
@@ -161,6 +176,7 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     (attempt_root / "job.json").write_text(json.dumps(checked, indent=2, sort_keys=True) + "\n")
     crop = masked_component_crop(reference, checked["reference_polygon"], attempt_root / "reference-crop.png")
     condition_path = attempt_root / "reference-crop.png"
+    condition_paths = None
     conditioning = None
     if "conditioning" in checked:
         declared = checked["conditioning"]
@@ -171,6 +187,17 @@ def run_component_diffusion(job: dict, submissions_root: Path,
         if len(condition_data) != declared["bytes"] or hashlib.sha256(condition_data).hexdigest() != declared["sha256"]:
             raise ValueError("component isolation artifact hash mismatch")
         conditioning = dict(declared)
+    if "conditioning_views" in checked:
+        condition_paths = {}
+        for view, declared in checked["conditioning_views"].items():
+            path = submissions_root / declared["path"]
+            if not path.is_file():
+                raise ValueError(f"component {view} conditioning artifact is unavailable")
+            view_data = path.read_bytes()
+            if len(view_data) != declared["bytes"] or hashlib.sha256(view_data).hexdigest() != declared["sha256"]:
+                raise ValueError(f"component {view} conditioning artifact hash mismatch")
+            condition_paths[view] = path
+        conditioning = json.loads(json.dumps(checked["conditioning_views"]))
     reference_data = reference.read_bytes()
     started = datetime.now(timezone.utc)
     clock = time.monotonic()
@@ -180,21 +207,33 @@ def run_component_diffusion(job: dict, submissions_root: Path,
     import sys
     import torch
     from huggingface_hub import snapshot_download
-    sys.path.insert(0, "/opt/Hunyuan3D-2.1/hy3dshape")
-    from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
+    multiview = checked["model"] == MULTIVIEW_MODEL
+    if multiview:
+        sys.path.insert(0, "/opt/Hunyuan3D-2")
+        from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline
+    else:
+        sys.path.insert(0, "/opt/Hunyuan3D-2.1/hy3dshape")
+        from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
     gpu_name, gpu_usd_per_second = _gpu_identity(torch)
     _write_phase(attempt_root, "model-cache", "running", started, checkpoint)
-    model_root = snapshot_download(repo_id=MODEL, allow_patterns=["hunyuan3d-dit-v2-1/*"])
+    model_root = snapshot_download(repo_id=checked["model"], allow_patterns=["hunyuan3d-dit-v2-mv/*"] if multiview else ["hunyuan3d-dit-v2-1/*"])
     _write_phase(attempt_root, "model-cache", "completed", started, checkpoint,
                  model_root=model_root)
     _write_phase(attempt_root, "model-load", "running", started, checkpoint)
     pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
-        model_root, subfolder="hunyuan3d-dit-v2-1")
+        model_root, subfolder="hunyuan3d-dit-v2-mv" if multiview else "hunyuan3d-dit-v2-1",
+        **({"variant": "fp16"} if multiview else {}))
     pipeline.to("cuda")
     _write_phase(attempt_root, "model-load", "completed", started, checkpoint)
     artifacts = []
-    with Image.open(condition_path) as image:
-        condition = image.convert("RGBA")
+    opened_images = []
+    try:
+        if condition_paths:
+            condition = {}
+            for view, path in condition_paths.items():
+                opened = Image.open(path); opened_images.append(opened); condition[view] = opened.convert("RGBA")
+        else:
+            opened = Image.open(condition_path); opened_images.append(opened); condition = opened.convert("RGBA")
         for seed in checked["seeds"]:
             candidate_started = time.monotonic()
             _write_phase(attempt_root, "shape-generation", "running", started, checkpoint, seed=seed)
@@ -215,12 +254,15 @@ def run_component_diffusion(job: dict, submissions_root: Path,
                               "generation_seconds": round(time.monotonic() - candidate_started, 3)})
             _write_phase(attempt_root, "shape-generation", "completed", started, checkpoint,
                          seed=seed, artifact=artifacts[-1])
+    finally:
+        for opened in opened_images:
+            opened.close()
     duration = time.monotonic() - clock
     estimated_cost = duration * (gpu_usd_per_second + 4 * CPU_USD_PER_CORE_SECOND + 32 * MEMORY_USD_PER_GIB_SECOND)
     receipt = {
         "format": RECEIPT_FORMAT, "status": "completed", "run_id": checked["run_id"],
         "work_id": checked["work_id"], "attempt": checked["attempt"], "asset_id": checked["asset_id"],
-        "component_id": checked["component_id"], "model": MODEL, "model_tokens": 0,
+        "component_id": checked["component_id"], "model": checked["model"], "model_tokens": 0,
         "reference": {"path": str(reference.relative_to(submissions_root)), "bytes": len(reference_data),
                       "sha256": hashlib.sha256(reference_data).hexdigest()},
         "reference_crop": {**crop, "path": str((attempt_root / "reference-crop.png").relative_to(submissions_root))},
