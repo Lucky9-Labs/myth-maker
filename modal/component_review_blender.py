@@ -31,7 +31,7 @@ def main():
     bpy.ops.object.light_add(type="AREA", location=(4, -5, 6)); bpy.context.object.data.energy=1000; bpy.context.object.data.shape="DISK"; bpy.context.object.data.size=5
     bpy.ops.object.light_add(type="AREA", location=(-4, 2, 3)); bpy.context.object.data.energy=650; bpy.context.object.data.size=4
     bpy.ops.object.camera_add(); camera=bpy.context.object; bpy.context.scene.camera=camera
-    scene=bpy.context.scene; scene.render.engine="BLENDER_EEVEE_NEXT"; scene.render.resolution_x=640; scene.render.resolution_y=640; scene.render.resolution_percentage=100
+    scene=bpy.context.scene; scene.render.engine="BLENDER_EEVEE"; scene.render.resolution_x=640; scene.render.resolution_y=640; scene.render.resolution_percentage=100
     scene.render.image_settings.file_format="PNG"; scene.render.film_transparent=False
     def render(name, location):
         camera.location=location; direction=Vector((0,0,0))-camera.location; camera.rotation_euler=direction.to_track_quat('-Z','Y').to_euler()
