@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ASSETS = {
-    "mech": {"job_types": {"kit-assembly", "final-validation"}, "views": ("full-body", "front", "gameplay-distance")},
+    "mech": {"job_types": {"kit-assembly", "final-validation", "agentic-stitch"}, "views": ("full-body", "front", "gameplay-distance")},
     "railgun": {"job_types": {"railgun"}, "views": ("side", "gameplay-distance", "full-body")},
 }
 RUBRIC = {"silhouette": 0.30, "proportions": 0.25, "component_geometry": 0.20,
@@ -136,16 +136,18 @@ def _verified_reference(developments: list[dict], asset_id: str) -> dict | None:
 def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str) -> tuple[str, ...] | None:
     """Resolve the immutable component hashes that define one asset render."""
     attempts = []
-    for path in run_root.glob("*/attempt-*/receipt.json"):
+    for path in run_root.glob("**/attempt-*/receipt.json"):
         receipt = _read_json(path)
         if receipt:
             attempts.append((path, receipt))
     rendered = [(path, receipt) for path, receipt in attempts
-                if any(name.startswith("renders/") and item.get("sha256") == render_sha256
+                if any((name.startswith("renders/") or name == "three-quarter.png") and item.get("sha256") == render_sha256
                        for name, item in (receipt.get("artifacts") or {}).items())]
     if not rendered:
         return None
     path, receipt = rendered[-1]
+    if receipt.get("format") == "myth-maker.agentic-stitch-receipt/v1":
+        return tuple(sorted((receipt.get("component_hashes") or {}).values())) or None
     if asset_id == "railgun":
         native = (receipt.get("artifacts") or {}).get("asset.blend")
         return (native["sha256"],) if native and native.get("sha256") else None
@@ -550,18 +552,23 @@ def _read_json(path: Path) -> dict | None:
 def completed_developments(run_root: Path, limit: int | None = 4) -> dict[str, list[dict]]:
     """Select the last N hash-verified renders for each logical asset."""
     selected = {asset_id: [] for asset_id in ASSETS}
-    for receipt_path in run_root.glob("*/attempt-*/receipt.json"):
+    for receipt_path in run_root.glob("**/attempt-*/receipt.json"):
         receipt = _read_json(receipt_path)
         if not receipt or receipt.get("status") != "completed":
             continue
-        asset_id = next((key for key, spec in ASSETS.items() if receipt.get("job_type") in spec["job_types"]), None)
+        job_type = receipt.get("job_type")
+        if receipt.get("format") == "myth-maker.agentic-stitch-receipt/v1":
+            job_type = "agentic-stitch"
+        asset_id = next((key for key, spec in ASSETS.items() if job_type in spec["job_types"]), None)
         if not asset_id:
             continue
         artifacts = receipt.get("artifacts") or {}
         relative = next((f"renders/{view}.png" for view in ASSETS[asset_id]["views"] if f"renders/{view}.png" in artifacts), None)
+        if relative is None and job_type == "agentic-stitch" and "three-quarter.png" in artifacts:
+            relative = "three-quarter.png"
         if not relative:
             continue
-        render_path = receipt_path.parent / "output" / relative
+        render_path = receipt_path.parent / relative if job_type == "agentic-stitch" else receipt_path.parent / "output" / relative
         artifact = artifacts[relative]
         try:
             data = render_path.read_bytes()
@@ -569,11 +576,11 @@ def completed_developments(run_root: Path, limit: int | None = 4) -> dict[str, l
             continue
         if len(data) != artifact.get("bytes") or hashlib.sha256(data).hexdigest() != artifact.get("sha256"):
             continue
-        selected[asset_id].append({"work_id": receipt.get("work_id"), "job_type": receipt.get("job_type"),
-            "attempt": receipt.get("attempt"), "completed_at": (receipt.get("execution") or {}).get("completed_at"),
-            "duration_ms": (receipt.get("execution") or {}).get("duration_ms"), "render": render_path,
+        selected[asset_id].append({"work_id": receipt.get("work_id"), "job_type": job_type,
+            "attempt": receipt.get("attempt"), "completed_at": receipt.get("completed_at") or (receipt.get("execution") or {}).get("completed_at"),
+            "duration_ms": receipt.get("duration_ms") or (receipt.get("execution") or {}).get("duration_ms"), "render": render_path,
             "render_sha256": artifact["sha256"],
-            "review_protocol": (_read_json(receipt_path.parent / "output" / "scene-manifest.json") or {}).get("review_protocol", "legacy")})
+            "review_protocol": "agentic-connected-v1" if job_type == "agentic-stitch" else (_read_json(receipt_path.parent / "output" / "scene-manifest.json") or {}).get("review_protocol", "legacy")})
     for asset_id, values in selected.items():
         values.sort(key=lambda item: (item.get("completed_at") or "", item.get("attempt") or 0, item.get("work_id") or ""))
         selected[asset_id] = values[-limit:] if limit is not None else values
