@@ -36,10 +36,22 @@ jobs:
           printf -v attempt_dir 'attempt-%04d' "$ATTEMPT"
           remote="asset-production/$RUN_ID/agentic-stitch/$WORK_ID/$attempt_dir"
           mkdir -p fetched
-          for name in three-quarter.png front.png side.png stitch-report.json receipt.json stage.json; do
+          for name in three-quarter.png front.png side.png stitch-report.json stage.json; do
             modal volume get --env dev myth-maker-encounter-submissions "$remote/$name" "fetched/$name"
             test -s "fetched/$name"
           done
+          # A visual rejection is a useful production result even though it
+          # deliberately has no completed receipt. Fetch whichever terminal
+          # record exists plus the model-authored review when present.
+          if modal volume get --env dev myth-maker-encounter-submissions "$remote/receipt.json" fetched/receipt.json; then
+            test -s fetched/receipt.json
+          else
+            modal volume get --env dev myth-maker-encounter-submissions "$remote/failure.json" fetched/failure.json
+            test -s fetched/failure.json
+          fi
+          if modal volume get --env dev myth-maker-encounter-submissions "$remote/visual-review.json" fetched/visual-review.json; then
+            test -s fetched/visual-review.json
+          fi
           sha256sum fetched/* > fetched/sha256sums.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
