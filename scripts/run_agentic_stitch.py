@@ -31,6 +31,11 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if receipt.get("status") != "completed":
+        raise RuntimeError(
+            "agentic stitch returned a terminal failure receipt at stage "
+            + str(receipt.get("stage", "unknown"))
+        )
 
 
 if __name__ == "__main__":

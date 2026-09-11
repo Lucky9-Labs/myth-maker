@@ -243,6 +243,34 @@ class Tests(unittest.TestCase):
             self.assertEqual(receipt["model_usage"]["cached_input_tokens"], 100)
             self.assertEqual(receipt["model_usage"]["output_tokens"], 400)
 
+    def test_runner_persists_terminal_incomplete_model_response(self):
+        request_value = request()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for component in request_value["components"]:
+                data = component["component_id"].encode()
+                path = root / component["artifact"]["path"]
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                component["artifact"].update(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+            evidence_data = b"png-evidence"
+            evidence_path = root / request_value["evidence"][0]["path"]
+            evidence_path.write_bytes(evidence_data)
+            request_value["evidence"][0].update(bytes=len(evidence_data), sha256=hashlib.sha256(evidence_data).hexdigest())
+            response = SimpleNamespace(
+                status="incomplete", output_text="", id="resp-incomplete",
+                incomplete_details=SimpleNamespace(model_dump=lambda: {"reason": "max_output_tokens"}),
+                usage=SimpleNamespace(model_dump=lambda: {"input_tokens": 900, "output_tokens": 7000, "input_tokens_details": {"cached_tokens": 0}}),
+            )
+            client = SimpleNamespace(responses=SimpleNamespace(create=lambda **_kwargs: response))
+            receipt = run_agentic_stitch(request_value, root, "/bin/blender", client)
+            self.assertEqual(receipt["status"], "failed")
+            self.assertEqual(receipt["stage"], "astra-global-plan")
+            self.assertEqual(receipt["incomplete_details"]["reason"], "max_output_tokens")
+            self.assertEqual(receipt["model_usage"]["output_tokens"], 7000)
+            self.assertTrue((root / "asset-production" / "pilot-001" / "agentic-stitch" /
+                             "central-body-stitch-v1" / "attempt-0001" / "failure.json").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
