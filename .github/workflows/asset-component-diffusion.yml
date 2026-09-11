@@ -11,10 +11,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: raptor-mech-component-diffusion-dev
-  cancel-in-progress: false
-
 jobs:
   generate:
     runs-on: ubuntu-24.04
