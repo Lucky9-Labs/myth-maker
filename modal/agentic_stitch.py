@@ -14,6 +14,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 
 FORMAT = "myth-maker.agentic-stitch-job/v1"
@@ -412,7 +413,13 @@ def _checked_bytes(root: Path, artifact: dict, label: str) -> bytes:
     return data
 
 
-def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, client) -> dict:
+def run_agentic_stitch(
+    job: dict,
+    submissions_root: Path,
+    blender_path: str,
+    client,
+    checkpoint: Callable[[], object] | None = None,
+) -> dict:
     """Ask Astra for one global repair plan, validate it, then execute once."""
     checked = validate_agentic_stitch_job(job)
     root = (
@@ -423,6 +430,21 @@ def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, cli
         raise ValueError("agentic stitch attempt already exists")
     root.mkdir(parents=True)
     (root / "job.json").write_text(json.dumps(checked, indent=2, sort_keys=True) + "\n")
+    def publish_stage(stage: str, **details: object) -> None:
+        payload = {
+            "format": "myth-maker.agentic-stitch-stage/v1",
+            "run_id": checked["run_id"],
+            "work_id": checked["work_id"],
+            "attempt": checked["attempt"],
+            "stage": stage,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            **details,
+        }
+        (root / "stage.json").write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        if checkpoint is not None:
+            checkpoint()
+
+    publish_stage("astra-global-plan", status="running")
     for component in checked["components"]:
         _checked_bytes(submissions_root, component["artifact"], "component")
 
@@ -481,6 +503,7 @@ def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, cli
             "duration_ms": round((time.monotonic() - clock) * 1000),
         }
         (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+        publish_stage("astra-global-plan", status="failed")
         return failure
     plan = json.loads(response.output_text)
     plan["author"] = {"model": checked["model"], "request_id": response.id}
@@ -502,9 +525,16 @@ def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, cli
             "duration_ms": round((time.monotonic() - clock) * 1000),
         }
         (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+        publish_stage("plan-validation", status="failed", reason=str(error))
         return failure
     (root / "plan.json").write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
     (root / "execution.json").write_text(json.dumps(execution, indent=2, sort_keys=True) + "\n")
+    publish_stage(
+        "blender-execution",
+        status="running",
+        request_id=response.id,
+        connection_count=len(plan["connections"]),
+    )
 
     completed = subprocess.run(
         [blender_path, "--background", "--factory-startup", "--disable-autoexec", "--python", "/opt/agentic_stitch_blender.py", "--", "--job", str(root / "execution.json"), "--submissions", str(submissions_root), "--output", str(root)],
@@ -544,4 +574,5 @@ def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, cli
         "duration_ms": round((time.monotonic() - clock) * 1000),
     }
     (root / "receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    publish_stage("completed", status="completed", request_id=response.id)
     return receipt
