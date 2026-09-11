@@ -444,7 +444,7 @@ def validate_correction_spec(value: dict) -> dict:
                     or not numbers(command.get("dimensions"), 3, True)
                     or not numbers(command.get("rotation_degrees"), 3, limit=180)
                     or not isinstance(ratio, (int, float)) or isinstance(ratio, bool) or not 0.01 <= ratio <= 1
-                    or command.get("surface_mode") not in {"raw", "convex-hull"}
+                    or command.get("surface_mode") not in {"raw", "convex-hull", "voxel-remesh"}
                     or command.get("material") not in materials):
                 raise ValueError("import-component-glb correction is invalid")
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
