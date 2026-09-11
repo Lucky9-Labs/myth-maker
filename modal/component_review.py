@@ -46,7 +46,10 @@ def run_component_review(job, submissions_root, blender, client):
     root.mkdir(parents=True); (root/"job.json").write_text(json.dumps(checked,indent=2,sort_keys=True)+"\n")
     started=datetime.now(timezone.utc); clock=time.monotonic()
     completed=subprocess.run([blender,"--background","--factory-startup","--disable-autoexec","--python","/opt/component_review_blender.py","--","--input",str(candidate),"--output",str(root/"renders")],capture_output=True,text=True,timeout=420)
-    if completed.returncode: raise RuntimeError("component diagnostic render failed: "+(completed.stderr or completed.stdout)[-500:])
+    expected=[root/"renders/stats.json",root/"renders/three-quarter.png",root/"renders/front.png",root/"renders/side.png"]
+    if completed.returncode or not all(path.is_file() for path in expected):
+        log=((completed.stderr or "")+"\n"+(completed.stdout or "")).strip()[-2000:]
+        raise RuntimeError("component diagnostic render failed or omitted evidence: "+log)
     stats=json.loads((root/"renders/stats.json").read_text()); content=[{"type":"input_text","text":(
       "Judge this isolated generated 3D component against its isolated design reference. Diagnose geometry before assembly. Return JSON only with format myth-maker.component-review/v1, component_id, scores for reference_fidelity, surface_coherence, part_completeness, attachment_readiness, articulation_readiness (0-100), blocking_defects, cleanup_actions, integration_guidance, and decision clean, regenerate, or ready-to-stitch. Cleanup actions must be bounded Blender operations with concrete parameters. Favor regenerate when the primary silhouette or topology is fundamentally wrong. Required attachment surfaces: "+", ".join(checked["attachment_surfaces"])+". Mesh stats: "+json.dumps(stats))}]
     content+=_image(reference,"ISOLATED DESIGN REFERENCE")
