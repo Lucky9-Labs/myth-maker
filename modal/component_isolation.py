@@ -21,7 +21,7 @@ def validate_component_isolation_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
                 "model", "reference_polygon", "component_description", "material",
                 "symmetry", "attachment_surfaces", "quality"}
-    optional = {"source_artifact", "view_mode"}
+    optional = {"source_artifact", "view_mode", "view_masks"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component isolation job has an invalid closed shape")
     if value["format"] != FORMAT or value["model"] != MODEL or value["asset_id"] not in {"mech", "railgun"}:
@@ -49,6 +49,18 @@ def validate_component_isolation_job(value: dict) -> dict:
         raise ValueError("component isolation quality must be low or medium")
     if value.get("view_mode", "single") not in {"single", "orthographic-multiview"}:
         raise ValueError("component isolation view mode is invalid")
+    if "view_masks" in value:
+        masks = value["view_masks"]
+        if (value.get("view_mode") != "orthographic-multiview" or not isinstance(masks, dict)
+                or set(masks) != {"front", "left", "back", "right"}):
+            raise ValueError("component isolation view masks require all orthographic views")
+        for polygon in masks.values():
+            if (not isinstance(polygon, list) or not 3 <= len(polygon) <= 32
+                    or any(not isinstance(point, list) or len(point) != 2
+                           or any(not isinstance(axis, (int, float)) or isinstance(axis, bool)
+                                  or not 0 <= axis <= 1 for axis in point)
+                           for point in polygon)):
+                raise ValueError("component isolation view mask polygon is invalid")
     if "source_artifact" in value:
         artifact=value["source_artifact"]
         if (not isinstance(artifact,dict) or set(artifact)!={"path","bytes","sha256","media_type"}
@@ -120,7 +132,7 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
     output = root / "isolated-component.png"; output.write_bytes(data)
     view_artifacts = None
     if multiview:
-        from PIL import Image
+        from PIL import Image, ImageChops, ImageDraw
         view_artifacts = {}
         with Image.open(output) as sheet:
             sheet = sheet.convert("RGBA")
@@ -129,7 +141,15 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
                      "back": (0, sheet.height // 2, sheet.width // 2, sheet.height),
                      "right": (sheet.width // 2, sheet.height // 2, sheet.width, sheet.height)}
             for view, box in boxes.items():
-                path = root / f"{view}.png"; sheet.crop(box).save(path, format="PNG")
+                cropped = sheet.crop(box)
+                if "view_masks" in checked:
+                    polygon = checked["view_masks"][view]
+                    mask = Image.new("L", cropped.size, 0)
+                    ImageDraw.Draw(mask).polygon(
+                        [(round(x * (cropped.width - 1)), round(y * (cropped.height - 1)))
+                         for x, y in polygon], fill=255)
+                    cropped.putalpha(ImageChops.multiply(cropped.getchannel("A"), mask))
+                path = root / f"{view}.png"; cropped.save(path, format="PNG")
                 view_data = path.read_bytes()
                 view_artifacts[view] = {"path": str(path.relative_to(submissions_root)),
                     "bytes": len(view_data), "sha256": hashlib.sha256(view_data).hexdigest(),
