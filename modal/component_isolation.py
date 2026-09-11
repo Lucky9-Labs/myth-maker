@@ -68,6 +68,19 @@ def _usage(response) -> dict:
             "input_tokens_details": value.get("input_tokens_details")}
 
 
+def _view_instruction(multiview: bool) -> str:
+    if not multiview:
+        return "Show exactly one complete component, centered, fully visible, in a neutral three-quarter orthographic product view. "
+    return (
+        "Create a precise 2 by 2 orthographic turnaround sheet. Put the front view in the upper-left, left view in the upper-right, "
+        "back view in the lower-left, and top view in the lower-right. Show the exact same rigid object, scale, dimensions, panel boundaries, "
+        "thicknesses, openings, and attachment interfaces in every view. Topology must agree across all four views: a recess must remain "
+        "a recess, a closed hub must remain solid and visibly capped, and a through-hole may appear only when the description explicitly "
+        "requests one. Never turn a dark inset, lens, bearing face, or shadow into an opening. Make every required attachment surface visibly "
+        "planar, unobstructed, and consistent in the views where it is visible. Use no perspective and center each object within its quadrant. "
+    )
+
+
 def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
     checked = validate_component_isolation_job(job)
     run_root = submissions_root / "asset-production" / checked["run_id"]
@@ -86,12 +99,7 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
     (root / "job.json").write_text(json.dumps(checked, indent=2, sort_keys=True) + "\n")
     crop = masked_component_crop(reference, checked["reference_polygon"], root / "source-crop.png")
     multiview = checked.get("view_mode") == "orthographic-multiview"
-    view_instruction = (
-        "Create a precise 2 by 2 orthographic turnaround sheet. Put the front view in the upper-left, left view in the upper-right, "
-           "back view in the lower-left, and top view in the lower-right. Show the exact same rigid object, scale, dimensions, panel boundaries, "
-           "thicknesses, openings, and attachment interfaces in every view. Use no perspective and center each object within its quadrant. "
-        if multiview else
-        "Show exactly one complete component, centered, fully visible, in a neutral three-quarter orthographic product view. ")
+    view_instruction = _view_instruction(multiview)
     prompt = (
         "Create one clean 3D reconstruction reference image for only this game-asset component: "
         + checked["component_description"] + ". Preserve the component's distinctive outline and proportions from the input. "
