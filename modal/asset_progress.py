@@ -596,6 +596,24 @@ def _gif(developments: list[dict], output: Path) -> dict | None:
     data = output.read_bytes()
     return {"path": output.name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "frames": len(frames)}
 
+def completed_component_reviews(run_root: Path) -> list[dict]:
+    """Return the latest hash-verified review receipt for each component."""
+    latest = {}
+    for receipt_path in run_root.glob("component-reviews/*/attempt-*/receipt.json"):
+        receipt = _read_json(receipt_path)
+        if not receipt or receipt.get("status") != "completed" or not receipt.get("component_id"):
+            continue
+        artifact = (receipt.get("artifacts") or {}).get("three-quarter.png") or {}
+        render = run_root.parent.parent / str(artifact.get("path") or "")
+        try: data = render.read_bytes()
+        except OSError: continue
+        if len(data) != artifact.get("bytes") or hashlib.sha256(data).hexdigest() != artifact.get("sha256"):
+            continue
+        prior = latest.get(receipt["component_id"])
+        if prior is None or (receipt.get("completed_at") or "") > (prior.get("completed_at") or ""):
+            latest[receipt["component_id"]] = {**receipt, "render": render}
+    return sorted(latest.values(), key=lambda item: item["component_id"])
+
 def build_dashboard(run_root: Path) -> dict:
     """Refresh GIFs and a self-contained HTML dashboard from completed attempts."""
     output = run_root / "observability"
@@ -632,6 +650,15 @@ def build_dashboard(run_root: Path) -> dict:
                             f'alt="{asset_id} frozen reference">' if reference else "<p>Frozen reference unavailable.</p>")
         visual = f'<h3>Last four developments</h3><img src="{gif["path"]}?sha={gif["sha256"]}" alt="{asset_id} last four completed developments">' if gif else "<p>No completed render revisions yet.</p>"
         cards.append(f'<section><h2>{html.escape(asset_id.title())}</h2>{reference_visual}{visual}<ol>{rows}</ol></section>')
+    component_reviews = completed_component_reviews(run_root)
+    component_cards = []
+    for item in component_reviews:
+        destination = output / f'component-{item["component_id"]}.png'
+        destination.write_bytes(item["render"].read_bytes())
+        review = item["review"]; scores = review["scores"]
+        score_rows = "".join(f"<li>{html.escape(key.replace('_',' '))}: {value:.0f}</li>" for key,value in scores.items())
+        defect_rows = "".join(f"<li>{html.escape(value)}</li>" for value in review["blocking_defects"][:3])
+        component_cards.append(f'<section><h3>{html.escape(item["component_id"])}</h3><img src="{destination.name}?sha={item["artifacts"]["three-quarter.png"]["sha256"]}" alt="{html.escape(item["component_id"])} diagnostic render"><p><b>Decision:</b> {html.escape(review["decision"])}</p><ul>{score_rows}</ul><b>Top blockers</b><ul>{defect_rows}</ul></section>')
     generated = generated_at.isoformat()
     patches = telemetry["patches_last_5m"]
     patch_rows = "".join(f"<tr><td>{html.escape(str(item['job_type']))}</td><td>{html.escape(str(item['status']))}</td><td>{item['attempt']}</td><td>{len(item['output_hashes'])}</td><td>{html.escape(str(item.get('completed_at') or 'unavailable'))}</td></tr>" for item in patches)
@@ -649,9 +676,10 @@ def build_dashboard(run_root: Path) -> dict:
     chart_html = f'<section><h2>Artwork convergence</h2><img src="{chart["path"]}?sha={chart["sha256"]}" alt="reference convergence graph"><p class="muted">Weighted rubric: silhouette 30%, proportions 25%, component geometry 20%, material identity 10%, detail readability 10%, fit 5%.</p></section>' if chart else '<section><h2>Artwork convergence</h2><p>Awaiting the first reference evaluation.</p></section>'
     spend_chart_html = f'<section><h2>Dollar spend and efficiency</h2><img src="{spend_chart["path"]}?sha={spend_chart["sha256"]}" alt="dollar spend and accepted quality gain graph"></section>' if spend_chart else '<section><h2>Dollar spend and efficiency</h2><p>Awaiting measured, priced model usage.</p></section>'
     spend = telemetry["spend"]
-    page = """<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="300"><meta name="viewport" content="width=device-width"><title>Asset production progress</title><style>body{margin:0;background:#07111f;color:#e5eefb;font:15px system-ui;padding:24px}main{max-width:1200px;margin:auto}.grid,.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}section,.metric{background:#111c2d;padding:16px;border-radius:12px;margin:18px 0}img{width:100%;border-radius:8px;background:#030712}small,.muted{color:#9fb1c8}li{margin:.4em 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #26364d}.bad{color:#fda4af}.good{color:#86efac}</style></head><body><main><h1>Cloud asset production progress</h1><small>Run """ + html.escape(run_root.name) + " · generated " + html.escape(generated) + " · refreshes every 5 minutes</small><div class=\"metrics\"><div class=\"metric\"><b>Measured API spend</b><br>$" + f'{spend["measured_model_cost_usd"]:.4f}' + "</div><div class=\"metric\"><b>Accepted gain / $</b><br>" + str(efficiency["accepted_quality_gain_per_usd"] if efficiency["accepted_quality_gain_per_usd"] is not None else "unavailable") + "</div><div class=\"metric\"><b>Attempts</b><br>" + str(attempts["completed"]) + " completed / " + str(attempts["failed"]) + " failed</div><div class=\"metric\"><b>Open blockers</b><br><span class=\"bad\">" + str(quality["blocking_open"]) + "</span></div><div class=\"metric\"><b>Quality gain / compute minute</b><br>" + str(efficiency["quality_gain_per_compute_minute"] if efficiency["quality_gain_per_compute_minute"] is not None else "unavailable") + "</div></div>" + spend_chart_html + chart_html + "<section><h2>Asset patches in the last 5 minutes</h2><table><thead><tr><th>Lane</th><th>Status</th><th>Attempt</th><th>Output hashes</th><th>Completed</th></tr></thead><tbody>" + patch_rows + "</tbody></table></section><section><h2>Measured model spend</h2><table><thead><tr><th>Model</th><th>Provenance</th><th>Requests</th><th>Uncached input USD</th><th>Cached input USD</th><th>Output USD</th><th>Total USD</th></tr></thead><tbody>" + model_rows + "</tbody></table><p class=\"muted\">Each dollar amount is calculated from recorded usage and that model's published rates at the time of the call. Raw usage counts remain in the machine-readable manifest for auditability. Blender scripts use compute time and zero model calls. Models with unavailable task usage remain unpriced rather than counted as free.</p></section><h2>Last four completed developments</h2><div class=\"grid\">" + "".join(cards) + "</div></main></body></html>"
+    page = """<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="300"><meta name="viewport" content="width=device-width"><title>Asset production progress</title><style>body{margin:0;background:#07111f;color:#e5eefb;font:15px system-ui;padding:24px}main{max-width:1200px;margin:auto}.grid,.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}section,.metric{background:#111c2d;padding:16px;border-radius:12px;margin:18px 0}img{width:100%;border-radius:8px;background:#030712}small,.muted{color:#9fb1c8}li{margin:.4em 0}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #26364d}.bad{color:#fda4af}.good{color:#86efac}</style></head><body><main><h1>Cloud asset production progress</h1><small>Run """ + html.escape(run_root.name) + " · generated " + html.escape(generated) + " · refreshes every 5 minutes</small><div class=\"metrics\"><div class=\"metric\"><b>Measured API spend</b><br>$" + f'{spend["measured_model_cost_usd"]:.4f}' + "</div><div class=\"metric\"><b>Accepted gain / $</b><br>" + str(efficiency["accepted_quality_gain_per_usd"] if efficiency["accepted_quality_gain_per_usd"] is not None else "unavailable") + "</div><div class=\"metric\"><b>Attempts</b><br>" + str(attempts["completed"]) + " completed / " + str(attempts["failed"]) + " failed</div><div class=\"metric\"><b>Open blockers</b><br><span class=\"bad\">" + str(quality["blocking_open"]) + "</span></div><div class=\"metric\"><b>Quality gain / compute minute</b><br>" + str(efficiency["quality_gain_per_compute_minute"] if efficiency["quality_gain_per_compute_minute"] is not None else "unavailable") + "</div></div>" + spend_chart_html + chart_html + "<section><h2>Asset patches in the last 5 minutes</h2><table><thead><tr><th>Lane</th><th>Status</th><th>Attempt</th><th>Output hashes</th><th>Completed</th></tr></thead><tbody>" + patch_rows + "</tbody></table></section><section><h2>Measured model spend</h2><table><thead><tr><th>Model</th><th>Provenance</th><th>Requests</th><th>Uncached input USD</th><th>Cached input USD</th><th>Output USD</th><th>Total USD</th></tr></thead><tbody>" + model_rows + "</tbody></table><p class=\"muted\">Each dollar amount is calculated from recorded usage and that model's published rates at the time of the call. Raw usage counts remain in the machine-readable manifest for auditability. Blender scripts use compute time and zero model calls. Models with unavailable task usage remain unpriced rather than counted as free.</p></section><h2>Component quality gate</h2><div class=\"grid\">" + "".join(component_cards) + "</div><h2>Last four completed developments</h2><div class=\"grid\">" + "".join(cards) + "</div></main></body></html>"
     (output / "index.html").write_text(page, encoding="utf-8")
-    manifest = {"format": "myth-maker.asset-progress-dashboard/v2", "run_id": run_root.name, "generated_at": generated, "refresh_seconds": 300, "telemetry": telemetry, "assets": assets}
+    manifest = {"format": "myth-maker.asset-progress-dashboard/v2", "run_id": run_root.name, "generated_at": generated, "refresh_seconds": 300, "telemetry": telemetry, "assets": assets,
+                "component_reviews": [{k:v for k,v in item.items() if k != "render"} for item in component_reviews]}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return manifest
 
