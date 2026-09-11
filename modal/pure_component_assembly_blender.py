@@ -24,6 +24,8 @@ def main():
         o=bpy.context.view_layer.objects.active; o.name=item['component_id']; o.parent=None
         world=o.matrix_world.copy(); o.data.transform(world); o.matrix_world.identity(); bpy.context.view_layer.update()
         dims=Vector(item['dimensions']); current=o.dimensions; o.scale=tuple(dims[i]/current[i] if current[i] else 1 for i in range(3)); bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
+        if job.get('output_mode') == 'review-preview' and len(o.data.polygons) > 60000:
+            modifier=o.modifiers.new('bounded-review-proxy','DECIMATE'); modifier.ratio=max(60000/len(o.data.polygons),0.02); bpy.context.view_layer.objects.active=o; bpy.ops.object.modifier_apply(modifier=modifier.name)
         o.location=item['location']; o.rotation_euler=[math.radians(x) for x in item['rotation_degrees']]; o.data.materials.clear(); o.data.materials.append(mats[item['material']]); o.parent=root
         o['source_sha256']=item['artifact']['sha256']; o['component_id']=item['component_id']; manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False})
         if item['mirror_x']:
