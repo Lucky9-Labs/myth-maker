@@ -415,7 +415,7 @@ def run_agentic_stitch_job(job: dict) -> dict:
         from openai import OpenAI
         volume.reload()
         receipt = run_agentic_stitch(
-            checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender", OpenAI()
+            checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender", OpenAI(), checkpoint=volume.commit
         )
         volume.commit()
         return receipt
