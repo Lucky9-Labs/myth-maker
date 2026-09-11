@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          modal app stop myth-maker-encounter-draft --env dev
+          modal app stop myth-maker-encounter-draft --env dev --yes
           python3 - <<'PY'
           import json, os, subprocess
           apps=json.loads(subprocess.run(
