@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 
 import bpy
+import bmesh
 from mathutils import Vector
 
 
@@ -40,7 +41,12 @@ def point_aabb_distance(point, obj):
 
 
 def mesh_is_manifold(obj):
-    return all(edge.is_manifold for edge in obj.data.edges)
+    mesh = bmesh.new()
+    try:
+        mesh.from_mesh(obj.data)
+        return all(edge.is_manifold for edge in mesh.edges)
+    finally:
+        mesh.free()
 
 
 def cylinder_between(name, start, end, radius, mat, parent, connection_id):
