@@ -16,7 +16,11 @@ def main():
     tail = __import__('sys').argv[__import__('sys').argv.index('--') + 1:]
     p = argparse.ArgumentParser(); p.add_argument('--input', required=True); p.add_argument('--output', required=True)
     p.add_argument('--component-id', required=True); p.add_argument('--merge-distance-ratio', type=float, required=True)
-    p.add_argument('--decimate-ratio', type=float, required=True); a = p.parse_args(tail)
+    p.add_argument('--decimate-ratio', type=float, required=True)
+    p.add_argument('--smooth-factor', type=float, required=True); p.add_argument('--smooth-iterations', type=int, required=True)
+    p.add_argument('--max-smooth-displacement-ratio', type=float, required=True)
+    p.add_argument('--lower-trim-ratio', type=float, required=True); p.add_argument('--seat-band-ratio', type=float, required=True)
+    a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=a.input)
@@ -44,6 +48,35 @@ def main():
     bpy.ops.object.mode_set(mode='OBJECT')
     working = bmesh.new(); working.from_mesh(obj.data)
     bmesh.ops.recalc_face_normals(working, faces=working.faces); working.to_mesh(obj.data); working.free()
+    seat_vertices = 0
+    if a.smooth_iterations and a.smooth_factor:
+        working = bmesh.new(); working.from_mesh(obj.data); working.verts.ensure_lookup_table()
+        z_min = min(v.co.z for v in working.verts); cutoff = z_min + longest * a.lower_trim_ratio
+        boundary = {v for edge in working.edges if not edge.is_manifold for v in edge.verts}
+        selected = [v for v in working.verts if v.co.z > cutoff + longest * a.seat_band_ratio and v not in boundary]
+        original = {v: v.co.copy() for v in selected}; limit = longest * a.max_smooth_displacement_ratio
+        for _ in range(a.smooth_iterations):
+            bmesh.ops.smooth_vert(working, verts=selected, factor=a.smooth_factor,
+                                  use_axis_x=True, use_axis_y=True, use_axis_z=True)
+        for vert, start in original.items():
+            delta = vert.co - start
+            if delta.length > limit and delta.length:
+                vert.co = start + delta.normalized() * limit
+        working.to_mesh(obj.data); working.free()
+    if a.lower_trim_ratio:
+        working = bmesh.new(); working.from_mesh(obj.data)
+        z_min = min(v.co.z for v in working.verts); plane_z = z_min + longest * a.lower_trim_ratio
+        result = bmesh.ops.bisect_plane(working, geom=list(working.verts)+list(working.edges)+list(working.faces),
+                                       dist=max(longest * 1e-7, 1e-9), plane_co=(0, 0, plane_z),
+                                       plane_no=(0, 0, 1), clear_inner=True, clear_outer=False)
+        cut_edges = [g for g in result.get('geom_cut', []) if isinstance(g, bmesh.types.BMEdge)]
+        if cut_edges:
+            bmesh.ops.holes_fill(working, edges=cut_edges, sides=0)
+        working.to_mesh(obj.data); working.free(); obj.data.update()
+        group = obj.vertex_groups.get('canopy-frame-seat') or obj.vertex_groups.new(name='canopy-frame-seat')
+        indices = [v.index for v in obj.data.vertices if abs(v.co.z-plane_z) <= longest * max(a.seat_band_ratio, 1e-6)]
+        if indices: group.add(indices, 1.0, 'REPLACE')
+        seat_vertices = len(indices)
     if a.decimate_ratio < 1:
         modifier = obj.modifiers.new('bounded-component-decimate', 'DECIMATE'); modifier.ratio = a.decimate_ratio
         modifier.use_collapse_triangulate = True; bpy.ops.object.modifier_apply(modifier=modifier.name)
@@ -54,7 +87,8 @@ def main():
     bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True); bpy.context.view_layer.objects.active = obj
     bpy.ops.export_scene.gltf(filepath=str(out / 'cleaned.glb'), export_format='GLB', use_selection=True,
                               export_apply=True, export_animations=False)
-    (out / 'cleanup-stats.json').write_text(json.dumps({'before': before, 'after': after}, indent=2, sort_keys=True)+'\n')
+    (out / 'cleanup-stats.json').write_text(json.dumps({'before': before, 'after': after,
+        'seat_vertex_group':'canopy-frame-seat' if seat_vertices else None,'seat_vertices':seat_vertices}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()
