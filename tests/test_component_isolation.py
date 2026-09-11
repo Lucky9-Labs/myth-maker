@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys, unittest
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from component_isolation import FORMAT, MODEL, validate_component_isolation_job
+from component_isolation import FORMAT, MODEL, _view_instruction, validate_component_isolation_job
 
 def job():
     return {"format": FORMAT, "run_id": "pilot-001", "work_id": "canopy-isolation-v1",
@@ -28,5 +28,11 @@ class ComponentIsolationTests(unittest.TestCase):
     def test_rejects_unknown_view_mode(self):
         with self.assertRaisesRegex(ValueError, "view mode"):
             validate_component_isolation_job({**job(), "view_mode": "turntable-video"})
+
+    def test_multiview_prompt_forbids_cross_view_topology_drift(self):
+        instruction = _view_instruction(True)
+        self.assertIn("Topology must agree across all four views", instruction)
+        self.assertIn("closed hub must remain solid", instruction)
+        self.assertIn("Never turn a dark inset, lens, bearing face, or shadow into an opening", instruction)
 
 if __name__ == "__main__": unittest.main()
