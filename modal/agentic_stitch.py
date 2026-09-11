@@ -81,6 +81,10 @@ def _name(value: object) -> bool:
     return isinstance(value, str) and bool(NAME.fullmatch(value))
 
 
+def _interface_description(value: object) -> bool:
+    return isinstance(value, str) and 1 <= len(value.strip()) <= 500
+
+
 def _artifact(value: object) -> bool:
     return (
         isinstance(value, dict)
@@ -204,8 +208,8 @@ def _validate_plan(plan: object, component_ids: set[str]) -> None:
             or source not in component_ids
             or target not in component_ids
             or source == target
-            or not _name(connection.get("from_interface"))
-            or not _name(connection.get("to_interface"))
+            or not _interface_description(connection.get("from_interface"))
+            or not _interface_description(connection.get("to_interface"))
             or not _vector(connection.get("from_anchor_local_m"), minimum=-20.0, maximum=20.0)
             or not _vector(connection.get("to_anchor_local_m"), minimum=-20.0, maximum=20.0)
             or connection.get("method") not in STITCH_METHODS

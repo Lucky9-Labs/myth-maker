@@ -140,6 +140,14 @@ class Tests(unittest.TestCase):
         closed = close(value)
         self.assertEqual(closed["global_plan"], value["_test_plan"])
 
+    def test_allows_descriptive_mesh_interface_selectors(self):
+        value = job()
+        value["_test_plan"]["connections"][0]["from_interface"] = (
+            "Complete cockpit-mouth perimeter, including crown, jambs, and sill."
+        )
+        self.assertEqual(close(value)["global_plan"]["connections"][0]["from_interface"],
+                         value["_test_plan"]["connections"][0]["from_interface"])
+
     def test_accepts_hash_locked_planning_request(self):
         self.assertEqual(validate_agentic_stitch_job(request()), request())
 
