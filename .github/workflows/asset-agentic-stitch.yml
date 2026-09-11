@@ -32,6 +32,7 @@ jobs:
           JOB: ${{ inputs.job }}
         run: python3 scripts/run_agentic_stitch.py --environment dev --job-json "$JOB" --output receipts/agentic-stitch.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: agentic-stitch-${{ github.run_id }}
           path: receipts/agentic-stitch.json

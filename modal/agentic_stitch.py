@@ -44,33 +44,33 @@ PLAN_SCHEMA = {
         "placements": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["component_id", "initial_transform", "max_translation_m"], "properties": {
             "component_id": {"type": "string"},
             "initial_transform": {"type": "object", "additionalProperties": False, "required": ["location_m", "rotation_degrees", "scale"], "properties": {
-                "location_m": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
-                "rotation_degrees": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
-                "scale": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+                "location_m": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3},
+                "rotation_degrees": {"type": "array", "items": {"type": "number", "minimum": -360, "maximum": 360}, "minItems": 3, "maxItems": 3},
+                "scale": {"type": "array", "items": {"type": "number", "minimum": 0.05, "maximum": 20}, "minItems": 3, "maxItems": 3},
             }},
-            "max_translation_m": {"type": "number"},
+            "max_translation_m": {"type": "number", "minimum": 0, "maximum": 5},
         }}},
         "sections": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["section_id", "component_ids", "target_role"], "properties": {
             "section_id": {"type": "string"}, "component_ids": {"type": "array", "items": {"type": "string"}}, "target_role": {"type": "string"},
         }}},
         "connections": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["connection_id", "from_component", "from_interface", "from_anchor_local_m", "to_component", "to_interface", "to_anchor_local_m", "method", "connector", "max_gap_m"], "properties": {
             "connection_id": {"type": "string"}, "from_component": {"type": "string"}, "from_interface": {"type": "string"},
-            "from_anchor_local_m": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "from_anchor_local_m": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3},
             "to_component": {"type": "string"}, "to_interface": {"type": "string"},
-            "to_anchor_local_m": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "to_anchor_local_m": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3},
             "method": {"type": "string", "enum": sorted(STITCH_METHODS)},
             "connector": {"type": "object", "additionalProperties": False, "required": ["radius_m", "collar_length_m", "clearance_m"], "properties": {
-                "radius_m": {"type": "number"}, "collar_length_m": {"type": "number"}, "clearance_m": {"type": "number"},
-            }}, "max_gap_m": {"type": "number"},
+                "radius_m": {"type": "number", "minimum": 0.001, "maximum": 2}, "collar_length_m": {"type": "number", "minimum": 0, "maximum": 2}, "clearance_m": {"type": "number", "minimum": 0, "maximum": 0.1},
+            }}, "max_gap_m": {"type": "number", "minimum": 0, "maximum": 0.01},
         }}},
         "operations": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["operation_id", "order", "operation", "section_id", "connection_ids", "instructions"], "properties": {
             "operation_id": {"type": "string"}, "order": {"type": "integer"}, "operation": {"type": "string", "enum": sorted(OPERATION_TYPES)},
             "section_id": {"type": "string"}, "connection_ids": {"type": "array", "items": {"type": "string"}}, "instructions": {"type": "string"},
         }}},
         "acceptance": {"type": "object", "additionalProperties": False, "required": ["required_connection_ids", "max_unresolved_connections", "max_surface_gap_m", "require_single_connected_body", "require_manifold_required_seams", "require_articulation_clearance"], "properties": {
-            "required_connection_ids": {"type": "array", "items": {"type": "string"}}, "max_unresolved_connections": {"type": "integer"},
-            "max_surface_gap_m": {"type": "number"}, "require_single_connected_body": {"type": "boolean"},
-            "require_manifold_required_seams": {"type": "boolean"}, "require_articulation_clearance": {"type": "boolean"},
+            "required_connection_ids": {"type": "array", "items": {"type": "string"}}, "max_unresolved_connections": {"type": "integer", "const": 0},
+            "max_surface_gap_m": {"type": "number", "minimum": 0, "maximum": 0.01}, "require_single_connected_body": {"type": "boolean", "const": True},
+            "require_manifold_required_seams": {"type": "boolean", "const": True}, "require_articulation_clearance": {"type": "boolean", "const": True},
         }},
     },
 }
@@ -484,10 +484,25 @@ def run_agentic_stitch(job: dict, submissions_root: Path, blender_path: str, cli
         return failure
     plan = json.loads(response.output_text)
     plan["author"] = {"model": checked["model"], "request_id": response.id}
-    execution = close_agentic_stitch_job(
-        run_id=checked["run_id"], work_id=checked["work_id"], attempt=checked["attempt"],
-        components=checked["components"], retired_sha256=checked["retired_sha256"], global_plan=plan,
-    )
+    try:
+        execution = close_agentic_stitch_job(
+            run_id=checked["run_id"], work_id=checked["work_id"], attempt=checked["attempt"],
+            components=checked["components"], retired_sha256=checked["retired_sha256"], global_plan=plan,
+        )
+    except ValueError as error:
+        usage = response.usage.model_dump() if response.usage else None
+        (root / "rejected-plan.json").write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
+        failure = {
+            "format": "myth-maker.agentic-stitch-failure/v1", "status": "failed",
+            "stage": "plan-validation", "reason": str(error),
+            "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
+            "provider": {"name": "openai", "model": checked["model"], "request_id": response.id},
+            "model_usage": {"provenance": "measured" if usage else "unavailable", "input_tokens": (usage or {}).get("input_tokens"), "cached_input_tokens": ((usage or {}).get("input_tokens_details") or {}).get("cached_tokens"), "output_tokens": (usage or {}).get("output_tokens")},
+            "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
+            "duration_ms": round((time.monotonic() - clock) * 1000),
+        }
+        (root / "failure.json").write_text(json.dumps(failure, indent=2, sort_keys=True) + "\n")
+        return failure
     (root / "plan.json").write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
     (root / "execution.json").write_text(json.dumps(execution, indent=2, sort_keys=True) + "\n")
 
