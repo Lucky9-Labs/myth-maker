@@ -29,6 +29,11 @@ on:
         required: false
         default: ''
         type: string
+      assembly_correction_spec:
+        description: Validated geometry-correction JSON applied after Worker D fan-in
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -60,6 +65,7 @@ jobs:
           CORRECTION_SPEC: ${{ inputs.correction_spec }}
           CORRECTION_SPECS: ${{ inputs.correction_specs }}
           EXTRA_INPUTS: ${{ inputs.extra_inputs }}
+          ASSEMBLY_CORRECTION_SPEC: ${{ inputs.assembly_correction_spec }}
         run: |
           set -euo pipefail
           python3 scripts/run_asset_correction_wave.py \

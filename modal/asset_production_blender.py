@@ -497,6 +497,46 @@ def _import_component_glb(command: dict, inputs: Path, owner) -> None:
         obj["attachment_fit_max_displacement"] = displacement
 
 
+def _resolve_unique_mesh(name: str):
+    exact = bpy.data.objects.get(name)
+    if exact is not None and exact.type == "MESH":
+        return exact
+    candidates = [obj for obj in bpy.data.objects if obj.type == "MESH" and
+                  (obj.name.startswith(name + ".") or obj.name.startswith(name + "-"))]
+    if len(candidates) != 1:
+        raise RuntimeError(f"assembly mesh name is unavailable or ambiguous: {name} ({len(candidates)} matches)")
+    return candidates[0]
+
+
+def _fit_attachment_band(command: dict) -> None:
+    """Fit an already assembled component's lower band to its receiving mesh."""
+    obj = _resolve_unique_mesh(command["name"])
+    target = _resolve_unique_mesh(command["target"])
+    bpy.context.view_layer.update()
+    local_min = min(vertex.co.z for vertex in obj.data.vertices)
+    band = max(obj.dimensions) * command["band_ratio"]
+    indices = [vertex.index for vertex in obj.data.vertices if vertex.co.z <= local_min + band]
+    if not indices:
+        raise RuntimeError("assembly attachment fit found no band vertices")
+    group = obj.vertex_groups.get("assembly-attachment-seat") or obj.vertex_groups.new(name="assembly-attachment-seat")
+    group.add(indices, 1.0, "REPLACE")
+    before = {index: obj.data.vertices[index].co.copy() for index in indices}
+    modifier = obj.modifiers.new("bounded-assembly-attachment-fit", "SHRINKWRAP")
+    modifier.wrap_method = "NEAREST_SURFACEPOINT"
+    modifier.target = target
+    modifier.vertex_group = group.name
+    modifier.offset = command["offset"]
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    limit = max(obj.dimensions) * command["max_displacement_ratio"]
+    displacement = max((obj.data.vertices[index].co - before[index]).length for index in indices)
+    if displacement > limit:
+        raise RuntimeError(f"assembly attachment fit exceeded displacement limit: {displacement:.6f} > {limit:.6f}")
+    obj["attachment_fit_target"] = target.name
+    obj["attachment_fit_vertices"] = len(indices)
+    obj["attachment_fit_max_displacement"] = displacement
+
+
 def apply_parameterized_correction(spec: dict, inputs: Path) -> int:
     """Execute a control-plane validated, lane-local geometry patch."""
     ensure_materials(); changed = 0
@@ -506,6 +546,10 @@ def apply_parameterized_correction(spec: dict, inputs: Path) -> int:
             raise RuntimeError("parameterized correction owner is unavailable: " + command.get("owner", ""))
         if command["op"] == "import-component-glb":
             _import_component_glb(command, inputs, owner)
+        elif command["op"] == "fit-attachment-band":
+            _fit_attachment_band(command)
+            changed += 1
+            continue
         elif command["op"] == "normalize-materials":
             normalized = 0
             for target in bpy.context.scene.objects:
