@@ -73,7 +73,7 @@ def _view_instruction(multiview: bool) -> str:
         return "Show exactly one complete component, centered, fully visible, in a neutral three-quarter orthographic product view. "
     return (
         "Create a precise 2 by 2 orthographic turnaround sheet. Put the front view in the upper-left, left view in the upper-right, "
-        "back view in the lower-left, and top view in the lower-right. Show the exact same rigid object, scale, dimensions, panel boundaries, "
+        "back view in the lower-left, and right view in the lower-right. Show the exact same rigid object, scale, dimensions, panel boundaries, "
         "thicknesses, openings, and attachment interfaces in every view. Topology must agree across all four views: a recess must remain "
         "a recess, a closed hub must remain solid and visibly capped, and a through-hole may appear only when the description explicitly "
         "requests one. Never turn a dark inset, lens, bearing face, or shadow into an opening. Make every required attachment surface visibly "
@@ -127,7 +127,7 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
             boxes = {"front": (0, 0, sheet.width // 2, sheet.height // 2),
                      "left": (sheet.width // 2, 0, sheet.width, sheet.height // 2),
                      "back": (0, sheet.height // 2, sheet.width // 2, sheet.height),
-                     "top": (sheet.width // 2, sheet.height // 2, sheet.width, sheet.height)}
+                     "right": (sheet.width // 2, sheet.height // 2, sheet.width, sheet.height)}
             for view, box in boxes.items():
                 path = root / f"{view}.png"; sheet.crop(box).save(path, format="PNG")
                 view_data = path.read_bytes()

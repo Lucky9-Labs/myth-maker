@@ -34,5 +34,7 @@ class ComponentIsolationTests(unittest.TestCase):
         self.assertIn("Topology must agree across all four views", instruction)
         self.assertIn("closed hub must remain solid", instruction)
         self.assertIn("Never turn a dark inset, lens, bearing face, or shadow into an opening", instruction)
+        self.assertIn("right view in the lower-right", instruction)
+        self.assertNotIn("top view", instruction)
 
 if __name__ == "__main__": unittest.main()
