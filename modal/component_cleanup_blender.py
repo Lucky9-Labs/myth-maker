@@ -21,6 +21,7 @@ def main():
     p.add_argument('--max-smooth-displacement-ratio', type=float, required=True)
     p.add_argument('--lower-trim-ratio', type=float, required=True); p.add_argument('--seat-band-ratio', type=float, required=True)
     p.add_argument('--salvage-bounds')
+    p.add_argument('--mechanical-patch')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -98,17 +99,44 @@ def main():
     if a.decimate_ratio < 1:
         modifier = obj.modifiers.new('bounded-component-decimate', 'DECIMATE'); modifier.ratio = a.decimate_ratio
         modifier.use_collapse_triangulate = True; bpy.ops.object.modifier_apply(modifier=modifier.name)
+    patch_objects = []
+    if a.mechanical_patch:
+        patch = json.loads(a.mechanical_patch)
+        minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        maximum = [max((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        extent = [maximum[i] - minimum[i] for i in range(3)]; center = [(minimum[i] + maximum[i]) / 2 for i in range(3)]
+        axis_index = 0 if patch['hub_axis'] == 'x' else 1
+        radial = min(extent[(axis_index + 1) % 2], extent[2]) * patch['hub_radius_ratio']
+        depth = extent[axis_index] * patch['hub_depth_ratio']
+        hub_location = center[:]
+        hub_location[axis_index] = minimum[axis_index] + depth / 2 if patch['hub_side'] == 'negative' else maximum[axis_index] - depth / 2
+        bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=radial, depth=depth, location=hub_location,
+                                            rotation=(0, 1.57079632679, 0) if axis_index == 0 else (1.57079632679, 0, 0))
+        hub = bpy.context.object; hub.name = a.component_id + '-closed-hub'; patch_objects.append(hub)
+        seat_thickness = extent[2] * patch['seat_thickness_ratio']
+        for label, z in (("upper-seat", maximum[2] + seat_thickness / 2), ("lower-seat", minimum[2] - seat_thickness / 2)):
+            bpy.ops.mesh.primitive_cube_add(location=(center[0], center[1], z)); seat = bpy.context.object
+            seat.name = a.component_id + '-' + label
+            seat.dimensions = (extent[0] * patch['seat_width_ratio'], extent[1] * patch['seat_depth_ratio'], seat_thickness)
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            if patch['bevel_ratio']:
+                bevel = seat.modifiers.new('bounded-seat-bevel', 'BEVEL'); bevel.width = max(extent) * patch['bevel_ratio']; bevel.segments = 2
+                bpy.context.view_layer.objects.active = seat; bpy.ops.object.modifier_apply(modifier=bevel.name)
+            patch_objects.append(seat)
     # Blender 4+ exposes normals through mesh validation after edit operations.
     obj.data.validate(verbose=False); obj.data.update()
     after = mesh_stats(obj)
     bpy.ops.wm.save_as_mainfile(filepath=str(out / 'cleaned.blend'), check_existing=False)
-    bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True); bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT'); obj.select_set(True)
+    for patch_obj in patch_objects: patch_obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
     bpy.ops.export_scene.gltf(filepath=str(out / 'cleaned.glb'), export_format='GLB', use_selection=True,
                               export_apply=True, export_animations=False)
     (out / 'cleanup-stats.json').write_text(json.dumps({'before': before, 'after': after,
         'seat_vertex_group':'canopy-frame-seat' if seat_vertices else None,'seat_vertices':seat_vertices,
         'salvage_bounds':json.loads(a.salvage_bounds) if a.salvage_bounds else None,
-        'salvage_removed_vertices':salvage_removed_vertices}, indent=2, sort_keys=True)+'\n')
+        'salvage_removed_vertices':salvage_removed_vertices,
+        'mechanical_patch_objects':[item.name for item in patch_objects]}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()

@@ -27,7 +27,8 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "candidate", "source_review", "merge_distance_ratio", "decimate_ratio",
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
-    if not isinstance(value, dict) or set(value) not in (required, required | {"salvage_bounds"}):
+    optional = {"salvage_bounds", "mechanical_patch"}
+    if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
         raise ValueError("component cleanup job has unsupported format or asset")
@@ -45,8 +46,9 @@ def validate_component_cleanup_job(value: dict) -> dict:
             or review["decision"] not in {"clean", "ready-to-stitch", "regenerate"}):
         raise ValueError("component cleanup requires a matching Astra review")
     bounds = value.get("salvage_bounds")
-    if review["decision"] == "regenerate" and bounds is None:
-        raise ValueError("regenerate review cleanup requires bounded salvage")
+    patch = value.get("mechanical_patch")
+    if review["decision"] == "regenerate" and bounds is None and patch is None:
+        raise ValueError("regenerate review cleanup requires bounded salvage or mechanical patch")
     if bounds is not None:
         if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
             raise ValueError("component salvage bounds are invalid")
@@ -56,6 +58,20 @@ def validate_component_cleanup_job(value: dict) -> dict:
                     or not 0 <= interval[0] < interval[1] <= 1
                     or interval[1] - interval[0] < 0.1):
                 raise ValueError("component salvage bounds are invalid")
+    if patch is not None:
+        patch_keys = {"type", "hub_axis", "hub_side", "hub_radius_ratio", "hub_depth_ratio",
+                      "seat_width_ratio", "seat_depth_ratio", "seat_thickness_ratio", "bevel_ratio"}
+        if not isinstance(patch, dict) or set(patch) != patch_keys or patch.get("type") != "capped-hub-seats":
+            raise ValueError("component mechanical patch is invalid")
+        if patch.get("hub_axis") not in {"x", "y"} or patch.get("hub_side") not in {"negative", "positive"}:
+            raise ValueError("component mechanical patch orientation is invalid")
+        ranges = {"hub_radius_ratio": (0.1, 0.45), "hub_depth_ratio": (0.02, 0.25),
+                  "seat_width_ratio": (0.2, 0.9), "seat_depth_ratio": (0.2, 0.9),
+                  "seat_thickness_ratio": (0.02, 0.2), "bevel_ratio": (0, 0.05)}
+        for key, (low, high) in ranges.items():
+            number = patch.get(key)
+            if not isinstance(number, (int, float)) or isinstance(number, bool) or not low <= number <= high:
+                raise ValueError("component mechanical patch parameters are invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -103,6 +119,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                "--seat-band-ratio", str(checked["seat_band_ratio"])]
     if "salvage_bounds" in checked:
         command += ["--salvage-bounds", json.dumps(checked["salvage_bounds"], separators=(",", ":"))]
+    if "mechanical_patch" in checked:
+        command += ["--mechanical-patch", json.dumps(checked["mechanical_patch"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -125,7 +143,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "max_smooth_displacement_ratio": checked["max_smooth_displacement_ratio"],
                               "lower_trim_ratio": checked["lower_trim_ratio"],
                               "seat_band_ratio": checked["seat_band_ratio"],
-                              "salvage_bounds": checked.get("salvage_bounds")},
+                              "salvage_bounds": checked.get("salvage_bounds"),
+                              "mechanical_patch": checked.get("mechanical_patch")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
