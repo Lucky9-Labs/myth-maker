@@ -10,7 +10,7 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         source = DRIVER.read_text()
         solve = source.index("for _ in range(24)")
         connect = source.index("connections = []")
-        render = source.index("def render(name, location)")
+        render = source.index("def render(name, direction)")
         self.assertLess(solve, connect)
         self.assertLess(connect, render)
         self.assertIn("bounded_location(source", source)
@@ -29,6 +29,19 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("'unresolved_connection_count': 0", source)
         self.assertIn("'all_required_connections_resolved'", source)
         self.assertIn("'topology_changed': bool(connections)", source)
+
+    def test_preserves_component_materials_and_measures_acceptance(self):
+        source = DRIVER.read_text()
+        self.assertNotIn("obj.data.materials.clear()", source)
+        self.assertIn("point_aabb_distance(start, source)", source)
+        self.assertIn("mesh_is_manifold(connector)", source)
+        self.assertIn("'single_connected_body': physically_connected", source)
+        self.assertIn("'manifold_required_seams': required_seams_manifold", source)
+
+    def test_review_camera_frames_generated_geometry(self):
+        source = DRIVER.read_text()
+        self.assertIn("points = [point for obj in visible for point in world_bounds(obj)]", source)
+        self.assertIn("camera_data.ortho_scale", source)
 
 
 if __name__ == "__main__":
