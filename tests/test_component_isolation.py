@@ -17,5 +17,8 @@ class ComponentIsolationTests(unittest.TestCase):
     def test_rejects_unbounded_quality(self):
         value = {**job(), "quality": "max"}
         with self.assertRaisesRegex(ValueError, "low or medium"): validate_component_isolation_job(value)
+    def test_accepts_hash_verified_hierarchical_source(self):
+        value={**job(),"source_artifact":{"path":"asset-production/pilot/torso.png","bytes":42,"sha256":"a"*64,"media_type":"image/png"}}
+        self.assertEqual(validate_component_isolation_job(value),value)
 
 if __name__ == "__main__": unittest.main()
