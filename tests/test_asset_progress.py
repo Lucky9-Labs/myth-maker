@@ -73,6 +73,27 @@ class AssetProgressTests(unittest.TestCase):
             self.assertEqual(values["railgun"], [])
             self.assertEqual(len(completed_developments(root, limit=None)["mech"]), 5)
 
+    def test_connected_agentic_stitch_is_a_mech_development(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            attempt = root / "agentic-stitch" / "central-body" / "attempt-0003"
+            attempt.mkdir(parents=True)
+            render = attempt / "three-quarter.png"
+            Image.new("RGB", (32, 24), (20, 80, 110)).save(render)
+            data = render.read_bytes(); digest = hashlib.sha256(data).hexdigest()
+            receipt = {
+                "format": "myth-maker.agentic-stitch-receipt/v1", "status": "completed",
+                "work_id": "central-body", "attempt": 3,
+                "completed_at": "2026-09-11T00:03:00+00:00", "duration_ms": 123,
+                "component_hashes": {"torso": "a" * 64, "glass": "b" * 64},
+                "artifacts": {"three-quarter.png": {"bytes": len(data), "sha256": digest}},
+            }
+            (attempt / "receipt.json").write_text(json.dumps(receipt))
+            value = completed_developments(root)["mech"]
+            self.assertEqual(len(value), 1)
+            self.assertEqual(value[0]["job_type"], "agentic-stitch")
+            self.assertEqual(value[0]["review_protocol"], "agentic-connected-v1")
+
     def test_builds_animated_gif_manifest_and_five_minute_dashboard(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "run-one"
