@@ -20,6 +20,17 @@ class ComponentCleanupTests(unittest.TestCase):
     def test_accepts_regenerate_candidate_for_bounded_salvage(self):
         value=job(); value['source_review']['decision']='regenerate'; value['salvage_bounds']={'x':[0.2,0.8],'y':[0,1],'z':[0.05,0.95]}
         self.assertEqual(validate_component_cleanup_job(value),value)
+    def test_accepts_regenerate_candidate_for_bounded_mechanical_patch(self):
+        value=job(); value['source_review']['decision']='regenerate'
+        value['mechanical_patch']={'type':'capped-hub-seats','hub_axis':'y','hub_side':'negative',
+            'hub_radius_ratio':0.28,'hub_depth_ratio':0.12,'seat_width_ratio':0.55,
+            'seat_depth_ratio':0.5,'seat_thickness_ratio':0.08,'bevel_ratio':0.015}
+        self.assertEqual(validate_component_cleanup_job(value),value)
+    def test_rejects_unbounded_mechanical_patch(self):
+        value=job(); value['mechanical_patch']={'type':'capped-hub-seats','hub_axis':'z','hub_side':'negative',
+            'hub_radius_ratio':0.8,'hub_depth_ratio':0.12,'seat_width_ratio':0.55,
+            'seat_depth_ratio':0.5,'seat_thickness_ratio':0.08,'bevel_ratio':0.015}
+        with self.assertRaisesRegex(ValueError,'mechanical patch'): validate_component_cleanup_job(value)
     def test_rejects_invalid_salvage_bounds(self):
         value=job(); value['salvage_bounds']={'x':[0.8,0.2],'y':[0,1],'z':[0,1]}
         with self.assertRaisesRegex(ValueError,'salvage bounds'): validate_component_cleanup_job(value)
