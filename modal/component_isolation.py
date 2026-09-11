@@ -21,7 +21,7 @@ def validate_component_isolation_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
                 "model", "reference_polygon", "component_description", "material",
                 "symmetry", "attachment_surfaces", "quality"}
-    if not isinstance(value, dict) or set(value) != required:
+    if not isinstance(value, dict) or frozenset(value) not in {frozenset(required), frozenset(required | {"source_artifact"})}:
         raise ValueError("component isolation job has an invalid closed shape")
     if value["format"] != FORMAT or value["model"] != MODEL or value["asset_id"] not in {"mech", "railgun"}:
         raise ValueError("component isolation job has an unsupported format, model, or asset")
@@ -46,6 +46,14 @@ def validate_component_isolation_job(value: dict) -> dict:
         raise ValueError("component isolation attachment surfaces are invalid")
     if value["quality"] not in {"low", "medium"}:
         raise ValueError("component isolation quality must be low or medium")
+    if "source_artifact" in value:
+        artifact=value["source_artifact"]
+        if (not isinstance(artifact,dict) or set(artifact)!={"path","bytes","sha256","media_type"}
+                or artifact.get("media_type")!="image/png" or not isinstance(artifact.get("path"),str)
+                or Path(artifact["path"]).is_absolute() or ".." in Path(artifact["path"]).parts
+                or not isinstance(artifact.get("bytes"),int) or artifact["bytes"]<1
+                or not isinstance(artifact.get("sha256"),str) or not re.fullmatch(r"[a-f0-9]{64}",artifact["sha256"])):
+            raise ValueError("component isolation source artifact is invalid")
     return json.loads(json.dumps(value))
 
 
@@ -60,9 +68,14 @@ def _usage(response) -> dict:
 def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
     checked = validate_component_isolation_job(job)
     run_root = submissions_root / "asset-production" / checked["run_id"]
-    reference = run_root / "observability" / f'{checked["asset_id"]}-frozen-reference-preview.jpg'
+    reference = (submissions_root / checked["source_artifact"]["path"] if "source_artifact" in checked
+                 else run_root / "observability" / f'{checked["asset_id"]}-frozen-reference-preview.jpg')
     if not reference.is_file():
         raise ValueError("frozen asset reference is unavailable in the cloud run")
+    if "source_artifact" in checked:
+        data=reference.read_bytes(); artifact=checked["source_artifact"]
+        if len(data)!=artifact["bytes"] or hashlib.sha256(data).hexdigest()!=artifact["sha256"]:
+            raise ValueError("component isolation source artifact hash mismatch")
     root = run_root / "component-isolation" / checked["work_id"] / f'attempt-{checked["attempt"]:04d}'
     if root.exists():
         raise ValueError("component isolation attempt already exists")
