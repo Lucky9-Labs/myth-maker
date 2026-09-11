@@ -39,7 +39,9 @@ def _image(path,label):
 
 def _validate_result(value, component_id):
     required={"format","component_id","scores","blocking_defects","cleanup_actions","integration_guidance","decision"}
-    if not isinstance(value,dict) or set(value)!=required or value["format"]!="myth-maker.component-review/v1" or value["component_id"]!=component_id: raise ValueError("Astra component review has invalid shape")
+    if not isinstance(value,dict) or not required.issubset(value): raise ValueError("Astra component review omitted required fields")
+    value={key:value[key] for key in required}
+    value["format"]="myth-maker.component-review/v1"; value["component_id"]=component_id
     if set(value["scores"])!=set(CRITERIA) or any(not isinstance(v,(int,float)) or isinstance(v,bool) or not 0<=v<=100 for v in value["scores"].values()): raise ValueError("Astra component review scores are invalid")
     if value["decision"] not in {"clean","regenerate","ready-to-stitch"}: raise ValueError("Astra component decision is invalid")
     if not isinstance(value["blocking_defects"],list) or not isinstance(value["cleanup_actions"],list) or not isinstance(value["integration_guidance"],list): raise ValueError("Astra component guidance is invalid")
@@ -61,7 +63,7 @@ def run_component_review(job, submissions_root, blender, client):
       "Judge this isolated generated 3D component against its isolated design reference. Diagnose geometry before assembly. Return JSON only with format myth-maker.component-review/v1, component_id, scores for reference_fidelity, surface_coherence, part_completeness, attachment_readiness, articulation_readiness (0-100), blocking_defects, cleanup_actions, integration_guidance, and decision clean, regenerate, or ready-to-stitch. Cleanup actions must be bounded Blender operations with concrete parameters. Favor regenerate when the primary silhouette or topology is fundamentally wrong. Required attachment surfaces: "+", ".join(checked["attachment_surfaces"])+". Mesh stats: "+json.dumps(stats))}]
     content+=_image(reference,"ISOLATED DESIGN REFERENCE")
     for name in ("three-quarter","front","side"): content+=_image(root/f"renders/{name}.png",name.upper()+" GENERATED MESH")
-    response=client.responses.create(model=checked["model"],input=[{"role":"user","content":content}],reasoning={"effort":"high"},
+    response=client.responses.create(model=checked["model"],input=[{"role":"user","content":content}],reasoning={"effort":"medium"},
         text={"format":{"type":"json_schema","name":"component_review","strict":True,"schema":REVIEW_SCHEMA}},max_output_tokens=3500,timeout=300)
     if response.status!="completed" or not response.output_text: raise RuntimeError("Astra component review did not complete")
     review=_validate_result(json.loads(response.output_text),checked["component_id"]); usage=response.usage.model_dump() if response.usage else None
