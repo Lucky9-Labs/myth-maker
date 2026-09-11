@@ -33,6 +33,7 @@ from asset_progress import build_dashboard, dashboard_bundle, evaluate_reference
 from component_diffusion import (read_component_diffusion_status, run_component_diffusion,
                                  validate_component_diffusion_job)
 from component_isolation import run_component_isolation, validate_component_isolation_job
+from component_review import run_component_review, validate_component_review_job
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -64,6 +65,8 @@ image = (image
          .add_local_file(HERE / "asset_production_blender.py", "/opt/asset_production_blender.py", copy=True)
          .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True))
 image = image.add_local_file(HERE / "component_isolation.py", "/opt/component_isolation.py", copy=True)
+image = (image.add_local_file(HERE / "component_review.py", "/opt/component_review.py", copy=True)
+         .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True))
 
 diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu22.04", add_python="3.12")
     .apt_install("git", "libgl1", "libglib2.0-0")
@@ -321,6 +324,26 @@ def run_component_isolation_job(job: dict) -> dict:
         from openai import OpenAI
         volume.reload()
         receipt = run_component_isolation(checked, SUBMISSIONS_ROOT, OpenAI())
+        volume.commit()
+        return receipt
+    finally:
+        if part_leases.get(lease_key) == lease_value:
+            part_leases.pop(lease_key)
+
+
+@app.function(image=image, cpu=4, memory=8192, timeout=12 * 60, retries=0,
+              max_containers=4, secrets=[secret], volumes={"/submissions": volume})
+def run_component_review_job(job: dict) -> dict:
+    """Render and diagnose one immutable generated component before assembly."""
+    checked = validate_component_review_job(job)
+    lease_key = "component-review:" + checked["run_id"] + ":" + checked["component_id"]
+    lease_value = checked["work_id"] + ":a" + str(checked["attempt"])
+    if not part_leases.put(lease_key, lease_value, skip_if_exists=True):
+        raise RuntimeError("component review lane already claimed")
+    try:
+        from openai import OpenAI
+        volume.reload()
+        receipt = run_component_review(checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender", OpenAI())
         volume.commit()
         return receipt
     finally:

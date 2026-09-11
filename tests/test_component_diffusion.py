@@ -49,6 +49,8 @@ class ComponentDiffusionTests(unittest.TestCase):
             "bytes": 123, "sha256": "a" * 64, "media_type": "image/png",
             "component_id": "canopy-system"}}
         self.assertEqual(validate_component_diffusion_job(conditioned), conditioned)
+        railgun = {**job(), "asset_id": "railgun"}
+        self.assertEqual(validate_component_diffusion_job(railgun), railgun)
 
     def test_masked_crop_is_square_and_transparent(self):
         with tempfile.TemporaryDirectory() as temporary:
