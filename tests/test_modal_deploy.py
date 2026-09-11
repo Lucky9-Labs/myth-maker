@@ -35,6 +35,11 @@ class ModalDeployTest(unittest.TestCase):
         decorator = source.split("def get_asset_progress_dashboard", 1)[0].rsplit("@app.function", 1)[1]
         self.assertIn("timeout=360", decorator)
 
+    def test_correction_wave_preparation_allows_large_evidence_ledgers(self):
+        source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
+        decorator = source.split("def prepare_asset_correction_wave", 1)[0].rsplit("@app.function", 1)[1]
+        self.assertIn("timeout=360", decorator)
+
     def test_deployment_verifies_component_diffusion_function(self):
         deployed = (Path(__file__).parents[1] / "scripts" / "deployment" / "modal_deploy.py").read_text()
         self.assertIn('COMPONENT_DIFFUSION_FUNCTION = "run_component_diffusion_job"', deployed)
