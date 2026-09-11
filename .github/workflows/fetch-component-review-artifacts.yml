@@ -46,10 +46,10 @@ jobs:
           remote="asset-production/$RUN_ID/component-reviews/$WORK_ID/$attempt_dir/renders"
           mkdir -p fetched
           modal volume get --env dev --force myth-maker-encounter-submissions "$remote" fetched/
-          test -s fetched/three-quarter.png
-          test -s fetched/front.png
-          test -s fetched/side.png
-          sha256sum fetched/three-quarter.png fetched/front.png fetched/side.png > fetched/sha256sums.txt
+          test -s fetched/renders/three-quarter.png
+          test -s fetched/renders/front.png
+          test -s fetched/renders/side.png
+          sha256sum fetched/renders/three-quarter.png fetched/renders/front.png fetched/renders/side.png > fetched/sha256sums.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: component-review-artifacts-${{ github.run_id }}
