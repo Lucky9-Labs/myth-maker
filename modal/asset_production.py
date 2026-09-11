@@ -259,7 +259,8 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
                             reference_batch_slot: str | None = None,
                             correction_spec: dict | None = None,
                             correction_specs: dict[str, dict] | None = None,
-                            extra_inputs: dict[str, list[dict]] | None = None) -> list[dict]:
+                            extra_inputs: dict[str, list[dict]] | None = None,
+                            assembly_correction_spec: dict | None = None) -> list[dict]:
     """Advance from promoted baselines; apply a new batch only when explicitly requested."""
     if set(runtime_deployment) != {"source_sha", "function_id"}:
         raise ValueError("correction wave requires the current runtime deployment")
@@ -283,6 +284,8 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         raise ValueError("per-lane correction specs must exactly match the selected component lanes")
     for lane_spec in correction_specs.values():
         validate_correction_spec(lane_spec)
+    if assembly_correction_spec is not None:
+        validate_correction_spec(assembly_correction_spec)
     wave = []
     for slot in SLOTS:
         candidates = [(path, item) for path, item in receipts if item.get("worker_slot") == slot and item.get("status") == "completed" and (item.get("artifacts") or {}).get("asset.blend")]
@@ -301,12 +304,12 @@ def prepare_correction_wave(run_root: Path, runtime_deployment: dict,
         # A correction is baked into the immutable native baseline. Replaying
         # the same operation on every wave compounds scale changes and spends
         # compute without representing a new defect decision.
-        if slot != "worker-d":
-            operations = [item for item in operations if item["kind"] not in {
-                "apply-reference-corrections", "apply-parameterized-correction"}]
+        operations = [item for item in operations if item["kind"] not in {
+            "apply-reference-corrections", "apply-parameterized-correction"}]
         if slot != "worker-d" and apply_reference_batch and (not selected_slots or slot in selected_slots):
             operations.append({"kind": "apply-reference-corrections"})
-        lane_spec = correction_specs.get(slot, correction_spec if slot in selected_slots else None)
+        lane_spec = (assembly_correction_spec if slot == "worker-d" else
+                     correction_specs.get(slot, correction_spec if slot in selected_slots else None))
         if lane_spec is not None:
             validate_correction_spec(lane_spec)
             operations.append({"kind": "apply-parameterized-correction"})
@@ -377,9 +380,9 @@ def validate_correction_spec(value: dict) -> dict:
                 and all(isinstance(item, (int, float)) and not isinstance(item, bool) and -limit <= item <= limit
                         and (not positive or item > 0) for item in items))
     for command in value["commands"]:
-        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "import-component-glb", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
+        if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "import-component-glb", "fit-attachment-band", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode", "fit_target", "fit_band_ratio", "fit_offset", "fit_max_displacement_ratio"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode", "target", "band_ratio", "offset", "max_displacement_ratio", "fit_target", "fit_band_ratio", "fit_offset", "fit_max_displacement_ratio"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -457,6 +460,15 @@ def validate_correction_spec(value: dict) -> dict:
                     or not numeric_fit("fit_max_displacement_ratio")
                     or not 0 < command["fit_max_displacement_ratio"] <= 0.02):
                 raise ValueError("import-component-glb attachment fit is invalid")
+        if command["op"] == "fit-attachment-band":
+            numeric_fit = lambda key: isinstance(command.get(key), (int, float)) and not isinstance(command.get(key), bool)
+            if (set(command) != {"op", "name", "target", "band_ratio", "offset", "max_displacement_ratio"}
+                    or not isinstance(command.get("target"), str) or not command["target"]
+                    or not numeric_fit("band_ratio") or not 0 < command["band_ratio"] <= 0.05
+                    or not numeric_fit("offset") or not -0.02 <= command["offset"] <= 0.02
+                    or not numeric_fit("max_displacement_ratio")
+                    or not 0 < command["max_displacement_ratio"] <= 0.02):
+                raise ValueError("fit-attachment-band correction is invalid")
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
         if command["op"] == "scale" and (set(command) != expected or not numbers(command.get("scale"), 3, True)):
             raise ValueError("scale correction is invalid")

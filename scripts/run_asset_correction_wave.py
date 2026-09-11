@@ -16,6 +16,7 @@ def main() -> int:
     parser.add_argument("--correction-spec-json")
     parser.add_argument("--correction-specs-json")
     parser.add_argument("--extra-inputs-json")
+    parser.add_argument("--assembly-correction-spec-json")
     parser.add_argument("--output", required=True); args = parser.parse_args()
     config = runtime(args.environment)
     production = modal.Function.from_name(config.app_name, config.asset_production_function_name, environment_name=config.environment); production.hydrate()
@@ -26,8 +27,11 @@ def main() -> int:
     specs = json.loads(specs_json) if specs_json else None
     extra_json = args.extra_inputs_json or os.environ.get("EXTRA_INPUTS")
     extra_inputs = json.loads(extra_json) if extra_json else None
+    assembly_json = args.assembly_correction_spec_json or os.environ.get("ASSEMBLY_CORRECTION_SPEC")
+    assembly_spec = json.loads(assembly_json) if assembly_json else None
     wave = prepare.remote(args.run_id, {"source_sha": args.source_sha, "function_id": production.object_id},
-                          args.apply_reference_batch, args.reference_batch_slot, spec, specs, extra_inputs)
+                          args.apply_reference_batch, args.reference_batch_slot, spec, specs, extra_inputs,
+                          assembly_spec)
     selected = set(args.reference_batch_slot.split("+")) if args.reference_batch_slot else {"worker-a", "worker-b", "worker-c"}
     jobs = [job for job in wave[:3] if job["worker_slot"] in selected]
     calls = [production.spawn(job) for job in jobs]; receipts = [call.get(timeout=20 * 60) for call in calls]

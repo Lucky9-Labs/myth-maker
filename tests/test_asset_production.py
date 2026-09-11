@@ -80,6 +80,11 @@ class AssetProductionTests(unittest.TestCase):
         partial = json.loads(json.dumps(spec)); partial["commands"][0]["fit_target"] = "frame-cockpit-lowerseat"
         with self.assertRaisesRegex(ValueError, "attachment fit"):
             validate_correction_spec(partial)
+        assembly_fit = {"version": "myth-maker.geometry-correction/v1", "commands": [{
+            "op": "fit-attachment-band", "name": "diffused-canopy-v1",
+            "target": "frame-cockpit-lowerseat", "band_ratio": .015,
+            "offset": .001, "max_displacement_ratio": .01}]}
+        self.assertEqual(validate_correction_spec(assembly_fit), assembly_fit)
 
     def test_validates_bounded_parameterized_geometry(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{"op": "add-side-wedge",
@@ -418,6 +423,16 @@ class AssetProductionTests(unittest.TestCase):
             self.assertEqual(diffused[1]["inputs"][-1]["staged_name"], "canopy.glb")
             self.assertEqual(diffused[1]["inputs"][-1]["sha256"], "9" * 64)
             self.assertFalse(any(item.get("staged_name") == "canopy.glb" for item in diffused[0]["inputs"]))
+            assembly_spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{
+                "op": "fit-attachment-band", "name": "torso-canopy-surface-v2",
+                "target": "frame-cockpit-lowerseat", "band_ratio": .015,
+                "offset": .001, "max_displacement_ratio": .01}]}
+            fitted = prepare_correction_wave(
+                root, {"source_sha": "f" * 40, "function_id": "fu-assemblyfit"},
+                assembly_correction_spec=assembly_spec)
+            self.assertEqual(fitted[3]["correction_spec"], assembly_spec)
+            self.assertIn({"kind": "apply-parameterized-correction"}, fitted[3]["operations"])
+            self.assertNotIn("correction_spec", fitted[0])
             with self.assertRaisesRegex(ValueError, "exactly match"):
                 prepare_correction_wave(
                     root, {"source_sha": "f" * 40, "function_id": "fu-incomplete"},
