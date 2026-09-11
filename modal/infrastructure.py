@@ -27,6 +27,7 @@ class ModalRuntime:
     asset_ledger_function_name: str = "record_asset_production_run"
     component_diffusion_function_name: str = "run_component_diffusion_job"
     component_cleanup_function_name: str = "run_component_cleanup_job"
+    agentic_stitch_function_name: str = "run_agentic_stitch_job"
     volume_name: str = "myth-maker-encounter-submissions"
     lease_dict_name: str = "myth-maker-encounter-component-leases"
     openai_secret_name: str = "myth-maker-encounter-openai"
@@ -107,6 +108,7 @@ def application_contract(environment: str = "dev") -> dict:
             "ledger_function_name": config.asset_ledger_function_name,
             "component_diffusion_function_name": config.component_diffusion_function_name,
             "component_cleanup_function_name": config.component_cleanup_function_name,
+            "agentic_stitch_function_name": config.agentic_stitch_function_name,
             "execution_boundary": "cloud-only-blender",
             "max_containers": 4,
             "worker_slots": ["worker-a", "worker-b", "worker-c", "worker-d"],

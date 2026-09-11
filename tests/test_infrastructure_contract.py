@@ -44,6 +44,8 @@ class InfrastructureContractTests(unittest.TestCase):
         self.assertEqual(contract["modal"]["openai_secret_name"], "myth-maker-encounter-openai")
         self.assertEqual(contract["modal"]["openai_secret_keys"], ["OPENAI_API_KEY"])
         self.assertEqual(contract["modal"]["asset_production_function_name"], "run_asset_production_job")
+        self.assertEqual(contract["modal"]["agentic_stitch_function_name"], "run_agentic_stitch_job")
+        self.assertEqual(contract["asset_production"]["agentic_stitch_function_name"], "run_agentic_stitch_job")
         self.assertEqual(contract["asset_production"]["critique_function_name"], "run_asset_visual_critique")
         self.assertEqual(contract["asset_production"]["max_containers"], 4)
         self.assertEqual(contract["asset_production"]["execution_boundary"], "cloud-only-blender")
