@@ -4,9 +4,23 @@ import base64, hashlib, json, re, time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from component_cleanup import validate_component_cleanup_job
+from component_diffusion import validate_component_diffusion_job
+from component_isolation import validate_component_isolation_job
+from component_review import validate_component_review_job
+from pure_component_assembly import validate_pure_component_assembly_job
+
 FORMAT="myth-maker.component-coordinator-job/v1"; NAME=re.compile(r"^[a-z0-9][a-z0-9-]{0,95}$")
 MODELS={"routing":"gpt-5.6-luna","visual":"gpt-6-astra"}
 ACTION_TYPES={"revise-sheet","generate-multiview","generate-3d","review-3d","cleanup-3d","stitch-preview","hold"}
+ACTION_VALIDATORS={
+    "revise-sheet": validate_component_isolation_job,
+    "generate-multiview": validate_component_isolation_job,
+    "generate-3d": validate_component_diffusion_job,
+    "review-3d": validate_component_review_job,
+    "cleanup-3d": validate_component_cleanup_job,
+    "stitch-preview": validate_pure_component_assembly_job,
+}
 SCHEMA={"type":"object","additionalProperties":False,"required":["format","assessment","selected_actions","component_dispositions"],"properties":{"format":{"type":"string","const":"myth-maker.component-coordinator-decision/v1"},"assessment":{"type":"string"},"selected_actions":{"type":"array","maxItems":4,"items":{"type":"object","additionalProperties":False,"required":["action_id","reason"],"properties":{"action_id":{"type":"string"},"reason":{"type":"string"}}}},"component_dispositions":{"type":"array","items":{"type":"object","additionalProperties":False,"required":["component_id","status","reason"],"properties":{"component_id":{"type":"string"},"status":{"type":"string","enum":["keep","repair","regenerate-sheet","regenerate-mesh","ready-for-preview","hold"]},"reason":{"type":"string"}}}}}}
 
 def _artifact(x):
@@ -25,6 +39,11 @@ def validate_component_coordinator_job(value):
     for x in value["prepared_actions"]:
         if not isinstance(x,dict) or set(x)!={"action_id","action_type","component_id","summary","job"} or x["action_type"] not in ACTION_TYPES or not all(isinstance(x[k],str) and NAME.fullmatch(x[k]) for k in ("action_id","component_id")) or x["action_id"] in ids or not isinstance(x["summary"],str) or not isinstance(x["job"],dict): raise ValueError("prepared coordinator action is invalid")
         if x["action_type"]!="hold" and x["job"].get("asset_id")!="mech": raise ValueError("railgun and non-mech actions are frozen")
+        if x["action_type"] != "hold":
+            try:
+                ACTION_VALIDATORS[x["action_type"]](x["job"])
+            except ValueError as exc:
+                raise ValueError(f"prepared {x['action_type']} job is invalid: {exc}") from exc
         ids.add(x["action_id"])
     return json.loads(json.dumps(value))
 
