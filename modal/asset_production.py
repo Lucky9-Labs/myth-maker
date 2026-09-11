@@ -379,7 +379,7 @@ def validate_correction_spec(value: dict) -> dict:
     for command in value["commands"]:
         if not isinstance(command, dict) or command.get("op") not in {"add-box", "add-side-wedge", "add-mounted-box", "add-mounted-side-wedge", "add-mounted-tapered-prism", "add-mounted-lofted-shell", "add-mounted-arc-shell", "add-mounted-frame", "import-component-glb", "scale", "translate", "rotate-degrees", "thicken", "lengthen", "taper-ends", "hide", "hide-prefix", "set-material", "normalize-materials"}:
             raise ValueError("correction spec contains an invalid command")
-        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode"}
+        common = {"op", "name"}; optional = {"owner", "location", "dimensions", "material", "profile", "sections", "thickness", "bar_width", "closed", "scale", "delta", "factor", "inner_radius", "outer_radius", "start_degrees", "end_degrees", "segments", "end_scale", "rotation_degrees", "bevel", "staged_name", "decimate_ratio", "surface_mode", "fit_target", "fit_band_ratio", "fit_offset", "fit_max_displacement_ratio"}
         if set(command) - common - optional or not isinstance(command.get("name"), str) or not IDENTIFIER.fullmatch(command["name"]):
             raise ValueError("correction command has an invalid shape or name")
         if command["op"] in {"add-box", "add-mounted-box"} and (not isinstance(command.get("owner"), str) or not numbers(command.get("location"), 3)
@@ -447,6 +447,16 @@ def validate_correction_spec(value: dict) -> dict:
                     or command.get("surface_mode") not in {"raw", "convex-hull", "voxel-remesh"}
                     or command.get("material") not in materials):
                 raise ValueError("import-component-glb correction is invalid")
+            fit_keys = {"fit_target", "fit_band_ratio", "fit_offset", "fit_max_displacement_ratio"}
+            present = fit_keys.intersection(command)
+            numeric_fit = lambda key: isinstance(command.get(key), (int, float)) and not isinstance(command.get(key), bool)
+            if present and (present != fit_keys or not isinstance(command.get("fit_target"), str)
+                    or not command["fit_target"] or not numeric_fit("fit_band_ratio")
+                    or not 0 < command["fit_band_ratio"] <= 0.05 or not numeric_fit("fit_offset")
+                    or not -0.02 <= command["fit_offset"] <= 0.02
+                    or not numeric_fit("fit_max_displacement_ratio")
+                    or not 0 < command["fit_max_displacement_ratio"] <= 0.02):
+                raise ValueError("import-component-glb attachment fit is invalid")
         expected = {"op", "name", "scale"} if command["op"] == "scale" else {"op", "name"}
         if command["op"] == "scale" and (set(command) != expected or not numbers(command.get("scale"), 3, True)):
             raise ValueError("scale correction is invalid")

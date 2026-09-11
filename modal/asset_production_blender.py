@@ -471,6 +471,30 @@ def _import_component_glb(command: dict, inputs: Path, owner) -> None:
     obj["diffusion_source_sha256"] = hashlib.sha256(source.read_bytes()).hexdigest()
     _mount_created(obj, owner, tuple(command["location"]))
     obj.rotation_euler = tuple(math.radians(value) for value in command["rotation_degrees"])
+    if command.get("fit_target"):
+        target = bpy.data.objects.get(command["fit_target"])
+        if target is None or target.type != "MESH":
+            raise RuntimeError("component fit target is unavailable: " + command["fit_target"])
+        bpy.context.view_layer.update()
+        local_min = min(vertex.co.z for vertex in obj.data.vertices)
+        band = max(obj.dimensions) * command["fit_band_ratio"]
+        indices = [vertex.index for vertex in obj.data.vertices if vertex.co.z <= local_min + band]
+        if not indices:
+            raise RuntimeError("component fit found no attachment-band vertices")
+        group = obj.vertex_groups.new(name="canopy-frame-seat")
+        group.add(indices, 1.0, "REPLACE")
+        before = {index: obj.data.vertices[index].co.copy() for index in indices}
+        modifier = obj.modifiers.new("bounded-attachment-fit", "SHRINKWRAP")
+        modifier.wrap_method = "NEAREST_SURFACEPOINT"; modifier.target = target
+        modifier.vertex_group = group.name; modifier.offset = command["fit_offset"]
+        bpy.context.view_layer.objects.active = obj; bpy.ops.object.modifier_apply(modifier=modifier.name)
+        limit = max(obj.dimensions) * command["fit_max_displacement_ratio"]
+        displacement = max((obj.data.vertices[index].co - before[index]).length for index in indices)
+        if displacement > limit:
+            raise RuntimeError(f"component fit exceeded displacement limit: {displacement:.6f} > {limit:.6f}")
+        obj["attachment_fit_target"] = target.name
+        obj["attachment_fit_vertices"] = len(indices)
+        obj["attachment_fit_max_displacement"] = displacement
 
 
 def apply_parameterized_correction(spec: dict, inputs: Path) -> int:
