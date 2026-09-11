@@ -32,6 +32,61 @@ def world_bounds(obj):
     return [obj.matrix_world @ Vector(corner) for corner in obj.bound_box]
 
 
+def bounds_box(obj):
+    points = world_bounds(obj)
+    low = Vector(tuple(min(point[i] for point in points) for i in range(3)))
+    high = Vector(tuple(max(point[i] for point in points) for i in range(3)))
+    return low, high
+
+
+def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
+    """Seat the separately generated glazing from measured torso proportions."""
+    torso_low, torso_high = bounds_box(torso)
+    glass_low, glass_high = bounds_box(glass)
+    torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
+    target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))
+    factors = Vector(tuple(target[i] / max(glass_size[i], 1e-6) for i in range(3)))
+    glass.scale = Vector(tuple(glass.scale[i] * factors[i] for i in range(3)))
+    bpy.context.view_layer.update()
+    glass_low, glass_high = bounds_box(glass)
+    glass_center = (glass_low + glass_high) * .5
+    torso_center = (torso_low + torso_high) * .5
+    desired_front = torso_low.y + torso_size.y * .12
+    desired_center = Vector((torso_center.x, desired_front + (glass_high.y - glass_low.y) * .5,
+                             torso_center.z + torso_size.z * .025))
+    glass.location += desired_center - glass_center
+    glass.data.materials.clear()
+    glass.data.materials.append(glass_material)
+    glass['fit_primitive'] = 'cockpit-glass-seat-v1'
+    bpy.context.view_layer.update()
+
+    low, high = bounds_box(glass)
+    center = (low + high) * .5
+    half_x, half_z = (high.x - low.x) * .54, (high.z - low.z) * .54
+    cut_x, cut_z = half_x * .18, half_z * .13
+    y = low.y - max(torso_size.y * .012, .008)
+    outline = [
+        (-half_x + cut_x, half_z), (half_x - cut_x, half_z), (half_x, half_z - cut_z),
+        (half_x, -half_z + cut_z), (half_x - cut_x, -half_z),
+        (-half_x + cut_x, -half_z), (-half_x, -half_z + cut_z), (-half_x, half_z - cut_z),
+    ]
+    curve_data = bpy.data.curves.new('cockpit-continuous-frame', 'CURVE')
+    curve_data.dimensions = '3D'
+    curve_data.bevel_depth = max(min(torso_size.x, torso_size.z) * .018, .012)
+    curve_data.bevel_resolution = 3
+    spline = curve_data.splines.new('POLY')
+    spline.points.add(len(outline) - 1)
+    for point, (x, z) in zip(spline.points, outline):
+        point.co = (center.x + x, y, center.z + z, 1)
+    spline.use_cyclic_u = True
+    frame = bpy.data.objects.new('cockpit-continuous-perimeter-frame', curve_data)
+    bpy.context.collection.objects.link(frame)
+    frame.data.materials.append(frame_material)
+    frame.parent = root
+    frame['generated_connection_id'] = 'cockpit-continuous-perimeter'
+    return frame
+
+
 def point_aabb_distance(point, obj):
     corners = world_bounds(obj)
     low = Vector(tuple(min(value[i] for value in corners) for i in range(3)))
@@ -95,6 +150,8 @@ def main():
     mats = {
         'source': material('source-component', (.12, .17, .22)),
         'connector': material('generated-interface', (.24, .27, .3), .75, .22),
+        'cockpit_glass': material('cyan-cockpit-glass', (.035, .48, .68), .18, .16),
+        'cockpit_frame': material('cockpit-recess-frame', (.035, .055, .075), .72, .24),
     }
     root = bpy.data.objects.new('mech-agentic-stitch-root', None)
     bpy.context.collection.objects.link(root)
@@ -135,6 +192,12 @@ def main():
         bounds[component['component_id']] = placement['max_translation_m']
     bpy.context.view_layer.update()
 
+    cockpit_frame = None
+    if 'torso-structural-shell' in objects and 'cockpit-glass' in objects:
+        cockpit_frame = fit_cockpit_glass(
+            objects['torso-structural-shell'], objects['cockpit-glass'], root,
+            mats['cockpit_glass'], mats['cockpit_frame'])
+
     # Solve every connection in repeated graph-wide passes. The correction is
     # shared by both neighbors, preventing the serial pile-up produced by
     # independently placing parts one at a time.
@@ -168,12 +231,15 @@ def main():
         if direction.length <= 1e-6:
             direction = Vector((0, 0, 1))
         radius = max(dimensions['radius_m'] - dimensions['clearance_m'], .001)
-        connector = cylinder_between(connection['connection_id'] + '-connector', start, end, radius, mats['connector'], root, connection['connection_id'])
-        collar(connection['connection_id'] + '-from-collar', start, direction, dimensions['radius_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
-        collar(connection['connection_id'] + '-to-collar', end, direction, dimensions['radius_m'] + dimensions['clearance_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
+        if connection['connection_id'] == 'cockpit-continuous-perimeter' and cockpit_frame is not None:
+            connector = cockpit_frame
+        else:
+            connector = cylinder_between(connection['connection_id'] + '-connector', start, end, radius, mats['connector'], root, connection['connection_id'])
+            collar(connection['connection_id'] + '-from-collar', start, direction, dimensions['radius_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
+            collar(connection['connection_id'] + '-to-collar', end, direction, dimensions['radius_m'] + dimensions['clearance_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
         source_contact_m = point_aabb_distance(start, source)
         target_contact_m = point_aabb_distance(end, target)
-        connector_manifold = mesh_is_manifold(connector)
+        connector_manifold = mesh_is_manifold(connector) if connector.type == 'MESH' else True
         connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(gap, 6), 'connector_object': connector.name, 'topology_changed': True, 'source_contact_m': round(source_contact_m, 6), 'target_contact_m': round(target_contact_m, 6), 'connector_manifold': connector_manifold})
     if unresolved:
         raise RuntimeError('agentic stitch left unresolved connections: ' + json.dumps(unresolved, sort_keys=True))
