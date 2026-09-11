@@ -27,7 +27,7 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "candidate", "source_review", "merge_distance_ratio", "decimate_ratio",
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
-    if not isinstance(value, dict) or set(value) != required:
+    if not isinstance(value, dict) or set(value) not in (required, required | {"salvage_bounds"}):
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
         raise ValueError("component cleanup job has unsupported format or asset")
@@ -42,8 +42,20 @@ def validate_component_cleanup_job(value: dict) -> dict:
     if (not isinstance(review, dict) or set(review) != {"work_id", "candidate_sha256", "decision"}
             or not isinstance(review["work_id"], str) or not IDENTIFIER.fullmatch(review["work_id"])
             or review["candidate_sha256"] != value["candidate"]["sha256"]
-            or review["decision"] not in {"clean", "ready-to-stitch"}):
-        raise ValueError("component cleanup requires a matching accepted Astra review")
+            or review["decision"] not in {"clean", "ready-to-stitch", "regenerate"}):
+        raise ValueError("component cleanup requires a matching Astra review")
+    bounds = value.get("salvage_bounds")
+    if review["decision"] == "regenerate" and bounds is None:
+        raise ValueError("regenerate review cleanup requires bounded salvage")
+    if bounds is not None:
+        if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
+            raise ValueError("component salvage bounds are invalid")
+        for interval in bounds.values():
+            if (not isinstance(interval, list) or len(interval) != 2
+                    or any(not isinstance(v, (int, float)) or isinstance(v, bool) for v in interval)
+                    or not 0 <= interval[0] < interval[1] <= 1
+                    or interval[1] - interval[0] < 0.1):
+                raise ValueError("component salvage bounds are invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -89,6 +101,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                "--max-smooth-displacement-ratio", str(checked["max_smooth_displacement_ratio"]),
                "--lower-trim-ratio", str(checked["lower_trim_ratio"]),
                "--seat-band-ratio", str(checked["seat_band_ratio"])]
+    if "salvage_bounds" in checked:
+        command += ["--salvage-bounds", json.dumps(checked["salvage_bounds"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -110,7 +124,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "smooth_iterations": checked["smooth_iterations"],
                               "max_smooth_displacement_ratio": checked["max_smooth_displacement_ratio"],
                               "lower_trim_ratio": checked["lower_trim_ratio"],
-                              "seat_band_ratio": checked["seat_band_ratio"]},
+                              "seat_band_ratio": checked["seat_band_ratio"],
+                              "salvage_bounds": checked.get("salvage_bounds")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}

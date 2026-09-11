@@ -14,12 +14,18 @@ def job():
 
 class ComponentCleanupTests(unittest.TestCase):
     def test_closed_accepted_contract(self): self.assertEqual(validate_component_cleanup_job(job()),job())
-    def test_rejects_unaccepted_review(self):
+    def test_rejects_regenerate_without_salvage_bounds(self):
         value=job(); value['source_review']['decision']='regenerate'
-        with self.assertRaisesRegex(ValueError,'accepted Astra review'): validate_component_cleanup_job(value)
+        with self.assertRaisesRegex(ValueError,'requires bounded salvage'): validate_component_cleanup_job(value)
+    def test_accepts_regenerate_candidate_for_bounded_salvage(self):
+        value=job(); value['source_review']['decision']='regenerate'; value['salvage_bounds']={'x':[0.2,0.8],'y':[0,1],'z':[0.05,0.95]}
+        self.assertEqual(validate_component_cleanup_job(value),value)
+    def test_rejects_invalid_salvage_bounds(self):
+        value=job(); value['salvage_bounds']={'x':[0.8,0.2],'y':[0,1],'z':[0,1]}
+        with self.assertRaisesRegex(ValueError,'salvage bounds'): validate_component_cleanup_job(value)
     def test_rejects_review_for_another_candidate(self):
         value=job(); value['source_review']['candidate_sha256']='b'*64
-        with self.assertRaisesRegex(ValueError,'matching accepted'): validate_component_cleanup_job(value)
+        with self.assertRaisesRegex(ValueError,'matching Astra'): validate_component_cleanup_job(value)
     def test_rejects_destructive_decimation(self):
         value=job(); value['decimate_ratio']=0.01
         with self.assertRaisesRegex(ValueError,'bounded limits'): validate_component_cleanup_job(value)
