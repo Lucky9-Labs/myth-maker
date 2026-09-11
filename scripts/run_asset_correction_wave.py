@@ -32,7 +32,9 @@ def main() -> int:
     wave = prepare.remote(args.run_id, {"source_sha": args.source_sha, "function_id": production.object_id},
                           args.apply_reference_batch, args.reference_batch_slot, spec, specs, extra_inputs,
                           assembly_spec)
-    selected = set(args.reference_batch_slot.split("+")) if args.reference_batch_slot else {"worker-a", "worker-b", "worker-c"}
+    selected = (set(args.reference_batch_slot.split("+")) if args.reference_batch_slot else
+                set((specs or {}).keys()) if specs else
+                {"worker-a", "worker-b", "worker-c"} if spec or args.apply_reference_batch else set())
     jobs = [job for job in wave[:3] if job["worker_slot"] in selected]
     calls = [production.spawn(job) for job in jobs]; receipts = [call.get(timeout=20 * 60) for call in calls]
     output = Path(args.output); output.parent.mkdir(parents=True, exist_ok=True)
