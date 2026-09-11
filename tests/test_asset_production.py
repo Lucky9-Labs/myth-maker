@@ -73,6 +73,13 @@ class AssetProductionTests(unittest.TestCase):
         invalid = json.loads(json.dumps(spec)); invalid["commands"][0]["staged_name"] = "../canopy.glb"
         with self.assertRaisesRegex(ValueError, "import-component-glb"):
             validate_correction_spec(invalid)
+        fitted = json.loads(json.dumps(spec)); fitted["commands"][0].update({
+            "fit_target": "frame-cockpit-lowerseat", "fit_band_ratio": .015,
+            "fit_offset": .001, "fit_max_displacement_ratio": .01})
+        self.assertEqual(validate_correction_spec(fitted), fitted)
+        partial = json.loads(json.dumps(spec)); partial["commands"][0]["fit_target"] = "frame-cockpit-lowerseat"
+        with self.assertRaisesRegex(ValueError, "attachment fit"):
+            validate_correction_spec(partial)
 
     def test_validates_bounded_parameterized_geometry(self):
         spec = {"version": "myth-maker.geometry-correction/v1", "commands": [{"op": "add-side-wedge",
