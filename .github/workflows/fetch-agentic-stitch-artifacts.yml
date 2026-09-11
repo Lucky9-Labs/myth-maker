@@ -1,0 +1,61 @@
+name: Fetch agentic stitch artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        required: true
+        type: string
+      work_id:
+        required: true
+        type: string
+      attempt:
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    environment: dev
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
+      - name: Fetch immutable connected stitch artifacts
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          RUN_ID: ${{ inputs.run_id }}
+          WORK_ID: ${{ inputs.work_id }}
+          ATTEMPT: ${{ inputs.attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]{0,95}$ ]]
+          [[ "$WORK_ID" =~ ^[a-z0-9][a-z0-9-]{0,95}$ ]]
+          [[ "$ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          printf -v attempt_dir 'attempt-%04d' "$ATTEMPT"
+          remote="asset-production/$RUN_ID/agentic-stitch/$WORK_ID/$attempt_dir"
+          mkdir -p fetched
+          modal volume get --env dev --force myth-maker-encounter-submissions "$remote" fetched/
+          root="fetched/$attempt_dir"
+          test -s "$root/three-quarter.png"
+          test -s "$root/front.png"
+          test -s "$root/side.png"
+          test -s "$root/assembly.glb"
+          test -s "$root/assembly.blend"
+          test -s "$root/stitch-report.json"
+          test -s "$root/receipt.json"
+          sha256sum "$root/three-quarter.png" "$root/front.png" "$root/side.png" \
+            "$root/assembly.glb" "$root/assembly.blend" "$root/stitch-report.json" \
+            "$root/receipt.json" > fetched/sha256sums.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agentic-stitch-artifacts-${{ github.run_id }}
+          path: fetched/
+          retention-days: 30
