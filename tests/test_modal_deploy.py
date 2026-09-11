@@ -64,6 +64,7 @@ class ModalDeployTest(unittest.TestCase):
             "glb_source_importer.py", "infrastructure.py", "modal_volume_inputs.py",
             "asset_production.py", "asset_progress.py", "component_diffusion.py",
             "component_review.py", "component_review_blender.py",
+            "component_cleanup.py", "component_cleanup_blender.py",
         ):
             self.assertIn(dependency, diffusion_image)
 
