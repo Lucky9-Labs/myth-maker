@@ -21,7 +21,8 @@ def validate_component_isolation_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
                 "model", "reference_polygon", "component_description", "material",
                 "symmetry", "attachment_surfaces", "quality"}
-    if not isinstance(value, dict) or frozenset(value) not in {frozenset(required), frozenset(required | {"source_artifact"})}:
+    optional = {"source_artifact", "view_mode"}
+    if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component isolation job has an invalid closed shape")
     if value["format"] != FORMAT or value["model"] != MODEL or value["asset_id"] not in {"mech", "railgun"}:
         raise ValueError("component isolation job has an unsupported format, model, or asset")
@@ -46,6 +47,8 @@ def validate_component_isolation_job(value: dict) -> dict:
         raise ValueError("component isolation attachment surfaces are invalid")
     if value["quality"] not in {"low", "medium"}:
         raise ValueError("component isolation quality must be low or medium")
+    if value.get("view_mode", "single") not in {"single", "orthographic-multiview"}:
+        raise ValueError("component isolation view mode is invalid")
     if "source_artifact" in value:
         artifact=value["source_artifact"]
         if (not isinstance(artifact,dict) or set(artifact)!={"path","bytes","sha256","media_type"}
@@ -82,11 +85,19 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
     root.mkdir(parents=True)
     (root / "job.json").write_text(json.dumps(checked, indent=2, sort_keys=True) + "\n")
     crop = masked_component_crop(reference, checked["reference_polygon"], root / "source-crop.png")
+    multiview = checked.get("view_mode") == "orthographic-multiview"
+    view_instruction = (
+        "Create a precise 2 by 2 orthographic turnaround sheet. Put the front view in the upper-left, left view in the upper-right, "
+           "back view in the lower-left, and top view in the lower-right. Show the exact same rigid object, scale, dimensions, panel boundaries, "
+           "thicknesses, openings, and attachment interfaces in every view. Use no perspective and center each object within its quadrant. "
+        if multiview else
+        "Show exactly one complete component, centered, fully visible, in a neutral three-quarter orthographic product view. ")
     prompt = (
         "Create one clean 3D reconstruction reference image for only this game-asset component: "
         + checked["component_description"] + ". Preserve the component's distinctive outline and proportions from the input. "
-        "Remove every neighboring part, character, frame, highlight fragment, reflection, text, and background object. "
-        "Show exactly one complete component, centered, fully visible, in a neutral three-quarter orthographic product view. "
+        + "Remove every neighboring part, character, frame, highlight fragment, reflection, text, and background object. "
+        + view_instruction
+        +
         "Use a flat transparent background, even studio lighting, crisp continuous surfaces, no cast shadow, and no labels. "
         "Render transparent or emissive production materials temporarily as opaque matte clay so image-to-3D can recover a closed shell. "
         f'Intended material after reconstruction: {checked["material"]}. Symmetry: {checked["symmetry"]}. '
@@ -99,6 +110,22 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
                                       background="transparent", output_format="png")
     data = base64.b64decode(response.data[0].b64_json)
     output = root / "isolated-component.png"; output.write_bytes(data)
+    view_artifacts = None
+    if multiview:
+        from PIL import Image
+        view_artifacts = {}
+        with Image.open(output) as sheet:
+            sheet = sheet.convert("RGBA")
+            boxes = {"front": (0, 0, sheet.width // 2, sheet.height // 2),
+                     "left": (sheet.width // 2, 0, sheet.width, sheet.height // 2),
+                     "back": (0, sheet.height // 2, sheet.width // 2, sheet.height),
+                     "top": (sheet.width // 2, sheet.height // 2, sheet.width, sheet.height)}
+            for view, box in boxes.items():
+                path = root / f"{view}.png"; sheet.crop(box).save(path, format="PNG")
+                view_data = path.read_bytes()
+                view_artifacts[view] = {"path": str(path.relative_to(submissions_root)),
+                    "bytes": len(view_data), "sha256": hashlib.sha256(view_data).hexdigest(),
+                    "media_type": "image/png", "component_id": checked["component_id"]}
     usage = _usage(response)
     receipt = {"format": "myth-maker.component-isolation-receipt/v1", "status": "completed",
         "run_id": checked["run_id"], "work_id": checked["work_id"], "attempt": checked["attempt"],
@@ -109,6 +136,7 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
         "source_crop": {**crop, "path": str((root / "source-crop.png").relative_to(submissions_root))},
         "artifact": {"path": str(output.relative_to(submissions_root)), "bytes": len(data),
             "sha256": hashlib.sha256(data).hexdigest(), "media_type": "image/png"},
+        "view_artifacts": view_artifacts,
         "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(), "model_usage": usage,
         "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
         "duration_ms": round((time.monotonic() - clock) * 1000)}

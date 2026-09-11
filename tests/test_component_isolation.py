@@ -21,4 +21,12 @@ class ComponentIsolationTests(unittest.TestCase):
         value={**job(),"source_artifact":{"path":"asset-production/pilot/torso.png","bytes":42,"sha256":"a"*64,"media_type":"image/png"}}
         self.assertEqual(validate_component_isolation_job(value),value)
 
+    def test_accepts_orthographic_multiview_mode(self):
+        value = {**job(), "view_mode": "orthographic-multiview"}
+        self.assertEqual(validate_component_isolation_job(value), value)
+
+    def test_rejects_unknown_view_mode(self):
+        with self.assertRaisesRegex(ValueError, "view mode"):
+            validate_component_isolation_job({**job(), "view_mode": "turntable-video"})
+
 if __name__ == "__main__": unittest.main()
