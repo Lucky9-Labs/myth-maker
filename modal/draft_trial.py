@@ -37,6 +37,7 @@ from component_review import run_component_review, validate_component_review_job
 from component_cleanup import run_component_cleanup, validate_component_cleanup_job
 from pure_component_assembly import run_pure_component_assembly, validate_pure_component_assembly_job
 from component_coordinator import run_component_coordinator, validate_component_coordinator_job
+from agentic_stitch import run_agentic_stitch, validate_agentic_stitch_job
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -74,7 +75,9 @@ image = (image.add_local_file(HERE / "component_review.py", "/opt/component_revi
          .add_local_file(HERE / "component_cleanup_blender.py", "/opt/component_cleanup_blender.py", copy=True)
          .add_local_file(HERE / "pure_component_assembly.py", "/opt/pure_component_assembly.py", copy=True)
          .add_local_file(HERE / "pure_component_assembly_blender.py", "/opt/pure_component_assembly_blender.py", copy=True)
-         .add_local_file(HERE / "component_coordinator.py", "/opt/component_coordinator.py", copy=True))
+         .add_local_file(HERE / "component_coordinator.py", "/opt/component_coordinator.py", copy=True)
+         .add_local_file(HERE / "agentic_stitch.py", "/opt/agentic_stitch.py", copy=True)
+         .add_local_file(HERE / "agentic_stitch_blender.py", "/opt/agentic_stitch_blender.py", copy=True))
 
 diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu22.04", add_python="3.12")
     .apt_install("git", "libgl1", "libglib2.0-0")
@@ -115,6 +118,8 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
     .add_local_file(HERE / "pure_component_assembly.py", "/opt/pure_component_assembly.py", copy=True)
     .add_local_file(HERE / "pure_component_assembly_blender.py", "/opt/pure_component_assembly_blender.py", copy=True)
     .add_local_file(HERE / "component_coordinator.py", "/opt/component_coordinator.py", copy=True)
+    .add_local_file(HERE / "agentic_stitch.py", "/opt/agentic_stitch.py", copy=True)
+    .add_local_file(HERE / "agentic_stitch_blender.py", "/opt/agentic_stitch_blender.py", copy=True)
     .env({"HF_HOME": "/submissions/model-cache/huggingface", "PYTHONPATH": "/opt"}))
 
 volume = modal.Volume.from_name(RUNTIME.volume_name)
@@ -395,6 +400,28 @@ def run_pure_component_assembly_job(job: dict) -> dict:
     receipt = run_pure_component_assembly(checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender")
     volume.commit()
     return receipt
+
+
+@app.function(image=image, cpu=4, memory=16384, timeout=30 * 60, retries=0,
+              max_containers=1, secrets=[secret], volumes={str(SUBMISSIONS_ROOT): volume})
+def run_agentic_stitch_job(job: dict) -> dict:
+    """Plan and execute one globally connected stitch revision from immutable inputs."""
+    checked = validate_agentic_stitch_job(job)
+    lease_key = "agentic-stitch:" + checked["run_id"] + ":" + checked["asset_id"]
+    lease_value = checked["work_id"] + ":a" + str(checked["attempt"])
+    if not part_leases.put(lease_key, lease_value, skip_if_exists=True):
+        raise RuntimeError("agentic stitch authority already claimed")
+    try:
+        from openai import OpenAI
+        volume.reload()
+        receipt = run_agentic_stitch(
+            checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender", OpenAI()
+        )
+        volume.commit()
+        return receipt
+    finally:
+        if part_leases.get(lease_key) == lease_value:
+            part_leases.pop(lease_key)
 
 
 @app.function(image=image, cpu=1, memory=4096, timeout=8 * 60, retries=0,

@@ -1,0 +1,38 @@
+name: Agentically stitch mech sections
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Closed agentic-stitch job JSON
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  stitch:
+    runs-on: ubuntu-24.04
+    environment: dev
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
+      - name: Produce one connected agentic stitch candidate
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          JOB: ${{ inputs.job }}
+        run: python3 scripts/run_agentic_stitch.py --environment dev --job-json "$JOB" --output receipts/agentic-stitch.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: agentic-stitch-${{ github.run_id }}
+          path: receipts/agentic-stitch.json
+          retention-days: 30

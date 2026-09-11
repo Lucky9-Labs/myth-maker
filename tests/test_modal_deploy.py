@@ -45,6 +45,35 @@ class ModalDeployTest(unittest.TestCase):
         self.assertIn('COMPONENT_DIFFUSION_FUNCTION = "run_component_diffusion_job"', deployed)
         self.assertIn('"component_diffusion_function_id": component_diffusion.object_id', deployed)
 
+    def test_deployment_verifies_agentic_stitch_function(self):
+        deployed = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn('AGENTIC_STITCH_FUNCTION = "run_agentic_stitch_job"', deployed)
+        self.assertIn('"agentic_stitch_function_id": agentic_stitch.object_id', deployed)
+
+    def test_agentic_stitch_workflow_uses_trusted_modal_runner(self):
+        workflow = (MODULE_PATH.parents[2] / ".github" / "workflows" /
+                    "asset-agentic-stitch.yml").read_text(encoding="utf-8")
+        runner = (MODULE_PATH.parents[2] / "scripts" / "run_agentic_stitch.py").read_text(encoding="utf-8")
+        self.assertIn("config.agentic_stitch_function_name", runner)
+        self.assertIn("scripts/run_agentic_stitch.py", workflow)
+        self.assertIn("persist-credentials: false", workflow)
+
+    def test_agentic_stitch_is_serialized_and_receives_openai_secret(self):
+        source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
+        decorator = source.split("def run_agentic_stitch_job", 1)[0].rsplit("@app.function", 1)[1]
+        body = source.split("def run_agentic_stitch_job", 1)[1].split("@app.function", 1)[0]
+        self.assertIn("max_containers=1", decorator)
+        self.assertIn("secrets=[secret]", decorator)
+        self.assertIn("validate_agentic_stitch_job(job)", body)
+        self.assertIn("volume.reload()", body)
+        self.assertIn("OpenAI()", body)
+        self.assertIn("part_leases.put", body)
+
+    def test_modal_images_contain_agentic_stitch_import_closure(self):
+        source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
+        self.assertGreaterEqual(source.count('HERE / "agentic_stitch.py"'), 2)
+        self.assertGreaterEqual(source.count('HERE / "agentic_stitch_blender.py"'), 2)
+
     def test_component_diffusion_has_four_worker_capacity(self):
         source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
         decorator = source.split("def run_component_diffusion_job", 1)[0].rsplit("@app.function", 1)[1]

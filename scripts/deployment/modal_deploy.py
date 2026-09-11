@@ -31,6 +31,7 @@ ASSET_PROGRESS_FETCH_FUNCTION = "get_asset_progress_dashboard"
 ASSET_REFERENCE_EVALUATION_FUNCTION = "evaluate_asset_reference_progress"
 ASSET_CORRECTION_PREPARE_FUNCTION = "prepare_asset_correction_wave"
 COMPONENT_DIFFUSION_FUNCTION = "run_component_diffusion_job"
+AGENTIC_STITCH_FUNCTION = "run_agentic_stitch_job"
 REQUIRED_CREDENTIALS = ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET", "OPENAI_API_KEY")
 IMAGE_ID = re.compile(r"\bim-[A-Za-z0-9]+\b")
 # The initial image pull/import can outlive the short CLI request cadence. Keep
@@ -170,6 +171,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     reference_evaluation = modal.Function.from_name(APP_NAME, ASSET_REFERENCE_EVALUATION_FUNCTION, environment_name=environment)
     correction_prepare = modal.Function.from_name(APP_NAME, ASSET_CORRECTION_PREPARE_FUNCTION, environment_name=environment)
     component_diffusion = modal.Function.from_name(APP_NAME, COMPONENT_DIFFUSION_FUNCTION, environment_name=environment)
+    agentic_stitch = modal.Function.from_name(APP_NAME, AGENTIC_STITCH_FUNCTION, environment_name=environment)
     draft.hydrate()
     probe.hydrate()
     production.hydrate()
@@ -180,7 +182,8 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     reference_evaluation.hydrate()
     correction_prepare.hydrate()
     component_diffusion.hydrate()
-    if not all(item.object_id for item in (draft, probe, production, critique, ledger, progress_refresh, progress_fetch, reference_evaluation, correction_prepare, component_diffusion)):
+    agentic_stitch.hydrate()
+    if not all(item.object_id for item in (draft, probe, production, critique, ledger, progress_refresh, progress_fetch, reference_evaluation, correction_prepare, component_diffusion, agentic_stitch)):
         raise RuntimeError("Modal function verification did not resolve provider function IDs")
 
     work_id = "ci-modal-probe"
@@ -206,7 +209,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
         "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id,
                          production.object_id, critique.object_id, ledger.object_id,
                          progress_refresh.object_id, progress_fetch.object_id, reference_evaluation.object_id,
-                         correction_prepare.object_id, component_diffusion.object_id],
+                         correction_prepare.object_id, component_diffusion.object_id, agentic_stitch.object_id],
         "health": {
             "status": "healthy",
             "environment": environment,
@@ -220,6 +223,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
             "asset_reference_evaluation_function_id": reference_evaluation.object_id,
             "asset_correction_prepare_function_id": correction_prepare.object_id,
             "component_diffusion_function_id": component_diffusion.object_id,
+            "agentic_stitch_function_id": agentic_stitch.object_id,
             "max_asset_production_containers": 4,
             "verified_secret_name": SECRET_NAME,
             "dedicated_secret_verified": True,
