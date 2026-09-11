@@ -35,6 +35,11 @@ class ModalDeployTest(unittest.TestCase):
         self.assertIn('COMPONENT_DIFFUSION_FUNCTION = "run_component_diffusion_job"', deployed)
         self.assertIn('"component_diffusion_function_id": component_diffusion.object_id', deployed)
 
+    def test_component_diffusion_has_four_worker_capacity(self):
+        source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
+        decorator = source.split("def run_component_diffusion_job", 1)[0].rsplit("@app.function", 1)[1]
+        self.assertIn("max_containers=4", decorator)
+
     def test_diffusion_observer_reports_the_gpu_function_queue(self):
         observer = (Path(__file__).parents[1] / "scripts" / "get_component_diffusion_status.py").read_text()
         self.assertIn("config.component_diffusion_function_name", observer)

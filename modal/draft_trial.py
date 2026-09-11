@@ -293,7 +293,7 @@ def run_asset_production_job(job: dict) -> dict:
 
 @app.function(image=diffusion_image, gpu=["L40S", "A100-40GB", "A100-80GB", "any"],
               cpu=4, memory=32768, timeout=30 * 60,
-              retries=0, max_containers=1, volumes={"/submissions": volume})
+              retries=0, max_containers=4, volumes={"/submissions": volume})
 def run_component_diffusion_job(job: dict) -> dict:
     """Generate immutable component shell candidates from the frozen cloud reference."""
     checked = validate_component_diffusion_job(job)
