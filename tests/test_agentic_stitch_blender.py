@@ -42,8 +42,10 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         source = DRIVER.read_text()
         self.assertIn("def fit_cockpit_glass", source)
         self.assertIn("target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))", source)
+        self.assertIn("outline = convex_hull_xz(front_vertices)", source)
         self.assertIn("cockpit-continuous-perimeter-frame", source)
         self.assertIn("cyan-cockpit-glass", source)
+        self.assertIn("shader.inputs['Base Color'].default_value", source)
 
     def test_review_camera_frames_generated_geometry(self):
         source = DRIVER.read_text()
