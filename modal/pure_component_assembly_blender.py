@@ -32,7 +32,7 @@ def main():
     world=bpy.context.scene.world or bpy.data.worlds.new('World'); bpy.context.scene.world=world; world.color=(.025,.025,.025)
     for loc,energy,size in [((4,-6,7),1400,5),((-4,-2,4),800,4),((0,5,6),1000,3)]:
         d=bpy.data.lights.new('studio','AREA'); d.energy=energy; d.shape='DISK'; d.size=size; ob=bpy.data.objects.new('studio',d); bpy.context.collection.objects.link(ob); ob.location=loc
-    scene=bpy.context.scene; scene.render.engine='BLENDER_EEVEE'; scene.render.resolution_x=720; scene.render.resolution_y=720; scene.render.resolution_percentage=100; scene.render.image_settings.file_format='PNG'; scene.render.film_transparent=False
+    scene=bpy.context.scene; scene.render.engine='BLENDER_WORKBENCH'; scene.display.shading.light='STUDIO'; scene.display.shading.color_type='MATERIAL'; scene.display.shading.show_shadows=True; scene.display.shading.show_cavity=True; scene.render.resolution_x=720; scene.render.resolution_y=720; scene.render.resolution_percentage=100; scene.render.image_settings.file_format='PNG'; scene.render.film_transparent=False
     camera_data=bpy.data.cameras.new('review-camera'); camera=bpy.data.objects.new('review-camera',camera_data); bpy.context.collection.objects.link(camera); scene.camera=camera
     def look(at):
         direction=Vector((0,0,3.4))-camera.location; camera.rotation_euler=direction.to_track_quat('-Z','Y').to_euler(); scene.render.filepath=str(out/at[0]); bpy.ops.render.render(write_still=True)
