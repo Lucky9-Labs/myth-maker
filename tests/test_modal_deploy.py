@@ -43,6 +43,7 @@ class ModalDeployTest(unittest.TestCase):
     def test_component_queue_reset_is_main_only_and_redeploys(self):
         workflow = (MODULE_PATH.parents[2] / ".github" / "workflows" /
                     "reset-modal-component-queue.yml").read_text(encoding="utf-8")
+        self.assertIn("id-token: write", workflow)
         self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
         self.assertIn("modal app stop myth-maker-encounter-draft --env dev", workflow)
         self.assertIn("controller.mjs deploy --provider modal --environment dev", workflow)
