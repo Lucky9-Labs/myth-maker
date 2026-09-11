@@ -20,6 +20,14 @@ def main():
     bpy.ops.import_scene.gltf(filepath=a.input)
     meshes = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
     if not meshes: raise RuntimeError('component GLB contains no mesh')
+    # Hunyuan GLBs can carry the reconstructed aspect ratio on an Empty parent
+    # while the child mesh remains in a normalized 2x2x2 domain.  Bake the full
+    # world matrix before selecting only meshes; otherwise cleanup/export drops
+    # the parent and silently turns a valid component back into its source cube.
+    for imported in meshes:
+        world = imported.matrix_world.copy()
+        imported.parent = None
+        imported.matrix_world = world
     bpy.ops.object.select_all(action='DESELECT')
     for obj in meshes: obj.select_set(True)
     bpy.context.view_layer.objects.active = meshes[0]
