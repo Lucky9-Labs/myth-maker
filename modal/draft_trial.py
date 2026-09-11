@@ -520,7 +520,7 @@ def get_asset_progress_dashboard(run_id: str) -> dict:
     return bundle
 
 
-@app.function(image=image, cpu=0.25, memory=512, timeout=120, retries=0,
+@app.function(image=image, cpu=0.25, memory=512, timeout=360, retries=0,
               max_containers=1, volumes={"/submissions": volume})
 def prepare_asset_correction_wave(run_id: str, runtime_deployment: dict,
                                   apply_reference_batch: bool = False,
