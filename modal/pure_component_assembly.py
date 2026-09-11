@@ -10,8 +10,10 @@ SHA = re.compile(r"^[a-f0-9]{64}$")
 
 def validate_pure_component_assembly_job(value: dict) -> dict:
     required={"format","run_id","work_id","attempt","asset_id","components","retired_sha256"}
-    if not isinstance(value,dict) or set(value)!=required or value.get("format")!=FORMAT or value.get("asset_id")!="mech":
+    if not isinstance(value,dict) or set(value) not in (required, required|{"output_mode"}) or value.get("format")!=FORMAT or value.get("asset_id")!="mech":
         raise ValueError("pure component assembly job has an invalid closed shape")
+    if value.get("output_mode", "full") not in {"full", "review-preview"}:
+        raise ValueError("pure component assembly output mode is invalid")
     if not all(isinstance(value.get(k),str) and NAME.fullmatch(value[k]) for k in ("run_id","work_id")):
         raise ValueError("pure component assembly identifiers are invalid")
     if not isinstance(value["attempt"],int) or isinstance(value["attempt"],bool) or value["attempt"]<1:
@@ -53,7 +55,8 @@ def run_pure_component_assembly(job:dict, submissions_root:Path, blender:str)->d
             raise ValueError("pure component artifact hash mismatch")
     started=datetime.now(timezone.utc); clock=time.monotonic()
     cp=subprocess.run([blender,"--background","--factory-startup","--disable-autoexec","--python","/opt/pure_component_assembly_blender.py","--","--job",str(root/"job.json"),"--submissions",str(submissions_root),"--output",str(root)],capture_output=True,text=True,timeout=12*60)
-    expected=[root/"assembly.blend",root/"assembly.glb",root/"three-quarter.png",root/"front.png",root/"side.png",root/"manifest.json"]
+    expected=[root/"three-quarter.png",root/"front.png",root/"side.png",root/"manifest.json"]
+    if checked.get("output_mode", "full") == "full": expected[:0]=[root/"assembly.blend",root/"assembly.glb"]
     if cp.returncode or not all(p.is_file() for p in expected):
         raise RuntimeError("pure component assembly failed: "+((cp.stderr or "")+"\n"+(cp.stdout or ""))[-3000:])
     media={".blend":"application/x-blender",".glb":"model/gltf-binary",".png":"image/png",".json":"application/json"}
