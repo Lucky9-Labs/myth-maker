@@ -40,6 +40,14 @@ class ModalDeployTest(unittest.TestCase):
         decorator = source.split("def run_component_diffusion_job", 1)[0].rsplit("@app.function", 1)[1]
         self.assertIn("max_containers=4", decorator)
 
+    def test_component_queue_reset_is_main_only_and_redeploys(self):
+        workflow = (MODULE_PATH.parents[2] / ".github" / "workflows" /
+                    "reset-modal-component-queue.yml").read_text(encoding="utf-8")
+        self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
+        self.assertIn("modal app stop myth-maker-encounter-draft --env dev", workflow)
+        self.assertIn("controller.mjs deploy --provider modal --environment dev", workflow)
+        self.assertIn("myth-maker.modal-component-queue-reset/v1", workflow)
+
     def test_diffusion_observer_reports_the_gpu_function_queue(self):
         observer = (Path(__file__).parents[1] / "scripts" / "get_component_diffusion_status.py").read_text()
         self.assertIn("config.component_diffusion_function_name", observer)
