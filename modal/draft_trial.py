@@ -34,6 +34,7 @@ from component_diffusion import (read_component_diffusion_status, run_component_
                                  validate_component_diffusion_job)
 from component_isolation import run_component_isolation, validate_component_isolation_job
 from component_review import run_component_review, validate_component_review_job
+from component_cleanup import run_component_cleanup, validate_component_cleanup_job
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -66,7 +67,9 @@ image = (image
          .add_local_file(HERE / "component_diffusion.py", "/opt/component_diffusion.py", copy=True))
 image = image.add_local_file(HERE / "component_isolation.py", "/opt/component_isolation.py", copy=True)
 image = (image.add_local_file(HERE / "component_review.py", "/opt/component_review.py", copy=True)
-         .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True))
+         .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True)
+         .add_local_file(HERE / "component_cleanup.py", "/opt/component_cleanup.py", copy=True)
+         .add_local_file(HERE / "component_cleanup_blender.py", "/opt/component_cleanup_blender.py", copy=True))
 
 diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu22.04", add_python="3.12")
     .apt_install("git", "libgl1", "libglib2.0-0")
@@ -348,6 +351,25 @@ def run_component_review_job(job: dict) -> dict:
         from openai import OpenAI
         volume.reload()
         receipt = run_component_review(checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender", OpenAI())
+        volume.commit()
+        return receipt
+    finally:
+        if part_leases.get(lease_key) == lease_value:
+            part_leases.pop(lease_key)
+
+
+@app.function(image=image, cpu=4, memory=8192, timeout=12 * 60, retries=0,
+              max_containers=4, volumes={"/submissions": volume})
+def run_component_cleanup_job(job: dict) -> dict:
+    """Produce one hash-addressed, re-reviewable cleanup of an accepted component."""
+    checked = validate_component_cleanup_job(job)
+    lease_key = "component-cleanup:" + checked["run_id"] + ":" + checked["component_id"]
+    lease_value = checked["work_id"] + ":a" + str(checked["attempt"])
+    if not part_leases.put(lease_key, lease_value, skip_if_exists=True):
+        raise RuntimeError("component cleanup lane already claimed")
+    try:
+        volume.reload()
+        receipt = run_component_cleanup(checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender")
         volume.commit()
         return receipt
     finally:
