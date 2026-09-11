@@ -14,6 +14,12 @@ def material(name, color, metallic=0.0, roughness=.42):
     value.diffuse_color = (*color, 1)
     value.metallic = metallic
     value.roughness = roughness
+    value.use_nodes = True
+    shader = value.node_tree.nodes.get('Principled BSDF')
+    if shader:
+        shader.inputs['Base Color'].default_value = (*color, 1)
+        shader.inputs['Metallic'].default_value = metallic
+        shader.inputs['Roughness'].default_value = roughness
     return value
 
 
@@ -39,6 +45,26 @@ def bounds_box(obj):
     return low, high
 
 
+def convex_hull_xz(points):
+    unique = sorted(set((round(point.x, 6), round(point.z, 6)) for point in points))
+    if len(unique) <= 2:
+        return unique
+    def cross(origin, first, second):
+        return ((first[0] - origin[0]) * (second[1] - origin[1]) -
+                (first[1] - origin[1]) * (second[0] - origin[0]))
+    lower = []
+    for point in unique:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+    upper = []
+    for point in reversed(unique):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+    return lower[:-1] + upper[:-1]
+
+
 def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     """Seat the separately generated glazing from measured torso proportions."""
     torso_low, torso_high = bounds_box(torso)
@@ -61,23 +87,25 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     bpy.context.view_layer.update()
 
     low, high = bounds_box(glass)
-    center = (low + high) * .5
-    half_x, half_z = (high.x - low.x) * .54, (high.z - low.z) * .54
-    cut_x, cut_z = half_x * .18, half_z * .13
-    y = low.y - max(torso_size.y * .012, .008)
-    outline = [
-        (-half_x + cut_x, half_z), (half_x - cut_x, half_z), (half_x, half_z - cut_z),
-        (half_x, -half_z + cut_z), (half_x - cut_x, -half_z),
-        (-half_x + cut_x, -half_z), (-half_x, -half_z + cut_z), (-half_x, half_z - cut_z),
-    ]
+    front_band = low.y + (high.y - low.y) * .16
+    front_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices
+                      if (glass.matrix_world @ vertex.co).y <= front_band]
+    outline = convex_hull_xz(front_vertices)
+    if len(outline) < 3:
+        raise RuntimeError('cockpit glass front contour could not be resolved')
+    center_x = sum(point[0] for point in outline) / len(outline)
+    center_z = sum(point[1] for point in outline) / len(outline)
+    outline = [(center_x + (x - center_x) * 1.025, center_z + (z - center_z) * 1.025)
+               for x, z in outline]
+    y = low.y + max(torso_size.y * .008, .006)
     curve_data = bpy.data.curves.new('cockpit-continuous-frame', 'CURVE')
     curve_data.dimensions = '3D'
-    curve_data.bevel_depth = max(min(torso_size.x, torso_size.z) * .018, .012)
+    curve_data.bevel_depth = max(min(torso_size.x, torso_size.z) * .009, .007)
     curve_data.bevel_resolution = 3
     spline = curve_data.splines.new('POLY')
     spline.points.add(len(outline) - 1)
     for point, (x, z) in zip(spline.points, outline):
-        point.co = (center.x + x, y, center.z + z, 1)
+        point.co = (x, y, z, 1)
     spline.use_cyclic_u = True
     frame = bpy.data.objects.new('cockpit-continuous-perimeter-frame', curve_data)
     bpy.context.collection.objects.link(frame)
