@@ -67,6 +67,10 @@ def convex_hull_xz(points):
 
 def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     """Seat the separately generated glazing from measured torso proportions."""
+    # The reference canopy follows the raked cockpit mouth rather than standing
+    # vertically inside it. Keep this as a bounded rigid correction.
+    glass.rotation_euler.x += math.radians(-8)
+    bpy.context.view_layer.update()
     torso_low, torso_high = bounds_box(torso)
     glass_low, glass_high = bounds_box(glass)
     torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
@@ -87,24 +91,25 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     bpy.context.view_layer.update()
 
     low, high = bounds_box(glass)
-    front_band = low.y + (high.y - low.y) * .16
-    front_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices
-                      if (glass.matrix_world @ vertex.co).y <= front_band]
-    outline = convex_hull_xz(front_vertices)
+    world_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices]
+    outline = convex_hull_xz(world_vertices)
     if len(outline) < 3:
         raise RuntimeError('cockpit glass front contour could not be resolved')
     center_x = sum(point[0] for point in outline) / len(outline)
     center_z = sum(point[1] for point in outline) / len(outline)
     outline = [(center_x + (x - center_x) * 1.025, center_z + (z - center_z) * 1.025)
                for x, z in outline]
-    y = low.y + max(torso_size.y * .008, .006)
+    recessed_outline = []
+    for x, z in outline:
+        nearest = min(world_vertices, key=lambda vertex: (vertex.x - x) ** 2 + (vertex.z - z) ** 2)
+        recessed_outline.append((x, nearest.y + max(torso_size.y * .005, .004), z))
     curve_data = bpy.data.curves.new('cockpit-continuous-frame', 'CURVE')
     curve_data.dimensions = '3D'
     curve_data.bevel_depth = max(min(torso_size.x, torso_size.z) * .009, .007)
     curve_data.bevel_resolution = 3
     spline = curve_data.splines.new('POLY')
-    spline.points.add(len(outline) - 1)
-    for point, (x, z) in zip(spline.points, outline):
+    spline.points.add(len(recessed_outline) - 1)
+    for point, (x, y, z) in zip(spline.points, recessed_outline):
         point.co = (x, y, z, 1)
     spline.use_cyclic_u = True
     frame = bpy.data.objects.new('cockpit-continuous-perimeter-frame', curve_data)
