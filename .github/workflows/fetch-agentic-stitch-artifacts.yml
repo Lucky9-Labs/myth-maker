@@ -44,16 +44,17 @@ jobs:
           mkdir -p fetched
           modal volume get --env dev --force myth-maker-encounter-submissions "$remote" fetched/
           root="fetched/$attempt_dir"
-          test -s "$root/three-quarter.png"
-          test -s "$root/front.png"
-          test -s "$root/side.png"
-          test -s "$root/assembly.glb"
-          test -s "$root/assembly.blend"
-          test -s "$root/stitch-report.json"
-          test -s "$root/receipt.json"
-          sha256sum "$root/three-quarter.png" "$root/front.png" "$root/side.png" \
-            "$root/assembly.glb" "$root/assembly.blend" "$root/stitch-report.json" \
-            "$root/receipt.json" > fetched/sha256sums.txt
+          if test -s "$root/receipt.json"; then
+            test -s "$root/three-quarter.png"
+            test -s "$root/front.png"
+            test -s "$root/side.png"
+            test -s "$root/assembly.glb"
+            test -s "$root/assembly.blend"
+            test -s "$root/stitch-report.json"
+          else
+            test -s "$root/failure.json"
+          fi
+          find "$root" -maxdepth 1 -type f -print0 | sort -z | xargs -0 sha256sum > fetched/sha256sums.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: agentic-stitch-artifacts-${{ github.run_id }}
