@@ -111,13 +111,15 @@ def cockpit_mating_boundaries(torso, glass):
         _, torso_index, _ = torso_tree.find(Vector((x, 0.0, z)))
         torso_point = torso_vertices[torso_index]
         radial = Vector((x, 0.0, z)) - center
-        minimum_outer = Vector((x, glass_point.y + .006, z)) + radial * .028
-        measured_outer = Vector((torso_point.x, max(torso_point.y, glass_point.y + .004), torso_point.z))
+        minimum_outer = Vector((x, glass_point.y - .008, z)) + radial * .028
+        measured_y = min(torso_point.y, glass_point.y - .004)
+        measured_y = max(measured_y, glass_point.y - .06)
+        measured_outer = Vector((torso_point.x, measured_y, torso_point.z))
         # Use the measured torso rim when it is near this glass boundary, while
         # preventing unrelated exterior vertices from producing long spikes.
         if (Vector((measured_outer.x, 0.0, measured_outer.z)) - Vector((x, 0.0, z))).length > max(radial.length * .14, .025):
             measured_outer = minimum_outer
-        inner.append(Vector((x, glass_point.y + .004, z)))
+        inner.append(Vector((x, glass_point.y, z)))
         outer.append(measured_outer.lerp(minimum_outer, .35))
     return inner, outer
 
@@ -159,17 +161,32 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     torso_low, torso_high = bounds_box(torso)
     glass_low, glass_high = bounds_box(glass)
     torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
-    target = Vector((torso_size.x * .49, torso_size.y * .21, torso_size.z * .63))
+    target = Vector((torso_size.x * .40, torso_size.y * .18, torso_size.z * .56))
     factors = Vector(tuple(target[i] / max(glass_size[i], 1e-6) for i in range(3)))
     glass.scale = Vector(tuple(glass.scale[i] * factors[i] for i in range(3)))
     bpy.context.view_layer.update()
     glass_low, glass_high = bounds_box(glass)
     glass_center = (glass_low + glass_high) * .5
     torso_center = (torso_low + torso_high) * .5
-    desired_front = torso_low.y + torso_size.y * .12
+    desired_front = torso_low.y + torso_size.y * .28
     desired_center = Vector((torso_center.x, desired_front + (glass_high.y - glass_low.y) * .5,
                              torso_center.z + torso_size.z * .055))
     glass.location += desired_center - glass_center
+    bpy.context.view_layer.update()
+    # Hunyuan preserved the attractive central canopy facets but added narrow
+    # lateral tabs. Constrain only the perimeter to a tapered cockpit envelope.
+    glass_low, glass_high = bounds_box(glass)
+    glass_center = (glass_low + glass_high) * .5
+    inverse = glass.matrix_world.inverted()
+    height = max(glass_high.z - glass_low.z, 1e-6)
+    half_width = (glass_high.x - glass_low.x) * .5
+    for vertex in glass.data.vertices:
+        world = glass.matrix_world @ vertex.co
+        vertical = max(0.0, min(1.0, (world.z - glass_low.z) / height))
+        envelope = half_width * (.72 + .28 * math.sin(math.pi * vertical))
+        world.x = glass_center.x + max(-envelope, min(envelope, world.x - glass_center.x))
+        vertex.co = inverse @ world
+    glass.data.update()
     glass.data.materials.clear()
     glass.data.materials.append(glass_material)
     glass['fit_primitive'] = 'cockpit-glass-seat-v1'
