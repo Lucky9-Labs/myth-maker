@@ -51,6 +51,17 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("cyan-cockpit-glass", source)
         self.assertIn("shader.inputs['Base Color'].default_value", source)
 
+    def test_reconstructs_melted_hip_parts_from_hunyuan_bounds(self):
+        source = DRIVER.read_text()
+        self.assertIn("def reconstruct_hip_hard_surfaces", source)
+        self.assertIn("required = {'hip-outer-casing', 'hip-pivot-rotor'}", source)
+        self.assertIn("vertices=vertices", source)
+        self.assertIn("boolean.operation = 'DIFFERENCE'", source)
+        self.assertIn("boolean.solver = 'EXACT'", source)
+        self.assertIn("'postprocess'", source)
+        self.assertIn("'hunyuan-bounds-hard-surface-v1'", source)
+        self.assertIn("'postprocessed_objects'", source)
+
     def test_review_camera_frames_generated_geometry(self):
         source = DRIVER.read_text()
         self.assertIn("points = [point for obj in visible for point in world_bounds(obj)]", source)

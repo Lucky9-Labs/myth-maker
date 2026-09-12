@@ -204,6 +204,104 @@ def collar(name, center, direction, radius, depth, mat, parent, connection_id):
     return obj
 
 
+def cylinder_y(name, center, radius, depth, vertices, mat, parent):
+    """Create a mechanically aligned cylinder whose axis is world Y."""
+    bpy.ops.mesh.primitive_cylinder_add(
+        vertices=vertices, radius=radius, depth=depth, location=center,
+        rotation=(math.radians(90), 0, 0))
+    obj = bpy.context.object
+    obj.name = name
+    obj.data.materials.append(mat)
+    obj.parent = parent
+    return obj
+
+
+def bevel_object(obj, width):
+    modifier = obj.modifiers.new('bounded-hard-surface-bevel', 'BEVEL')
+    modifier.width = width
+    modifier.segments = 2
+    modifier.limit_method = 'ANGLE'
+    modifier.angle_limit = math.radians(30)
+    modifier.use_clamp_overlap = True
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+
+
+def reconstruct_hip_hard_surfaces(objects, root, mats):
+    """Replace melted diffusion topology with bounded mechanical primitives.
+
+    Hunyuan remains the shape proposal: its placed bounds set the envelope and
+    center.  The replacement only regularizes the two shapes that must mate: an
+    octagonal casing with a true bore and a coaxial stepped rotor.  Source hashes
+    stay attached to the replacements for lineage and review.
+    """
+    required = {'hip-outer-casing', 'hip-pivot-rotor'}
+    if not required <= set(objects):
+        return []
+    casing_source = objects['hip-outer-casing']
+    rotor_source = objects['hip-pivot-rotor']
+    casing_low, casing_high = bounds_box(casing_source)
+    rotor_low, rotor_high = bounds_box(rotor_source)
+    casing_center = (casing_low + casing_high) * .5
+    rotor_center = (rotor_low + rotor_high) * .5
+    casing_size = casing_high - casing_low
+    rotor_size = rotor_high - rotor_low
+
+    casing_radius = max(min(casing_size.x, casing_size.z) * .48, .02)
+    casing_depth = max(casing_size.y * .78, .02)
+    bore_radius = casing_radius * .57
+    casing = cylinder_y('hip-outer-casing', casing_center, casing_radius,
+                        casing_depth, 8, mats['source'], root)
+    cutter = cylinder_y('hip-pivot-bore-cutter', casing_center, bore_radius,
+                        casing_depth * 1.3, 96, mats['connector'], root)
+    boolean = casing.modifiers.new('precision-pivot-bore', 'BOOLEAN')
+    boolean.operation = 'DIFFERENCE'
+    boolean.solver = 'EXACT'
+    boolean.object = cutter
+    bpy.ops.object.select_all(action='DESELECT')
+    casing.select_set(True)
+    bpy.context.view_layer.objects.active = casing
+    bpy.ops.object.modifier_apply(modifier=boolean.name)
+    bpy.data.objects.remove(cutter, do_unlink=True)
+    bevel_object(casing, casing_radius * .025)
+    casing['component_id'] = 'hip-outer-casing'
+    casing['source_sha256'] = casing_source.get('source_sha256', '')
+    casing['postprocess'] = 'hunyuan-bounds-hard-surface-v1'
+
+    rotor_radius = min(max(min(rotor_size.x, rotor_size.z) * .46, .015), bore_radius * .93)
+    rotor_depth = min(max(rotor_size.y * .62, .02), casing_depth * .92)
+    rotor = cylinder_y('hip-pivot-rotor', rotor_center, rotor_radius,
+                       rotor_depth, 64, mats['source'], root)
+    bevel_object(rotor, rotor_radius * .018)
+    rotor['component_id'] = 'hip-pivot-rotor'
+    rotor['source_sha256'] = rotor_source.get('source_sha256', '')
+    rotor['postprocess'] = 'hunyuan-bounds-hard-surface-v1'
+
+    # Add stepped annular shoulders and a recessed front hub. Their overlap is
+    # deliberate: the rotor is one rigid articulated member, while the casing
+    # remains separate across the clearance boundary.
+    decorative = []
+    front_y = rotor_center.y - rotor_depth * .5
+    for index, (radius_scale, depth_scale, offset_scale) in enumerate((
+            (.88, .10, -.02), (.67, .07, -.07), (.38, .035, -.115))):
+        part = cylinder_y(
+            f'hip-pivot-front-step-{index + 1}',
+            Vector((rotor_center.x, front_y + rotor_depth * offset_scale, rotor_center.z)),
+            rotor_radius * radius_scale, rotor_depth * depth_scale, 64,
+            mats['connector'] if index != 1 else mats['source'], root)
+        part['component_id'] = 'hip-pivot-rotor'
+        decorative.append(part)
+
+    bpy.data.objects.remove(casing_source, do_unlink=True)
+    bpy.data.objects.remove(rotor_source, do_unlink=True)
+    objects['hip-outer-casing'] = casing
+    objects['hip-pivot-rotor'] = rotor
+    bpy.context.view_layer.update()
+    return [casing, rotor, *decorative]
+
+
 def main():
     tail = __import__('sys').argv[__import__('sys').argv.index('--') + 1:]
     parser = argparse.ArgumentParser()
@@ -258,6 +356,8 @@ def main():
         origins[component['component_id']] = Vector(transform['location_m'])
         bounds[component['component_id']] = placement['max_translation_m']
     bpy.context.view_layer.update()
+
+    reconstructed = reconstruct_hip_hard_surfaces(objects, root, mats)
 
     cockpit_frame = None
     if 'torso-structural-shell' in objects and 'cockpit-glass' in objects:
@@ -331,6 +431,7 @@ def main():
             'topology_changed': bool(connections),
             'all_required_connections_resolved': len(connections) == len(job['global_plan']['connections']),
         },
+        'postprocessed_objects': [obj.name for obj in reconstructed],
     }
     required_seams_manifold = all(item['connector_manifold'] for item in connections)
     physically_connected = (
