@@ -40,7 +40,7 @@ def validate_pure_component_assembly_job(value: dict) -> dict:
             vals=item[key]
             if not isinstance(vals,list) or len(vals)!=3 or any(not isinstance(x,(int,float)) or isinstance(x,bool) or abs(x)>limit or (positive and x<=0) for x in vals):
                 raise ValueError("pure component transform is invalid")
-        if not isinstance(item["mirror_x"],bool) or item["material"] not in {"structural","armor-white","armor-blue","lens","metal"}:
+        if not isinstance(item["mirror_x"],bool) or item["material"] not in {"source","structural","armor-white","armor-blue","lens","metal"}:
             raise ValueError("pure component presentation is invalid")
     return json.loads(json.dumps(value))
 

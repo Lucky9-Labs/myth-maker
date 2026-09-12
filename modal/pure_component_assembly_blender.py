@@ -2,7 +2,7 @@
 import argparse, json, math
 from pathlib import Path
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 def material(name,color,metallic=0.0,roughness=.42):
     m=bpy.data.materials.new(name); m.diffuse_color=(*color,1); m.metallic=metallic; m.roughness=roughness; return m
@@ -17,19 +17,35 @@ def main():
     for item in job['components']:
         before=set(bpy.context.scene.objects); bpy.ops.import_scene.gltf(filepath=str(submissions/item['artifact']['path'])); meshes=[o for o in bpy.context.scene.objects if o not in before and o.type=='MESH']
         if not meshes: raise RuntimeError('component import produced no mesh: '+item['component_id'])
-        bpy.ops.object.select_all(action='DESELECT')
-        for o in meshes: o.select_set(True)
-        bpy.context.view_layer.objects.active=meshes[0]
-        if len(meshes)>1: bpy.ops.object.join()
-        o=bpy.context.view_layer.objects.active; o.name=item['component_id']; o.parent=None
-        world=o.matrix_world.copy(); o.data.transform(world); o.matrix_world.identity(); bpy.context.view_layer.update()
-        dims=Vector(item['dimensions']); current=o.dimensions; o.scale=tuple(dims[i]/current[i] if current[i] else 1 for i in range(3)); bpy.ops.object.transform_apply(location=False,rotation=False,scale=True)
-        if job.get('output_mode') == 'review-preview' and len(o.data.polygons) > 60000:
-            modifier=o.modifiers.new('bounded-review-proxy','DECIMATE'); modifier.ratio=max(60000/len(o.data.polygons),0.02); bpy.context.view_layer.objects.active=o; bpy.ops.object.modifier_apply(modifier=modifier.name)
-        o.location=item['location']; o.rotation_euler=[math.radians(x) for x in item['rotation_degrees']]; o.data.materials.clear(); o.data.materials.append(mats[item['material']]); o.parent=root
-        o['source_sha256']=item['artifact']['sha256']; o['component_id']=item['component_id']; manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False})
+        # Preserve promoted assemblies as groups. Joining all imported meshes before
+        # proxy reduction destroys glass/armor separation and can collapse nearby
+        # internal shells into visible noise.
+        for o in meshes:
+            o.parent=None
+            world=o.matrix_world.copy(); o.data.transform(world); o.matrix_world.identity()
+        bpy.context.view_layer.update()
+        points=[Vector(corner) for o in meshes for corner in o.bound_box]
+        lower=Vector((min(p.x for p in points),min(p.y for p in points),min(p.z for p in points)))
+        upper=Vector((max(p.x for p in points),max(p.y for p in points),max(p.z for p in points)))
+        center=(lower+upper)*.5; current=upper-lower; dims=Vector(item['dimensions'])
+        group=bpy.data.objects.new(item['component_id'],None); bpy.context.collection.objects.link(group); group.parent=root
+        group.location=item['location']; group.rotation_euler=[math.radians(x) for x in item['rotation_degrees']]
+        group.scale=tuple(dims[i]/current[i] if current[i] else 1 for i in range(3))
+        total_polygons=sum(len(o.data.polygons) for o in meshes)
+        proxy_ratio=max(60000/total_polygons,0.02) if job.get('output_mode') == 'review-preview' and total_polygons>60000 else 1.0
+        for index,o in enumerate(meshes):
+            o.data.transform(Matrix.Translation(-center)); o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
+            if proxy_ratio<1.0 and len(o.data.polygons)>32:
+                modifier=o.modifiers.new('bounded-review-proxy','DECIMATE'); modifier.ratio=proxy_ratio; bpy.context.view_layer.objects.active=o; bpy.ops.object.modifier_apply(modifier=modifier.name)
+            if item['material']!='source': o.data.materials.clear(); o.data.materials.append(mats[item['material']])
+            o['source_sha256']=item['artifact']['sha256']; o['component_id']=item['component_id']
+            manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False})
         if item['mirror_x']:
-            q=o.copy(); q.data=o.data.copy(); q.name=item['component_id']+'-mirrored'; bpy.context.collection.objects.link(q); q.location.x=-o.location.x; q.scale.x=-1; q.parent=root; q['source_sha256']=item['artifact']['sha256']; q['component_id']=item['component_id']; manifest.append({'object':q.name,'source_sha256':item['artifact']['sha256'],'mirrored':True})
+            mirror=bpy.data.objects.new(item['component_id']+'-mirrored',None); bpy.context.collection.objects.link(mirror); mirror.parent=root
+            mirror.location=(-group.location.x,group.location.y,group.location.z); mirror.rotation_euler=group.rotation_euler; mirror.scale=(-group.scale.x,group.scale.y,group.scale.z)
+            for index,o in enumerate(meshes):
+                q=o.copy(); q.data=o.data.copy(); q.name=f"{item['component_id']}-mirrored-{index:02d}"; bpy.context.collection.objects.link(q); q.parent=mirror
+                q['source_sha256']=item['artifact']['sha256']; q['component_id']=item['component_id']; manifest.append({'object':q.name,'source_sha256':item['artifact']['sha256'],'mirrored':True})
     bpy.context.view_layer.update()
     world=bpy.context.scene.world or bpy.data.worlds.new('World'); bpy.context.scene.world=world; world.color=(.025,.025,.025)
     for loc,energy,size in [((4,-6,7),1400,5),((-4,-2,4),800,4),((0,5,6),1000,3)]:
