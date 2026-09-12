@@ -10,7 +10,7 @@ class Tests(unittest.TestCase):
         driver=(Path(__file__).parents[1]/'modal'/'pure_component_assembly_blender.py').read_text()
         self.assertIn("scene.render.engine='BLENDER_EEVEE'",driver)
         self.assertIn("320 if job.get('output_mode')=='review-preview' else 720",driver)
-        self.assertIn("total_polygons>60000",driver)
+        self.assertNotIn("DECIMATE",driver)
         self.assertIn("item['material']!='source'",driver)
         self.assertNotIn("bpy.ops.object.join()",driver)
         self.assertNotIn('BLENDER_EEVEE_NEXT',driver)
