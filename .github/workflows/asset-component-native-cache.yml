@@ -14,9 +14,13 @@ jobs:
     environment: dev
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: {ref: main, fetch-depth: 1, persist-credentials: false}
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with: {python-version: '3.12'}
+        with:
+          python-version: '3.12'
       - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
       - env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
@@ -24,4 +28,7 @@ jobs:
           JOB: ${{ inputs.job }}
         run: python3 scripts/run_component_native_cache.py --environment dev --job-json "$JOB" --output receipts/component-native-cache.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with: {name: component-native-cache-${{ github.run_id }}, path: receipts/component-native-cache.json, retention-days: 30}
+        with:
+          name: component-native-cache-${{ github.run_id }}
+          path: receipts/component-native-cache.json
+          retention-days: 30
