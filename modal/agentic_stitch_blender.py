@@ -122,7 +122,7 @@ def resample_closed_outline(outline, count=20):
 
 
 def cockpit_mating_boundaries(torso, glass):
-    """Measure paired glass and torso loops instead of inventing a hoop."""
+    """Build ordered, non-crossing seat loops around the authored glass."""
     glass_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices]
     glass_front = min(point.y for point in glass_vertices)
     glass_back = max(point.y for point in glass_vertices)
@@ -133,31 +133,23 @@ def cockpit_mating_boundaries(torso, glass):
     for index, point in enumerate(front_slice):
         glass_tree.insert(Vector((point.x, 0.0, point.z)), index)
     glass_tree.balance()
-    torso_vertices = [torso.matrix_world @ vertex.co for vertex in torso.data.vertices]
-    torso_tree = KDTree(len(torso_vertices))
-    for index, point in enumerate(torso_vertices):
-        torso_tree.insert(Vector((point.x, 0.0, point.z)), index)
-    torso_tree.balance()
     inner, outer = [], []
     center = Vector((sum(x for x, _ in outline) / len(outline), 0.0,
                      sum(z for _, z in outline) / len(outline)))
     for x, z in outline:
         _, glass_index, _ = glass_tree.find(Vector((x, 0.0, z)))
         glass_point = front_slice[glass_index]
-        _, torso_index, _ = torso_tree.find(Vector((x, 0.0, z)))
-        torso_point = torso_vertices[torso_index]
         radial = Vector((x, 0.0, z)) - center
-        minimum_outer = Vector((x, glass_point.y - .008, z)) + radial * .055
-        measured_y = min(torso_point.y, glass_point.y - .004)
-        measured_y = max(measured_y, glass_point.y - .06)
-        measured_outer = Vector((torso_point.x, measured_y, torso_point.z))
-        # Use the measured torso rim when it is near this glass boundary, while
-        # preventing unrelated exterior vertices from producing long spikes.
-        if (Vector((measured_outer.x, 0.0, measured_outer.z)) - Vector((x, 0.0, z))).length > max(radial.length * .14, .025):
-            measured_outer = minimum_outer
-        inner_point = center + radial * .94
-        inner.append(Vector((inner_point.x, glass_point.y - .006, inner_point.z)))
-        outer.append(measured_outer.lerp(minimum_outer, .35))
+        # Nearest torso vertices are not a valid boundary correspondence: on a
+        # layered Hunyuan shell they jump between the brow, shoulder armor and
+        # cavity wall, folding the band across the glazing. Offset the ordered
+        # glass contour radially so both rings retain identical winding and can
+        # never cross the central canopy field.
+        inner_point = center + radial * .985
+        outer_point = center + radial * 1.10
+        seat_y = glass_point.y - .010
+        inner.append(Vector((inner_point.x, seat_y, inner_point.z)))
+        outer.append(Vector((outer_point.x, seat_y - .004, outer_point.z)))
     return inner, outer
 
 
@@ -231,7 +223,7 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
         'cockpit-continuous-perimeter-frame', inner, outer,
         max(torso_size.y * .014, .007), torso_material, root)
     frame['generated_connection_id'] = 'cockpit-continuous-perimeter'
-    frame['fit_primitive'] = 'measured-paired-boundary-seat-v2'
+    frame['fit_primitive'] = 'ordered-noncrossing-boundary-seat-v3'
     return frame
 
 
