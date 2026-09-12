@@ -35,6 +35,7 @@ from component_diffusion import (read_component_diffusion_status, run_component_
 from component_isolation import run_component_isolation, validate_component_isolation_job
 from component_review import run_component_review, validate_component_review_job
 from component_cleanup import run_component_cleanup, validate_component_cleanup_job
+from component_native_cache import run_component_native_cache, validate_component_native_cache_job
 from pure_component_assembly import run_pure_component_assembly, validate_pure_component_assembly_job
 from component_coordinator import run_component_coordinator, validate_component_coordinator_job
 from agentic_stitch import run_agentic_stitch, validate_agentic_stitch_job
@@ -73,6 +74,8 @@ image = (image.add_local_file(HERE / "component_review.py", "/opt/component_revi
          .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True)
          .add_local_file(HERE / "component_cleanup.py", "/opt/component_cleanup.py", copy=True)
          .add_local_file(HERE / "component_cleanup_blender.py", "/opt/component_cleanup_blender.py", copy=True)
+         .add_local_file(HERE / "component_native_cache.py", "/opt/component_native_cache.py", copy=True)
+         .add_local_file(HERE / "component_native_cache_blender.py", "/opt/component_native_cache_blender.py", copy=True)
          .add_local_file(HERE / "pure_component_assembly.py", "/opt/pure_component_assembly.py", copy=True)
          .add_local_file(HERE / "pure_component_assembly_blender.py", "/opt/pure_component_assembly_blender.py", copy=True)
          .add_local_file(HERE / "component_coordinator.py", "/opt/component_coordinator.py", copy=True)
@@ -115,6 +118,8 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
     .add_local_file(HERE / "component_review_blender.py", "/opt/component_review_blender.py", copy=True)
     .add_local_file(HERE / "component_cleanup.py", "/opt/component_cleanup.py", copy=True)
     .add_local_file(HERE / "component_cleanup_blender.py", "/opt/component_cleanup_blender.py", copy=True)
+    .add_local_file(HERE / "component_native_cache.py", "/opt/component_native_cache.py", copy=True)
+    .add_local_file(HERE / "component_native_cache_blender.py", "/opt/component_native_cache_blender.py", copy=True)
     .add_local_file(HERE / "pure_component_assembly.py", "/opt/pure_component_assembly.py", copy=True)
     .add_local_file(HERE / "pure_component_assembly_blender.py", "/opt/pure_component_assembly_blender.py", copy=True)
     .add_local_file(HERE / "component_coordinator.py", "/opt/component_coordinator.py", copy=True)
@@ -390,6 +395,17 @@ def run_component_cleanup_job(job: dict) -> dict:
     finally:
         if part_leases.get(lease_key) == lease_value:
             part_leases.pop(lease_key)
+
+
+@app.function(image=image, cpu=4, memory=8192, timeout=14 * 60, retries=0,
+              max_containers=4, volumes={str(SUBMISSIONS_ROOT): volume})
+def run_component_native_cache_job(job: dict) -> dict:
+    """Losslessly cache one hash-locked Hunyuan GLB as a native checkpoint."""
+    checked = validate_component_native_cache_job(job)
+    volume.reload()
+    receipt = run_component_native_cache(checked, SUBMISSIONS_ROOT, "/usr/local/bin/blender")
+    volume.commit()
+    return receipt
 
 
 @app.function(image=image, cpu=4, memory=8192, timeout=30 * 60, retries=0,

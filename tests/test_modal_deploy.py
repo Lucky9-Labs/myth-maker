@@ -104,6 +104,7 @@ class ModalDeployTest(unittest.TestCase):
             "asset_production.py", "asset_progress.py", "component_diffusion.py",
             "component_review.py", "component_review_blender.py",
             "component_cleanup.py", "component_cleanup_blender.py",
+            "component_native_cache.py", "component_native_cache_blender.py",
             "pure_component_assembly.py", "pure_component_assembly_blender.py",
             "component_coordinator.py",
         ):
