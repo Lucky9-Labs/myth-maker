@@ -7,6 +7,7 @@ from pathlib import Path
 import bpy
 import bmesh
 from mathutils import Vector
+from mathutils.kdtree import KDTree
 
 
 def material(name, color, metallic=0.0, roughness=.42):
@@ -137,6 +138,39 @@ def mesh_is_manifold(obj):
         mesh.free()
 
 
+def project_path_to_surface(obj, local_points):
+    tree = KDTree(len(obj.data.vertices))
+    for index, vertex in enumerate(obj.data.vertices):
+        tree.insert(obj.matrix_world @ vertex.co, index)
+    tree.balance()
+    projected = []
+    for point in local_points:
+        location, _, _ = tree.find(local_anchor_world(obj, point))
+        projected.append(location.copy())
+    return projected
+
+
+def bridge_paths(name, source_points, target_points, closed, thickness, mat, parent, connection_id):
+    if len(source_points) != len(target_points) or len(source_points) < 3:
+        raise RuntimeError('paired stitch paths are incompatible: ' + connection_id)
+    vertices = []
+    for source, target in zip(source_points, target_points):
+        vertices.extend((tuple(source), tuple(target)))
+    faces = []
+    limit = len(source_points) if closed else len(source_points) - 1
+    for index in range(limit):
+        following = (index + 1) % len(source_points)
+        faces.append((index * 2, following * 2, following * 2 + 1, index * 2 + 1))
+    mesh = bpy.data.meshes.new(name + '-mesh'); mesh.from_pydata(vertices, [], faces); mesh.update()
+    bridge = bpy.data.objects.new(name, mesh); bpy.context.collection.objects.link(bridge)
+    bridge.data.materials.append(mat); bridge.parent = parent
+    bridge['generated_connection_id'] = connection_id
+    solidify = bridge.modifiers.new('fitted-seat-thickness', 'SOLIDIFY')
+    solidify.thickness = max(thickness, .001); solidify.offset = 0
+    bpy.context.view_layer.objects.active = bridge; bpy.ops.object.modifier_apply(modifier=solidify.name)
+    return bridge
+
+
 def cylinder_between(name, start, end, radius, mat, parent, connection_id):
     delta = end - start
     # A solved interface still needs material spanning both mating lands.
@@ -264,9 +298,11 @@ def main():
         if connection['connection_id'] == 'cockpit-continuous-perimeter' and cockpit_frame is not None:
             connector = cockpit_frame
         else:
-            connector = cylinder_between(connection['connection_id'] + '-connector', start, end, radius, mats['connector'], root, connection['connection_id'])
-            collar(connection['connection_id'] + '-from-collar', start, direction, dimensions['radius_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
-            collar(connection['connection_id'] + '-to-collar', end, direction, dimensions['radius_m'] + dimensions['clearance_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
+            source_path = project_path_to_surface(source, connection['from_path_local_m'])
+            target_path = project_path_to_surface(target, connection['to_path_local_m'])
+            connector = bridge_paths(connection['connection_id'] + '-fitted-seat', source_path, target_path,
+                                     connection['path_closed'], radius * .35, mats['connector'], root,
+                                     connection['connection_id'])
         source_contact_m = point_aabb_distance(start, source)
         target_contact_m = point_aabb_distance(end, target)
         surface_gap = max(source_contact_m, target_contact_m)

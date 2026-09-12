@@ -55,11 +55,14 @@ PLAN_SCHEMA = {
         "sections": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["section_id", "component_ids", "target_role"], "properties": {
             "section_id": {"type": "string"}, "component_ids": {"type": "array", "items": {"type": "string"}}, "target_role": {"type": "string"},
         }}},
-        "connections": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["connection_id", "from_component", "from_interface", "from_anchor_local_m", "to_component", "to_interface", "to_anchor_local_m", "method", "connector", "max_gap_m"], "properties": {
+        "connections": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["connection_id", "from_component", "from_interface", "from_anchor_local_m", "from_path_local_m", "to_component", "to_interface", "to_anchor_local_m", "to_path_local_m", "path_closed", "method", "connector", "max_gap_m"], "properties": {
             "connection_id": {"type": "string"}, "from_component": {"type": "string"}, "from_interface": {"type": "string"},
             "from_anchor_local_m": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3},
+            "from_path_local_m": {"type": "array", "items": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3}, "minItems": 3, "maxItems": 32},
             "to_component": {"type": "string"}, "to_interface": {"type": "string"},
             "to_anchor_local_m": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3},
+            "to_path_local_m": {"type": "array", "items": {"type": "array", "items": {"type": "number", "minimum": -20, "maximum": 20}, "minItems": 3, "maxItems": 3}, "minItems": 3, "maxItems": 32},
+            "path_closed": {"type": "boolean"},
             "method": {"type": "string", "enum": sorted(STITCH_METHODS)},
             "connector": {"type": "object", "additionalProperties": False, "required": ["radius_m", "collar_length_m", "clearance_m"], "properties": {
                 "radius_m": {"type": "number", "minimum": 0.001, "maximum": 2}, "collar_length_m": {"type": "number", "minimum": 0, "maximum": 2}, "clearance_m": {"type": "number", "minimum": 0, "maximum": 0.1},
@@ -245,8 +248,8 @@ def _validate_plan(plan: object, component_ids: set[str]) -> None:
     for connection in connections:
         if not isinstance(connection, dict) or set(connection) != {
             "connection_id", "from_component", "from_interface",
-            "from_anchor_local_m", "to_component", "to_interface",
-            "to_anchor_local_m", "method", "connector", "max_gap_m",
+            "from_anchor_local_m", "from_path_local_m", "to_component", "to_interface",
+            "to_anchor_local_m", "to_path_local_m", "path_closed", "method", "connector", "max_gap_m",
         }:
             raise ValueError("agentic stitch connection has an invalid closed shape")
         source, target = connection.get("from_component"), connection.get("to_component")
@@ -260,6 +263,12 @@ def _validate_plan(plan: object, component_ids: set[str]) -> None:
             or not _interface_description(connection.get("to_interface"))
             or not _vector(connection.get("from_anchor_local_m"), minimum=-20.0, maximum=20.0)
             or not _vector(connection.get("to_anchor_local_m"), minimum=-20.0, maximum=20.0)
+            or not isinstance(connection.get("from_path_local_m"), list)
+            or not 3 <= len(connection["from_path_local_m"]) <= 32
+            or len(connection["from_path_local_m"]) != len(connection.get("to_path_local_m", []))
+            or any(not _vector(point, minimum=-20.0, maximum=20.0) for point in connection["from_path_local_m"])
+            or any(not _vector(point, minimum=-20.0, maximum=20.0) for point in connection["to_path_local_m"])
+            or not isinstance(connection.get("path_closed"), bool)
             or connection.get("method") not in STITCH_METHODS
             or not _number(connection.get("max_gap_m"), minimum=0.0, maximum=0.01)
         ):
@@ -526,7 +535,9 @@ def run_agentic_stitch(
             "and preserve articulation clearance. A transform-only or disconnected puzzle layout is forbidden. "
             "Every component must appear exactly once in placements and sections; the connection graph must span every "
             "component; every connection must receive build-connector, bridge-seam, or remesh-union. Use meters and local "
-            "component anchor coordinates. max_gap_m and acceptance max_surface_gap_m must be <=0.01; connector radius "
+            "component anchor coordinates. Every connection must include paired, equally sampled from_path_local_m and "
+            "to_path_local_m surface paths with 3 to 32 points; use path_closed for perimeter loops. The paths, rather "
+            "than prose, define the continuous seam Blender must build. max_gap_m and acceptance max_surface_gap_m must be <=0.01; connector radius "
             "0.001..2; collar length 0..2; clearance 0..0.1; max translation 0..5. Return JSON only.\n"
             f"OBJECTIVE: {checked['objective']}\n"
             f"COMPONENTS: {json.dumps([{'component_id': item['component_id'], 'sha256': item['artifact']['sha256']} for item in checked['components']])}"

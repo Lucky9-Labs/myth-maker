@@ -40,9 +40,12 @@ def job() -> dict:
             "from_component": "torso",
             "from_interface": "cockpit-recess",
             "from_anchor_local_m": [0, -0.4, 0.3],
+            "from_path_local_m": [[-0.2, -0.4, 0.1], [0, -0.4, 0.3], [0.2, -0.4, 0.1]],
             "to_component": "cockpit-glass",
             "to_interface": "glass-rim",
             "to_anchor_local_m": [0, 0.1, 0],
+            "to_path_local_m": [[-0.2, 0.1, -0.2], [0, 0.1, 0], [0.2, 0.1, -0.2]],
+            "path_closed": False,
             "method": "reshape-and-bridge",
             "connector": {"radius_m": 0.12, "collar_length_m": 0.04, "clearance_m": 0.002},
             "max_gap_m": 0.002,
@@ -52,9 +55,12 @@ def job() -> dict:
             "from_component": "torso",
             "from_interface": "waist-land",
             "from_anchor_local_m": [0, 0, -0.8],
+            "from_path_local_m": [[-0.2, 0, -0.8], [0, 0, -0.8], [0.2, 0, -0.8]],
             "to_component": "pelvis",
             "to_interface": "spine-seat",
             "to_anchor_local_m": [0, 0, 0.4],
+            "to_path_local_m": [[-0.2, 0, 0.4], [0, 0, 0.4], [0.2, 0, 0.4]],
+            "path_closed": False,
             "method": "socket-fit",
             "connector": {"radius_m": 0.2, "collar_length_m": 0.1, "clearance_m": 0.003},
             "max_gap_m": 0.003,
@@ -193,6 +199,12 @@ class Tests(unittest.TestCase):
         value = job()
         value["_test_plan"]["acceptance"]["max_unresolved_connections"] = 1
         with self.assertRaisesRegex(ValueError, "close every required connection"):
+            close(value)
+
+    def test_rejects_unpaired_stitch_paths(self):
+        value = job()
+        value["_test_plan"]["connections"][0]["to_path_local_m"].pop()
+        with self.assertRaisesRegex(ValueError, "connection is invalid"):
             close(value)
 
     def test_rejects_duplicate_operation_id(self):
