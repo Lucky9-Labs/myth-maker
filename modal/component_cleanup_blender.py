@@ -209,11 +209,28 @@ def main():
                 inside_depth = abs(world[axis_index] - center[axis_index]) <= depth * .72
                 if inside_depth and abs(radial - radius) <= tolerance:
                     indices.append(vertex.index)
+            seat_source = 'boolean-cut'
+            # A generated component may already contain an open socket at the
+            # requested end.  In that case the difference cutter sits inside
+            # the void and creates no vertices at its exact radius.  Preserve
+            # that useful cavity and identify its existing rim within a
+            # bounded annulus instead of failing or filling the opening.
+            if not indices:
+                inner = radius * .65
+                outer = radius * 1.35
+                for vertex in obj.data.vertices:
+                    world = obj.matrix_world @ vertex.co
+                    radial = sum((world[i] - center[i]) ** 2 for i in radial_axes) ** .5
+                    inside_depth = abs(world[axis_index] - center[axis_index]) <= depth * .9
+                    if inside_depth and inner <= radial <= outer:
+                        indices.append(vertex.index)
+                seat_source = 'existing-rim'
             if not indices:
                 raise RuntimeError('socket cutout did not create a named seat: ' + spec['name'])
             group.add(indices, 1.0, 'REPLACE')
             socket_records.append({'name': spec['name'], 'axis': spec['axis'], 'side': spec['side'],
-                                   'vertices': len(indices), 'radius': radius, 'depth': depth})
+                                   'vertices': len(indices), 'radius': radius, 'depth': depth,
+                                   'seat_source': seat_source})
     if a.mechanical_patch:
         patch = json.loads(a.mechanical_patch)
         minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
