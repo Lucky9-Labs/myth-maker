@@ -22,3 +22,8 @@ class Tests(unittest.TestCase):
         runner=(Path(__file__).parents[1]/'modal'/'component_native_cache.py').read_text()
         self.assertIn('"geometry_changed":False',runner)
         self.assertIn('"model_calls":0',runner)
+    def test_dispatcher_uses_runtime_app_name(self):
+        script=(Path(__file__).parents[1]/'scripts'/'run_component_native_cache.py').read_text()
+        self.assertIn('cfg=runtime(a.environment)',script)
+        self.assertIn('modal.Function.from_name(cfg.app_name',script)
+        self.assertNotIn("'myth-maker-draft-trial'",script)
