@@ -21,7 +21,8 @@ class Tests(unittest.TestCase):
         runner=(Path(__file__).parents[1]/'modal'/'pure_component_assembly.py').read_text()
         service=(Path(__file__).parents[1]/'modal'/'draft_trial.py').read_text()
         self.assertIn('timeout=28*60',runner)
-        self.assertIn('timeout=30 * 60',service)
+        decorator=service.split('def run_pure_component_assembly_job',1)[0].rsplit('@app.function',1)[1]
+        self.assertIn('timeout=30 * 60',decorator)
     def test_accepts_hash_locked_component(self): self.assertEqual(validate_pure_component_assembly_job(job()),job())
     def test_accepts_bounded_review_preview(self):
         x=job(); x['output_mode']='review-preview'

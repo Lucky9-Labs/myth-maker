@@ -392,7 +392,7 @@ def run_component_cleanup_job(job: dict) -> dict:
             part_leases.pop(lease_key)
 
 
-@app.function(image=image, cpu=4, memory=8192, timeout=12 * 60, retries=0,
+@app.function(image=image, cpu=4, memory=8192, timeout=30 * 60, retries=0,
               max_containers=1, volumes={str(SUBMISSIONS_ROOT): volume})
 def run_pure_component_assembly_job(job: dict) -> dict:
     """Build a sculpture composite from explicit component hashes and an empty scene."""
