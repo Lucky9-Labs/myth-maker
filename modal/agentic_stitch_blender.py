@@ -124,13 +124,13 @@ def resample_closed_outline(outline, count=20):
 def cockpit_mating_boundaries(torso, glass):
     """Build ordered, non-crossing seat loops around the authored glass."""
     glass_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices]
-    glass_front = min(point.y for point in glass_vertices)
-    glass_back = max(point.y for point in glass_vertices)
-    front_slice = [point for point in glass_vertices
-                   if point.y <= glass_front + (glass_back - glass_front) * .32]
-    outline = resample_closed_outline(convex_hull_xz(front_slice), 20)
-    glass_tree = KDTree(len(front_slice))
-    for index, point in enumerate(front_slice):
+    # The canopy is convex and faceted: its most-forward depth slice describes
+    # only the raised central bulge. A frame built from that slice becomes the
+    # polygonal arch seen across the glazing. The full X/Z silhouette describes
+    # the actual outer attachment boundary.
+    outline = resample_closed_outline(convex_hull_xz(glass_vertices), 24)
+    glass_tree = KDTree(len(glass_vertices))
+    for index, point in enumerate(glass_vertices):
         glass_tree.insert(Vector((point.x, 0.0, point.z)), index)
     glass_tree.balance()
     inner, outer = [], []
@@ -138,7 +138,7 @@ def cockpit_mating_boundaries(torso, glass):
                      sum(z for _, z in outline) / len(outline)))
     for x, z in outline:
         _, glass_index, _ = glass_tree.find(Vector((x, 0.0, z)))
-        glass_point = front_slice[glass_index]
+        glass_point = glass_vertices[glass_index]
         radial = Vector((x, 0.0, z)) - center
         # Nearest torso vertices are not a valid boundary correspondence: on a
         # layered Hunyuan shell they jump between the brow, shoulder armor and
@@ -223,7 +223,7 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
         'cockpit-continuous-perimeter-frame', inner, outer,
         max(torso_size.y * .014, .007), torso_material, root)
     frame['generated_connection_id'] = 'cockpit-continuous-perimeter'
-    frame['fit_primitive'] = 'ordered-noncrossing-boundary-seat-v3'
+    frame['fit_primitive'] = 'full-silhouette-boundary-seat-v4'
     return frame
 
 
