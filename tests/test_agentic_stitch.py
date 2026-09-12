@@ -12,6 +12,8 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
 from agentic_stitch import (  # noqa: E402
     FORMAT,
     PLAN_FORMAT,
+    _upgrade_legacy_accepted_plan,
+    _validate_plan,
     close_agentic_stitch_job,
     run_agentic_stitch,
     validate_agentic_stitch_job,
@@ -141,6 +143,18 @@ def close(value: dict) -> dict:
 
 
 class Tests(unittest.TestCase):
+    def test_upgrades_legacy_accepted_connection_paths(self):
+        legacy = job()["_test_plan"]
+        connection = legacy["connections"][0]
+        connection.pop("from_path_local_m")
+        connection.pop("to_path_local_m")
+        connection.pop("path_closed")
+        upgraded = _upgrade_legacy_accepted_plan(legacy)
+        self.assertEqual(len(upgraded["connections"][0]["from_path_local_m"]), 3)
+        self.assertEqual(len(upgraded["connections"][0]["to_path_local_m"]), 3)
+        self.assertTrue(upgraded["connections"][0]["path_closed"])
+        _validate_plan(upgraded, {"torso", "cockpit-glass", "pelvis"})
+
     def test_closes_valid_model_authored_job(self):
         value = job()
         closed = close(value)
