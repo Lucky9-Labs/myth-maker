@@ -155,7 +155,8 @@ def cockpit_mating_boundaries(torso, glass):
         # preventing unrelated exterior vertices from producing long spikes.
         if (Vector((measured_outer.x, 0.0, measured_outer.z)) - Vector((x, 0.0, z))).length > max(radial.length * .14, .025):
             measured_outer = minimum_outer
-        inner.append(Vector((x, glass_point.y, z)))
+        inner_point = center + radial * .94
+        inner.append(Vector((inner_point.x, glass_point.y - .006, inner_point.z)))
         outer.append(measured_outer.lerp(minimum_outer, .35))
     return inner, outer
 
@@ -210,20 +211,9 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
                              torso_center.z + torso_size.z * .055))
     glass.location += desired_center - glass_center
     bpy.context.view_layer.update()
-    # Hunyuan preserved the attractive central canopy facets but added narrow
-    # lateral tabs. Constrain only the perimeter to a tapered cockpit envelope.
-    glass_low, glass_high = bounds_box(glass)
-    glass_center = (glass_low + glass_high) * .5
-    inverse = glass.matrix_world.inverted()
-    height = max(glass_high.z - glass_low.z, 1e-6)
-    half_width = (glass_high.x - glass_low.x) * .5
-    for vertex in glass.data.vertices:
-        world = glass.matrix_world @ vertex.co
-        vertical = max(0.0, min(1.0, (world.z - glass_low.z) / height))
-        envelope = half_width * (.72 + .28 * math.sin(math.pi * vertical))
-        world.x = glass_center.x + max(-envelope, min(envelope, world.x - glass_center.x))
-        vertex.co = inverse @ world
-    glass.data.update()
+    # Keep the Hunyuan-authored canopy surface intact. The retaining lip masks
+    # its peripheral edge; deforming individual boundary vertices creates long
+    # folded faces and visible contours across the central glazing.
     mesh = bmesh.new()
     mesh.from_mesh(glass.data)
     mesh.normal_update()
