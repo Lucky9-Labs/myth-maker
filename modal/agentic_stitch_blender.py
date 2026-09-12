@@ -460,6 +460,12 @@ def main():
     for _ in range(24):
         largest = 0.0
         for connection in job['global_plan']['connections']:
+            # The cockpit fitter has already registered the irregular glass
+            # perimeter and generated its matching frame. Moving only the two
+            # source objects afterward detaches that generated frame and
+            # buries the glazing, so this local fit owns the connection pose.
+            if connection['connection_id'] == 'cockpit-continuous-perimeter' and cockpit_frame is not None:
+                continue
             source = objects[connection['from_component']]
             target = objects[connection['to_component']]
             delta = local_anchor_world(target, connection['to_anchor_local_m']) - local_anchor_world(source, connection['from_anchor_local_m'])

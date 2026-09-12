@@ -16,6 +16,15 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("bounded_location(source", source)
         self.assertIn("bounded_location(target", source)
 
+    def test_cockpit_specific_fit_is_not_detached_by_generic_solver(self):
+        source = DRIVER.read_text()
+        self.assertIn("connection['connection_id'] == 'cockpit-continuous-perimeter' and cockpit_frame is not None", source)
+        fit = source.index("cockpit_frame = fit_cockpit_glass")
+        skip = source.index("# The cockpit fitter has already registered")
+        solve = source.index("bounded_location(source")
+        self.assertLess(fit, skip)
+        self.assertLess(skip, solve)
+
     def test_every_resolved_edge_creates_real_geometry(self):
         source = DRIVER.read_text()
         self.assertIn("project_path_to_surface(source, connection['from_path_local_m'])", source)
