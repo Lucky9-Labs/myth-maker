@@ -30,18 +30,25 @@ def main():
         center=(lower+upper)*.5; current=upper-lower; dims=Vector(item['dimensions'])
         group=bpy.data.objects.new(item['component_id'],None); bpy.context.collection.objects.link(group); group.parent=root
         group.location=item['location']; group.rotation_euler=[math.radians(x) for x in item['rotation_degrees']]
-        group.scale=tuple(dims[i]/current[i] if current[i] else 1 for i in range(3))
+        # Dimensions describe a placement envelope, not a replacement volume.
+        # Uniform scaling preserves the Hunyuan component's authored proportions
+        # and leaves honest gaps where no generated component exists yet.
+        scale_candidates=[dims[i]/current[i] for i in range(3) if current[i]]
+        uniform_scale=min(scale_candidates) if scale_candidates else 1.0
+        group.scale=(uniform_scale,uniform_scale,uniform_scale)
         for index,o in enumerate(meshes):
             o.data.transform(Matrix.Translation(-center)); o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
             if item['material']!='source': o.data.materials.clear(); o.data.materials.append(mats[item['material']])
             o['source_sha256']=item['artifact']['sha256']; o['component_id']=item['component_id']
-            manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False})
+            manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False,
+                             'placement_mode':'uniform-envelope','uniform_scale':round(uniform_scale,8)})
         if item['mirror_x']:
             mirror=bpy.data.objects.new(item['component_id']+'-mirrored',None); bpy.context.collection.objects.link(mirror); mirror.parent=root
             mirror.location=(-group.location.x,group.location.y,group.location.z); mirror.rotation_euler=group.rotation_euler; mirror.scale=(-group.scale.x,group.scale.y,group.scale.z)
             for index,o in enumerate(meshes):
                 q=o.copy(); q.data=o.data.copy(); q.name=f"{item['component_id']}-mirrored-{index:02d}"; bpy.context.collection.objects.link(q); q.parent=mirror
-                q['source_sha256']=item['artifact']['sha256']; q['component_id']=item['component_id']; manifest.append({'object':q.name,'source_sha256':item['artifact']['sha256'],'mirrored':True})
+                q['source_sha256']=item['artifact']['sha256']; q['component_id']=item['component_id']; manifest.append({'object':q.name,'source_sha256':item['artifact']['sha256'],'mirrored':True,
+                    'placement_mode':'uniform-envelope','uniform_scale':round(uniform_scale,8)})
     bpy.context.view_layer.update()
     world=bpy.context.scene.world or bpy.data.worlds.new('World'); bpy.context.scene.world=world; world.color=(.025,.025,.025)
     for loc,energy,size in [((4,-6,7),1400,5),((-4,-2,4),800,4),((0,5,6),1000,3)]:

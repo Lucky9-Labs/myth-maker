@@ -12,6 +12,9 @@ class Tests(unittest.TestCase):
         self.assertIn("320 if job.get('output_mode')=='review-preview' else 720",driver)
         self.assertNotIn("DECIMATE",driver)
         self.assertIn("item['material']!='source'",driver)
+        self.assertIn("uniform_scale=min(scale_candidates)",driver)
+        self.assertIn("'placement_mode':'uniform-envelope'",driver)
+        self.assertNotIn("dims[i]/current[i] if current[i] else 1",driver)
         self.assertNotIn("bpy.ops.object.join()",driver)
         self.assertNotIn('BLENDER_EEVEE_NEXT',driver)
     def test_dense_composition_has_a_bounded_thirty_minute_window(self):
