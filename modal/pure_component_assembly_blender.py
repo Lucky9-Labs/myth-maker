@@ -28,14 +28,10 @@ def main():
         bpy.context.view_layer.update()
         meshes=[o for o in bpy.context.scene.objects if o not in before and o.type=='MESH']
         if not meshes: raise RuntimeError('component import produced no mesh: '+item['component_id'])
-        # Preserve promoted assemblies as groups. Joining all imported meshes before
-        # proxy reduction destroys glass/armor separation and can collapse nearby
-        # internal shells into visible noise.
-        for o in meshes:
-            o.parent=None
-            world=o.matrix_world.copy(); o.data.transform(world); o.matrix_world.identity()
-        bpy.context.view_layer.update()
-        points=[Vector(corner) for o in meshes for corner in o.bound_box]
+        # Keep source mesh datablocks immutable. Bounds and placement operate on
+        # object matrices, avoiding an O(vertex-count) rewrite on every assembly.
+        source_world={o:o.matrix_world.copy() for o in meshes}
+        points=[source_world[o] @ Vector(corner) for o in meshes for corner in o.bound_box]
         lower=Vector((min(p.x for p in points),min(p.y for p in points),min(p.z for p in points)))
         upper=Vector((max(p.x for p in points),max(p.y for p in points),max(p.z for p in points)))
         center=(lower+upper)*.5; current=upper-lower; dims=Vector(item['dimensions'])
@@ -47,8 +43,10 @@ def main():
         scale_candidates=[dims[i]/current[i] for i in range(3) if current[i]]
         uniform_scale=min(scale_candidates) if scale_candidates else 1.0
         group.scale=(uniform_scale,uniform_scale,uniform_scale)
+        bpy.context.view_layer.update()
         for index,o in enumerate(meshes):
-            o.data.transform(Matrix.Translation(-center)); o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
+            o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
+            o.matrix_world=group.matrix_world @ Matrix.Translation(-center) @ source_world[o]
             if item['material']!='source': o.data.materials.clear(); o.data.materials.append(mats[item['material']])
             o['source_sha256']=item['artifact']['sha256']; o['component_id']=item['component_id']
             manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False,
@@ -57,7 +55,8 @@ def main():
             mirror=bpy.data.objects.new(item['component_id']+'-mirrored',None); bpy.context.collection.objects.link(mirror); mirror.parent=root
             mirror.location=(-group.location.x,group.location.y,group.location.z); mirror.rotation_euler=group.rotation_euler; mirror.scale=(-group.scale.x,group.scale.y,group.scale.z)
             for index,o in enumerate(meshes):
-                q=o.copy(); q.data=o.data.copy(); q.name=f"{item['component_id']}-mirrored-{index:02d}"; bpy.context.collection.objects.link(q); q.parent=mirror
+                q=o.copy(); q.data=o.data; q.name=f"{item['component_id']}-mirrored-{index:02d}"; bpy.context.collection.objects.link(q); q.parent=mirror
+                q.matrix_world=mirror.matrix_world @ Matrix.Translation(-center) @ source_world[o]
                 q['source_sha256']=item['artifact']['sha256']; q['component_id']=item['component_id']; manifest.append({'object':q.name,'source_sha256':item['artifact']['sha256'],'mirrored':True,
                     'placement_mode':'uniform-envelope','uniform_scale':round(uniform_scale,8)})
     bpy.context.view_layer.update()

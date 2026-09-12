@@ -17,6 +17,9 @@ class Tests(unittest.TestCase):
         self.assertIn("'placement_mode':'uniform-envelope'",driver)
         self.assertNotIn("dims[i]/current[i] if current[i] else 1",driver)
         self.assertNotIn("bpy.ops.object.join()",driver)
+        self.assertNotIn("o.data.transform",driver)
+        self.assertIn("source_world[o] @ Vector(corner)",driver)
+        self.assertIn("q.data=o.data",driver)
         self.assertNotIn('BLENDER_EEVEE_NEXT',driver)
     def test_dense_composition_has_a_bounded_thirty_minute_window(self):
         runner=(Path(__file__).parents[1]/'modal'/'pure_component_assembly.py').read_text()
