@@ -199,7 +199,7 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 or not 0.15 <= two_bore["bore_spacing_ratio"] <= 0.7
                 or not isinstance(two_bore.get("bevel_ratio"), (int, float))
                 or isinstance(two_bore.get("bevel_ratio"), bool)
-                or not 0 <= two_bore["bevel_ratio"] <= 0.05
+                or not 0 <= two_bore["bevel_ratio"] <= 0.2
                 or any(not isinstance(two_bore.get(name), str) or not IDENTIFIER.fullmatch(two_bore[name])
                        for name in ("inner_seat_name", "outer_seat_name"))):
             raise ValueError("two bore mount rebuild is invalid")

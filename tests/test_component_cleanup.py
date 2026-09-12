@@ -134,4 +134,15 @@ class ComponentCleanupTests(unittest.TestCase):
         self.assertIn("total_length = sum(lengths)", script)
         self.assertIn("cursor += sign * length", script)
 
+    def test_two_bore_mount_allows_broad_hard_surface_corner_cuts(self):
+        value = job()
+        value['source_review']['decision'] = 'regenerate'
+        value['two_bore_mount_rebuild'] = {
+            'type': 'two-bore-hard-surface-mount', 'axis': 'x', 'plate_side': 'positive',
+            'housing_size_ratio': [.62, .62, .9], 'plate_size_ratio': [.08, .5, .82],
+            'spacer_size_ratio': [.04, .54, .86], 'bore_radius_ratio': .11,
+            'bore_spacing_ratio': .48, 'bevel_ratio': .12, 'replace_source': True,
+            'inner_seat_name': 'pelvis-side-seat', 'outer_seat_name': 'lateral-hip-seat'}
+        self.assertEqual(validate_component_cleanup_job(value), value)
+
 if __name__=='__main__': unittest.main()
