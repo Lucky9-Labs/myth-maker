@@ -31,7 +31,7 @@ def validate_pure_component_assembly_job(value: dict) -> dict:
         if not isinstance(cid,str) or not NAME.fullmatch(cid) or cid in seen: raise ValueError("component ids must be unique")
         seen.add(cid); art=item["artifact"]
         if (not isinstance(art,dict) or set(art)!={"path","bytes","sha256","media_type"}
-            or art.get("media_type")!="model/gltf-binary" or not isinstance(art.get("path"),str)
+            or art.get("media_type") not in {"model/gltf-binary","application/x-blender"} or not isinstance(art.get("path"),str)
             or Path(art["path"]).is_absolute() or ".." in Path(art["path"]).parts
             or not isinstance(art.get("bytes"),int) or art["bytes"]<1 or not SHA.fullmatch(str(art.get("sha256","")))):
             raise ValueError("pure component artifact is invalid")

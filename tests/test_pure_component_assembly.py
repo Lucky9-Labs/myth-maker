@@ -25,6 +25,9 @@ class Tests(unittest.TestCase):
         decorator=service.split('def run_pure_component_assembly_job',1)[0].rsplit('@app.function',1)[1]
         self.assertIn('timeout=30 * 60',decorator)
     def test_accepts_hash_locked_component(self): self.assertEqual(validate_pure_component_assembly_job(job()),job())
+    def test_accepts_hash_locked_native_blender_component(self):
+        x=job(); x['components'][0]['artifact']['media_type']='application/x-blender'; x['components'][0]['artifact']['path']='asset-production/pilot/torso.blend'
+        self.assertEqual(validate_pure_component_assembly_job(x),x)
     def test_accepts_bounded_review_preview(self):
         x=job(); x['output_mode']='review-preview'
         self.assertEqual(validate_pure_component_assembly_job(x),x)

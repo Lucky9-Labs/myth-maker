@@ -15,7 +15,18 @@ def main():
     mats={"structural":material("structural",(.055,.065,.075)),"armor-white":material("armor-white",(.72,.69,.64)),"armor-blue":material("armor-blue",(.16,.32,.48)),"lens":material("lens",(.05,.42,.58),.15,.22),"metal":material("metal",(.22,.24,.26),.8,.25)}
     root=bpy.data.objects.new('mech-pure-root',None); bpy.context.collection.objects.link(root); manifest=[]
     for item in job['components']:
-        before=set(bpy.context.scene.objects); bpy.ops.import_scene.gltf(filepath=str(submissions/item['artifact']['path'])); meshes=[o for o in bpy.context.scene.objects if o not in before and o.type=='MESH']
+        before=set(bpy.context.scene.objects)
+        source_path=submissions/item['artifact']['path']
+        if item['artifact']['media_type']=='application/x-blender':
+            with bpy.data.libraries.load(str(source_path),link=False) as (source, target):
+                target.objects=source.objects
+            for loaded in target.objects:
+                if loaded is not None and loaded.name not in bpy.context.scene.objects:
+                    bpy.context.collection.objects.link(loaded)
+        else:
+            bpy.ops.import_scene.gltf(filepath=str(source_path))
+        bpy.context.view_layer.update()
+        meshes=[o for o in bpy.context.scene.objects if o not in before and o.type=='MESH']
         if not meshes: raise RuntimeError('component import produced no mesh: '+item['component_id'])
         # Preserve promoted assemblies as groups. Joining all imported meshes before
         # proxy reduction destroys glass/armor separation and can collapse nearby
