@@ -236,6 +236,18 @@ def bevel_object(obj, width):
     bpy.ops.object.modifier_apply(modifier=modifier.name)
 
 
+def hard_surface_box(name, center, dimensions, mat, parent, bevel=.008):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=center)
+    obj = bpy.context.object
+    obj.name = name
+    obj.dimensions = dimensions
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    obj.data.materials.append(mat)
+    obj.parent = parent
+    bevel_object(obj, bevel)
+    return obj
+
+
 def reconstruct_hip_hard_surfaces(objects, root, mats):
     """Replace melted diffusion topology with bounded mechanical primitives.
 
@@ -285,21 +297,34 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     rotor['source_sha256'] = rotor_source.get('source_sha256', '')
     rotor['postprocess'] = 'hunyuan-bounds-hard-surface-v1'
 
-    # Add the plan-authored retaining drum, front ring and recessed center.
-    # Their overlap is
+    # Add the plan-authored retaining drum, annular front ring and recessed
+    # center floor. Their overlap is
     # deliberate: the rotor is one rigid articulated member, while the casing
     # remains separate across the clearance boundary.
     decorative = []
     front_y = rotor_center.y - rotor_depth * .5
-    for index, (step_radius, step_depth, center_y) in enumerate((
-            (.205, .035, front_y - .0175),
-            (.150, .025, front_y - .0350),
-            (.105, .012, front_y - .0340))):
-        part = cylinder_y(
-            f'hip-pivot-front-step-{index + 1}',
-            Vector((rotor_center.x, center_y, rotor_center.z)),
-            step_radius, step_depth, 64,
-            mats['connector'] if index != 1 else mats['source'], root)
+    flange = cylinder_y('hip-pivot-front-step-1',
+                        Vector((rotor_center.x, front_y - .0175, rotor_center.z)),
+                        .205, .035, 256, mats['connector'], root)
+    ring = cylinder_y('hip-pivot-front-step-2',
+                      Vector((rotor_center.x, front_y - .0350, rotor_center.z)),
+                      .150, .025, 256, mats['source'], root)
+    ring_cutter = cylinder_y('hip-pivot-front-ring-cutter',
+                             Vector((rotor_center.x, front_y - .0350, rotor_center.z)),
+                             .105, .04, 256, mats['connector'], root)
+    ring_boolean = ring.modifiers.new('recessed-center-opening', 'BOOLEAN')
+    ring_boolean.operation = 'DIFFERENCE'
+    ring_boolean.solver = 'EXACT'
+    ring_boolean.object = ring_cutter
+    bpy.ops.object.select_all(action='DESELECT')
+    ring.select_set(True)
+    bpy.context.view_layer.objects.active = ring
+    bpy.ops.object.modifier_apply(modifier=ring_boolean.name)
+    bpy.data.objects.remove(ring_cutter, do_unlink=True)
+    floor = cylinder_y('hip-pivot-front-step-3',
+                       Vector((rotor_center.x, front_y - .0340, rotor_center.z)),
+                       .102, .012, 256, mats['connector'], root)
+    for part in (flange, ring, floor):
         part['component_id'] = 'hip-pivot-rotor'
         decorative.append(part)
 
@@ -336,6 +361,15 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
         seat.data.transform(Matrix.Translation(-local_center))
         seat.location += world_offset
         seat['postprocess'] = 'hunyuan-seat-envelope-normalization-v1'
+        # Retain the successful Hunyuan cap/body mass while replacing only the
+        # visibly melted outboard panel with a thin manufactured shell.
+        seat_panel = hard_surface_box(
+            'hip-seat-clean-outboard-panel', Vector((.507, 0, 0)),
+            Vector((.014, .164, .32)), mats['source'], root, .012)
+        seat_panel['component_id'] = 'hip-seat-block'
+        seat_panel['source_sha256'] = seat.get('source_sha256', '')
+        seat_panel['postprocess'] = 'local-planar-seat-panel-v1'
+        decorative.append(seat_panel)
 
     bpy.data.objects.remove(casing_source, do_unlink=True)
     bpy.data.objects.remove(rotor_source, do_unlink=True)
