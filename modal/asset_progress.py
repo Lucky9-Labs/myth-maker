@@ -133,6 +133,17 @@ def _verified_reference(developments: list[dict], asset_id: str) -> dict | None:
     return None
 
 
+def _artifact_items(receipt: dict):
+    """Normalize artifact collections across Blender and model receipts."""
+    artifacts = receipt.get("artifacts") or {}
+    if isinstance(artifacts, dict):
+        return artifacts.items()
+    if isinstance(artifacts, list):
+        return ((Path(item.get("path", f"artifact-{index}")).name, item)
+                for index, item in enumerate(artifacts) if isinstance(item, dict))
+    return ()
+
+
 def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str) -> tuple[str, ...] | None:
     """Resolve the immutable component hashes that define one asset render."""
     attempts = []
@@ -142,7 +153,7 @@ def _asset_component_signature(run_root: Path, asset_id: str, render_sha256: str
             attempts.append((path, receipt))
     rendered = [(path, receipt) for path, receipt in attempts
                 if any((name.startswith("renders/") or name == "three-quarter.png") and item.get("sha256") == render_sha256
-                       for name, item in (receipt.get("artifacts") or {}).items())]
+                       for name, item in _artifact_items(receipt))]
     if not rendered:
         return None
     path, receipt = rendered[-1]
@@ -315,7 +326,7 @@ def _candidate_is_attributed(run_root: Path, asset_id: str, render_sha256: str |
         if receipt: attempts.append((path, receipt, _read_json(path.parent / "job.json")))
     rendered = [(path, receipt, job) for path, receipt, job in attempts
                 if any(name.startswith("renders/") and item.get("sha256") == render_sha256
-                       for name, item in (receipt.get("artifacts") or {}).items())]
+                       for name, item in _artifact_items(receipt))]
     if not rendered:
         return None
     _path, receipt, job = rendered[-1]
