@@ -14,6 +14,12 @@ def job():
 
 class ComponentIsolationTests(unittest.TestCase):
     def test_closed_contract(self): self.assertEqual(validate_component_isolation_job(job()), job())
+    def test_accepts_neighbor_registration_context(self):
+        value=job(); value['registration_context']='shoulder housing above and elbow housing below'
+        self.assertEqual(validate_component_isolation_job(value),value)
+        source=(Path(__file__).parents[1]/'modal'/'component_isolation.py').read_text()
+        self.assertIn('only as faint translucent cyan registration silhouettes',source)
+        self.assertIn('Do not merge, bridge, stretch, or fill',source)
     def test_rejects_unbounded_quality(self):
         value = {**job(), "quality": "max"}
         with self.assertRaisesRegex(ValueError, "low or medium"): validate_component_isolation_job(value)
