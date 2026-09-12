@@ -23,6 +23,7 @@ def main():
     p.add_argument('--salvage-bounds')
     p.add_argument('--mechanical-patch')
     p.add_argument('--aperture-cutout')
+    p.add_argument('--interface-rebuild')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -130,6 +131,51 @@ def main():
                 indices.append(vertex.index)
         if indices: group.add(indices, 1.0, 'REPLACE')
         aperture_vertices = len(indices); aperture_name = aperture['seat_name']
+    interface_objects = []
+    if a.interface_rebuild:
+        interfaces = json.loads(a.interface_rebuild)
+        minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        maximum = [max((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        extent = [maximum[i] - minimum[i] for i in range(3)]
+        rotations = {'x': (0, 1.57079632679, 0), 'y': (1.57079632679, 0, 0), 'z': (0, 0, 0)}
+        for spec in interfaces:
+            location = tuple(minimum[i] + extent[i] * spec['center_ratio'][i] for i in range(3))
+            dimensions = tuple(extent[i] * spec['size_ratio'][i] for i in range(3))
+            axis_index = 'xyz'.index(spec['axis'])
+            radial_axes = [index for index in range(3) if index != axis_index]
+            if spec['shape'] == 'box':
+                bpy.ops.mesh.primitive_cube_add(location=location)
+                interface = bpy.context.object; interface.dimensions = dimensions
+            else:
+                radius = min(dimensions[index] for index in radial_axes) / 2
+                bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=radius, depth=dimensions[axis_index],
+                                                    location=location, rotation=rotations[spec['axis']])
+                interface = bpy.context.object
+                interface.dimensions = dimensions
+                bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+                if spec['shape'] == 'annulus':
+                    bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=radius * spec['inner_radius_ratio'],
+                                                        depth=dimensions[axis_index] * 1.5, location=location,
+                                                        rotation=rotations[spec['axis']])
+                    cutter = bpy.context.object
+                    cutter_dimensions = list(dimensions); cutter_dimensions[axis_index] *= 1.5
+                    cutter_dimensions[radial_axes[0]] *= spec['inner_radius_ratio']
+                    cutter_dimensions[radial_axes[1]] *= spec['inner_radius_ratio']
+                    cutter.dimensions = cutter_dimensions
+                    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+                    bpy.context.view_layer.objects.active = interface
+                    boolean = interface.modifiers.new('bounded-interface-bore', 'BOOLEAN')
+                    boolean.operation = 'DIFFERENCE'; boolean.solver = 'EXACT'; boolean.object = cutter
+                    bpy.ops.object.modifier_apply(modifier=boolean.name)
+                    bpy.data.objects.remove(cutter, do_unlink=True)
+            interface.name = a.component_id + '-' + spec['name']
+            bpy.context.view_layer.objects.active = interface
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            if spec['bevel_ratio']:
+                bevel = interface.modifiers.new('bounded-interface-bevel', 'BEVEL')
+                bevel.width = max(dimensions) * spec['bevel_ratio']; bevel.segments = 2; bevel.limit_method = 'ANGLE'
+                bpy.ops.object.modifier_apply(modifier=bevel.name)
+            patch_objects.append(interface); interface_objects.append(interface.name)
     if a.mechanical_patch:
         patch = json.loads(a.mechanical_patch)
         minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
@@ -167,7 +213,8 @@ def main():
         'salvage_bounds':json.loads(a.salvage_bounds) if a.salvage_bounds else None,
         'salvage_removed_vertices':salvage_removed_vertices,
         'aperture_seat_vertex_group':aperture_name,'aperture_seat_vertices':aperture_vertices,
-        'mechanical_patch_objects':[item.name for item in patch_objects]}, indent=2, sort_keys=True)+'\n')
+        'mechanical_patch_objects':[item.name for item in patch_objects],
+        'interface_rebuild_objects':interface_objects}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()

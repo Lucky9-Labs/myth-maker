@@ -40,6 +40,17 @@ class ComponentCleanupTests(unittest.TestCase):
         value=job(); value['aperture_cutout']={'type':'ellipsoid-through-cut','axis':'z','center':[0.5,0.5,0.5],
             'size':[1.2,1.0,0.7],'seat_name':'bad seat','seat_band_ratio':0.1}
         with self.assertRaisesRegex(ValueError,'aperture cutout'): validate_component_cleanup_job(value)
+    def test_accepts_regenerate_candidate_for_bounded_interface_rebuild(self):
+        value=job(); value['source_review']['decision']='regenerate'
+        value['interface_rebuild']=[{'name':'upper-arm-pivot','shape':'annulus','axis':'x',
+            'center_ratio':[0.5,0.5,0.5],'size_ratio':[0.08,0.6,0.6],
+            'inner_radius_ratio':0.55,'bevel_ratio':0.01}]
+        self.assertEqual(validate_component_cleanup_job(value),value)
+    def test_rejects_invalid_interface_rebuild(self):
+        value=job(); value['interface_rebuild']=[{'name':'upper-arm-pivot','shape':'box','axis':'x',
+            'center_ratio':[1.2,0.5,0.5],'size_ratio':[0.08,0.6,0.6],
+            'inner_radius_ratio':0.2,'bevel_ratio':0.01}]
+        with self.assertRaisesRegex(ValueError,'interface rebuild'): validate_component_cleanup_job(value)
     def test_rejects_invalid_salvage_bounds(self):
         value=job(); value['salvage_bounds']={'x':[0.8,0.2],'y':[0,1],'z':[0,1]}
         with self.assertRaisesRegex(ValueError,'salvage bounds'): validate_component_cleanup_job(value)

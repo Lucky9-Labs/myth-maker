@@ -27,7 +27,7 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "candidate", "source_review", "merge_distance_ratio", "decimate_ratio",
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
-    optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout"}
+    optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout", "interface_rebuild"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
@@ -48,7 +48,8 @@ def validate_component_cleanup_job(value: dict) -> dict:
     bounds = value.get("salvage_bounds")
     patch = value.get("mechanical_patch")
     aperture = value.get("aperture_cutout")
-    if review["decision"] == "regenerate" and bounds is None and patch is None and aperture is None:
+    interfaces = value.get("interface_rebuild")
+    if review["decision"] == "regenerate" and bounds is None and patch is None and aperture is None and interfaces is None:
         raise ValueError("regenerate review cleanup requires bounded salvage or mechanical patch")
     if bounds is not None:
         if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
@@ -92,6 +93,32 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 or isinstance(aperture["seat_band_ratio"], bool)
                 or not 0 < aperture["seat_band_ratio"] <= 0.03):
             raise ValueError("component aperture cutout parameters are invalid")
+    if interfaces is not None:
+        keys = {"name", "shape", "axis", "center_ratio", "size_ratio", "inner_radius_ratio", "bevel_ratio"}
+        if not isinstance(interfaces, list) or not 1 <= len(interfaces) <= 8:
+            raise ValueError("component interface rebuild is invalid")
+        names = set()
+        for interface in interfaces:
+            if (not isinstance(interface, dict) or set(interface) != keys
+                    or not isinstance(interface.get("name"), str)
+                    or not IDENTIFIER.fullmatch(interface["name"]) or interface["name"] in names
+                    or interface.get("shape") not in {"box", "cylinder", "annulus"}
+                    or interface.get("axis") not in {"x", "y", "z"}):
+                raise ValueError("component interface rebuild is invalid")
+            names.add(interface["name"])
+            for key in ("center_ratio", "size_ratio"):
+                vector = interface.get(key)
+                if (not isinstance(vector, list) or len(vector) != 3
+                        or any(not isinstance(number, (int, float)) or isinstance(number, bool) for number in vector)):
+                    raise ValueError("component interface rebuild is invalid")
+            inner, bevel = interface.get("inner_radius_ratio"), interface.get("bevel_ratio")
+            if (any(not 0 <= number <= 1 for number in interface["center_ratio"])
+                    or any(not 0.01 <= number <= 1 for number in interface["size_ratio"])
+                    or not isinstance(inner, (int, float)) or isinstance(inner, bool) or not 0 <= inner <= 0.9
+                    or (interface["shape"] == "annulus" and inner < 0.1)
+                    or (interface["shape"] != "annulus" and inner != 0)
+                    or not isinstance(bevel, (int, float)) or isinstance(bevel, bool) or not 0 <= bevel <= 0.05):
+                raise ValueError("component interface rebuild is invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -143,6 +170,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
         command += ["--mechanical-patch", json.dumps(checked["mechanical_patch"], separators=(",", ":"))]
     if "aperture_cutout" in checked:
         command += ["--aperture-cutout", json.dumps(checked["aperture_cutout"], separators=(",", ":"))]
+    if "interface_rebuild" in checked:
+        command += ["--interface-rebuild", json.dumps(checked["interface_rebuild"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -167,7 +196,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "seat_band_ratio": checked["seat_band_ratio"],
                               "salvage_bounds": checked.get("salvage_bounds"),
                               "mechanical_patch": checked.get("mechanical_patch"),
-                              "aperture_cutout": checked.get("aperture_cutout")},
+                              "aperture_cutout": checked.get("aperture_cutout"),
+                              "interface_rebuild": checked.get("interface_rebuild")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
