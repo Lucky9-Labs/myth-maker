@@ -249,7 +249,8 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     # from their unregistered bounds makes the casing swallow its neighbors.
     casing_center = Vector((0, 0, 0))
     rotor_center = Vector((0, 0, 0))
-    casing_radius = .3
+    casing_apothem = .3
+    casing_radius = casing_apothem / math.cos(math.pi / 8)
     casing_depth = .24
     bore_radius = .182
     casing = cylinder_y('hip-outer-casing', casing_center, casing_radius,
