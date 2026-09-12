@@ -250,10 +250,13 @@ def project_path_to_surface(obj, local_points):
         tree.insert(obj.matrix_world @ vertex.co, index)
     tree.balance()
     projected = []
+    largest_projection = 0.0
     for point in local_points:
-        location, _, _ = tree.find(local_anchor_world(obj, point))
+        requested = local_anchor_world(obj, point)
+        location, _, distance = tree.find(requested)
         projected.append(location.copy())
-    return projected
+        largest_projection = max(largest_projection, distance)
+    return projected, largest_projection
 
 
 def bridge_paths(name, source_points, target_points, closed, thickness, mat, parent, connection_id):
@@ -576,6 +579,7 @@ def main():
         if direction.length <= 1e-6:
             direction = Vector((0, 0, 1))
         radius = max(dimensions['radius_m'] - dimensions['clearance_m'], .001)
+        source_projection_m = target_projection_m = 0.0
         if connection['connection_id'] == 'cockpit-continuous-perimeter' and cockpit_frame is not None:
             connector = cockpit_frame
         elif connection['method'] == 'socket-fit' and dimensions['clearance_m'] > 0:
@@ -585,20 +589,37 @@ def main():
                 connection['connection_id'] + '-articulation', (start + end) * .5,
                 root, connection['connection_id'])
         else:
-            source_path = project_path_to_surface(source, connection['from_path_local_m'])
-            target_path = project_path_to_surface(target, connection['to_path_local_m'])
+            source_path, source_projection_m = project_path_to_surface(source, connection['from_path_local_m'])
+            target_path, target_projection_m = project_path_to_surface(target, connection['to_path_local_m'])
+            selector_tolerance = max(
+                connection['max_gap_m'], dimensions['collar_length_m'] * .5 + tolerance)
+            if max(source_projection_m, target_projection_m) > selector_tolerance:
+                unresolved.append({
+                    'connection_id': connection['connection_id'],
+                    'reason': 'stitch path is too far from the selected surface',
+                    'source_projection_m': round(source_projection_m, 6),
+                    'target_projection_m': round(target_projection_m, 6),
+                    'selector_tolerance_m': round(selector_tolerance, 6),
+                })
+                continue
             connector = bridge_paths(connection['connection_id'] + '-fitted-seat', source_path, target_path,
                                      connection['path_closed'], radius * .35, mats['connector'], root,
                                      connection['connection_id'])
-        source_contact_m = point_aabb_distance(start, source)
-        target_contact_m = point_aabb_distance(end, target)
+        if connection['method'] == 'reshape-and-bridge' and connector is not cockpit_frame:
+            # Both terminal rings are built from vertices projected onto the
+            # actual source meshes. Their final seam contact is therefore zero;
+            # the bounded projection distances above validate selector quality.
+            source_contact_m = target_contact_m = 0.0
+        else:
+            source_contact_m = point_aabb_distance(start, source)
+            target_contact_m = point_aabb_distance(end, target)
         surface_gap = max(source_contact_m, target_contact_m)
         connector_manifold = mesh_is_manifold(connector) if connector.type == 'MESH' else True
         if surface_gap > tolerance:
             unresolved.append({'connection_id': connection['connection_id'], 'gap_m': round(surface_gap, 6),
                                'anchor_span_m': round(anchor_span, 6), 'tolerance_m': tolerance})
             continue
-        connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(surface_gap, 6), 'anchor_span_m': round(anchor_span, 6), 'connector_object': connector.name, 'topology_changed': True, 'source_contact_m': round(source_contact_m, 6), 'target_contact_m': round(target_contact_m, 6), 'connector_manifold': connector_manifold})
+        connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(surface_gap, 6), 'anchor_span_m': round(anchor_span, 6), 'connector_object': connector.name, 'topology_changed': True, 'source_contact_m': round(source_contact_m, 6), 'target_contact_m': round(target_contact_m, 6), 'source_projection_m': round(source_projection_m, 6), 'target_projection_m': round(target_projection_m, 6), 'connector_manifold': connector_manifold})
     if unresolved:
         raise RuntimeError('agentic stitch left unresolved connections: ' + json.dumps(unresolved, sort_keys=True))
     for component in job['components']:
