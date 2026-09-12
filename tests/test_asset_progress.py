@@ -6,9 +6,13 @@ sys.path.insert(0, str(ROOT / "modal"))
 from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
                             image_space_comparison, image_space_profile, reference_evaluation_inputs,
                             reference_progress_history, validate_reference_evaluation, priced_model_usage,
-                            current_component_selection, latest_whole_body_scaffold)
+                            current_component_selection, latest_whole_body_scaffold, _artifact_items)
 
 class AssetProgressTests(unittest.TestCase):
+    def test_artifact_items_accepts_provider_list_receipts(self):
+        items=list(_artifact_items({'artifacts':[{'path':'candidate/candidate-1.glb','sha256':'a'*64}]}))
+        self.assertEqual(items,[('candidate-1.glb',{'path':'candidate/candidate-1.glb','sha256':'a'*64})])
+
     def test_prices_measured_astra_usage_by_cache_class(self):
         cost = priced_model_usage("gpt-6-astra", {"provenance": "measured", "input_tokens": 100_000,
             "cached_input_tokens": 20_000, "output_tokens": 10_000})
