@@ -254,11 +254,8 @@ def main():
         target = objects[connection['to_component']]
         start = local_anchor_world(source, connection['from_anchor_local_m'])
         end = local_anchor_world(target, connection['to_anchor_local_m'])
-        gap = (end - start).length
+        anchor_span = (end - start).length
         tolerance = min(connection['max_gap_m'], job['global_plan']['acceptance']['max_surface_gap_m'])
-        if gap > tolerance:
-            unresolved.append({'connection_id': connection['connection_id'], 'gap_m': round(gap, 6), 'tolerance_m': tolerance})
-            continue
         dimensions = connection['connector']
         direction = end - start
         if direction.length <= 1e-6:
@@ -272,8 +269,13 @@ def main():
             collar(connection['connection_id'] + '-to-collar', end, direction, dimensions['radius_m'] + dimensions['clearance_m'], dimensions['collar_length_m'], mats['connector'], root, connection['connection_id'])
         source_contact_m = point_aabb_distance(start, source)
         target_contact_m = point_aabb_distance(end, target)
+        surface_gap = max(source_contact_m, target_contact_m)
         connector_manifold = mesh_is_manifold(connector) if connector.type == 'MESH' else True
-        connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(gap, 6), 'connector_object': connector.name, 'topology_changed': True, 'source_contact_m': round(source_contact_m, 6), 'target_contact_m': round(target_contact_m, 6), 'connector_manifold': connector_manifold})
+        if surface_gap > tolerance:
+            unresolved.append({'connection_id': connection['connection_id'], 'gap_m': round(surface_gap, 6),
+                               'anchor_span_m': round(anchor_span, 6), 'tolerance_m': tolerance})
+            continue
+        connections.append({'connection_id': connection['connection_id'], 'method': connection['method'], 'from_component': connection['from_component'], 'to_component': connection['to_component'], 'gap_m': round(surface_gap, 6), 'anchor_span_m': round(anchor_span, 6), 'connector_object': connector.name, 'topology_changed': True, 'source_contact_m': round(source_contact_m, 6), 'target_contact_m': round(target_contact_m, 6), 'connector_manifold': connector_manifold})
     if unresolved:
         raise RuntimeError('agentic stitch left unresolved connections: ' + json.dumps(unresolved, sort_keys=True))
     for component in job['components']:

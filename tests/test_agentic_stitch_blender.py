@@ -21,6 +21,8 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("cylinder_between(connection['connection_id'] + '-connector'", source)
         self.assertIn("collar(connection['connection_id'] + '-from-collar'", source)
         self.assertIn("collar(connection['connection_id'] + '-to-collar'", source)
+        self.assertIn("surface_gap = max(source_contact_m, target_contact_m)", source)
+        self.assertIn("'anchor_span_m': round(anchor_span, 6)", source)
         self.assertIn("raise RuntimeError('agentic stitch left unresolved connections:", source)
 
     def test_manifest_preserves_source_identity_and_proves_connectivity(self):
