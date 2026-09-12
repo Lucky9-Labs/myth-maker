@@ -66,6 +66,41 @@ def convex_hull_xz(points):
     return lower[:-1] + upper[:-1]
 
 
+def cockpit_perimeter_band(name, outline, front_y, depth, width_scale, mat, parent):
+    """Build a closed, planar retaining band instead of a visible tube."""
+    center_x = sum(point[0] for point in outline) / len(outline)
+    center_z = sum(point[1] for point in outline) / len(outline)
+    outer = [(center_x + (x - center_x) * (1 + width_scale),
+              center_z + (z - center_z) * (1 + width_scale)) for x, z in outline]
+    inner = [(center_x + (x - center_x) * (1 - width_scale),
+              center_z + (z - center_z) * (1 - width_scale)) for x, z in outline]
+    back_y = front_y + depth
+    vertices = []
+    for ring, y in ((outer, front_y), (inner, front_y), (outer, back_y), (inner, back_y)):
+        vertices.extend((x, y, z) for x, z in ring)
+    count = len(outline)
+    faces = []
+    for index in range(count):
+        nxt = (index + 1) % count
+        outer_front, inner_front = index, count + index
+        outer_back, inner_back = count * 2 + index, count * 3 + index
+        outer_front_next, inner_front_next = nxt, count + nxt
+        outer_back_next, inner_back_next = count * 2 + nxt, count * 3 + nxt
+        faces.extend(((outer_front, outer_front_next, inner_front_next, inner_front),
+                      (outer_back, inner_back, inner_back_next, outer_back_next),
+                      (outer_front, outer_back, outer_back_next, outer_front_next),
+                      (inner_front, inner_front_next, inner_back_next, inner_back)))
+    mesh = bpy.data.meshes.new(name + '-mesh')
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    band = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(band)
+    band.data.materials.append(mat)
+    band.parent = parent
+    bevel_object(band, min(depth * .2, .006))
+    return band
+
+
 def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     """Seat the separately generated glazing from measured torso proportions."""
     # The reference canopy follows the raked cockpit mouth rather than standing
@@ -75,16 +110,16 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     torso_low, torso_high = bounds_box(torso)
     glass_low, glass_high = bounds_box(glass)
     torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
-    target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))
+    target = Vector((torso_size.x * .62, torso_size.y * .18, torso_size.z * .78))
     factors = Vector(tuple(target[i] / max(glass_size[i], 1e-6) for i in range(3)))
     glass.scale = Vector(tuple(glass.scale[i] * factors[i] for i in range(3)))
     bpy.context.view_layer.update()
     glass_low, glass_high = bounds_box(glass)
     glass_center = (glass_low + glass_high) * .5
     torso_center = (torso_low + torso_high) * .5
-    desired_front = torso_low.y + torso_size.y * .12
+    desired_front = torso_low.y + torso_size.y * .02
     desired_center = Vector((torso_center.x, desired_front + (glass_high.y - glass_low.y) * .5,
-                             torso_center.z + torso_size.z * .025))
+                             torso_center.z - torso_size.z * .01))
     glass.location += desired_center - glass_center
     glass.data.materials.clear()
     glass.data.materials.append(glass_material)
@@ -96,27 +131,12 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     outline = convex_hull_xz(world_vertices)
     if len(outline) < 3:
         raise RuntimeError('cockpit glass front contour could not be resolved')
-    center_x = sum(point[0] for point in outline) / len(outline)
-    center_z = sum(point[1] for point in outline) / len(outline)
-    outline = [(center_x + (x - center_x) * 1.025, center_z + (z - center_z) * 1.025)
-               for x, z in outline]
-    recessed_outline = []
-    for x, z in outline:
-        nearest = min(world_vertices, key=lambda vertex: (vertex.x - x) ** 2 + (vertex.z - z) ** 2)
-        recessed_outline.append((x, nearest.y + max(torso_size.y * .005, .004), z))
-    curve_data = bpy.data.curves.new('cockpit-continuous-frame', 'CURVE')
-    curve_data.dimensions = '3D'
-    curve_data.bevel_depth = max(min(torso_size.x, torso_size.z) * .009, .007)
-    curve_data.bevel_resolution = 3
-    spline = curve_data.splines.new('POLY')
-    spline.points.add(len(recessed_outline) - 1)
-    for point, (x, y, z) in zip(spline.points, recessed_outline):
-        point.co = (x, y, z, 1)
-    spline.use_cyclic_u = True
-    frame = bpy.data.objects.new('cockpit-continuous-perimeter-frame', curve_data)
-    bpy.context.collection.objects.link(frame)
-    frame.data.materials.append(frame_material)
-    frame.parent = root
+    glass_front_y = min(vertex.y for vertex in world_vertices)
+    torso_material = torso.data.materials[0] if torso.data.materials else frame_material
+    frame = cockpit_perimeter_band(
+        'cockpit-continuous-perimeter-frame', outline,
+        glass_front_y - max(torso_size.y * .006, .004),
+        max(torso_size.y * .025, .012), .035, torso_material, root)
     frame['generated_connection_id'] = 'cockpit-continuous-perimeter'
     return frame
 
