@@ -169,6 +169,8 @@ class AssetProgressTests(unittest.TestCase):
             page = (root / "observability" / "index.html").read_text()
             self.assertIn("Canonical</b> is reserved for a hash promoted", page)
             self.assertIn("Component candidate quality gate", page)
+            self.assertIn('data-filter="active" aria-selected="true"', page)
+            self.assertIn("card.dataset.lifecycle===value", page)
             self.assertEqual(manifest["component_selection"], {})
 
     def test_reference_score_is_calculated_from_closed_rubric(self):
