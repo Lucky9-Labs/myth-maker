@@ -31,6 +31,10 @@ class Tests(unittest.TestCase):
     def test_accepts_hash_locked_native_blender_component(self):
         x=job(); x['components'][0]['artifact']['media_type']='application/x-blender'; x['components'][0]['artifact']['path']='asset-production/pilot/torso.blend'
         self.assertEqual(validate_pure_component_assembly_job(x),x)
+    def test_review_proxy_is_preview_only(self):
+        x=job(); x['components'][0]['artifact']['media_type']='application/x-blender-review-proxy'; x['components'][0]['artifact']['path']='asset-production/pilot/torso.blend'
+        with self.assertRaisesRegex(ValueError,'review proxy'): validate_pure_component_assembly_job(x)
+        x['output_mode']='review-preview'; self.assertEqual(validate_pure_component_assembly_job(x),x)
     def test_accepts_bounded_review_preview(self):
         x=job(); x['output_mode']='review-preview'
         self.assertEqual(validate_pure_component_assembly_job(x),x)
