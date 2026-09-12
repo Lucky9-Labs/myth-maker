@@ -168,10 +168,32 @@ class AssetProgressTests(unittest.TestCase):
             manifest = build_dashboard(root)
             page = (root / "observability" / "index.html").read_text()
             self.assertIn("Canonical</b> is reserved for a hash promoted", page)
-            self.assertIn("Component candidate quality gate", page)
-            self.assertIn('data-filter="active" aria-selected="true"', page)
+            self.assertIn("Assembly and component lifecycle", page)
+            self.assertIn('data-filter="canonical" aria-selected="true"', page)
             self.assertIn("card.dataset.lifecycle===value", page)
             self.assertEqual(manifest["component_selection"], {})
+
+    def test_dashboard_lists_only_accepted_stitch_assemblies_as_canonical(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            for work_id, attempt, decision in (("hip", 1, "reject"), ("hip", 2, "accept"), ("torso", 1, "reject")):
+                attempt_root = root / "agentic-stitch" / work_id / f"attempt-{attempt:04d}"
+                attempt_root.mkdir(parents=True)
+                render = b"render" + bytes([attempt])
+                (attempt_root / "three-quarter.png").write_bytes(render)
+                (attempt_root / "receipt.json").write_text(json.dumps({
+                    "format": "myth-maker.agentic-stitch-receipt/v1", "status": "completed",
+                    "work_id": work_id, "attempt": attempt,
+                    "artifacts": {"three-quarter.png": {"sha256": "a" * 64},
+                                  "assembly.glb": {"sha256": ("b" if decision == "accept" else "c") * 64}},
+                    "visual_review": {"decision": decision, "scores": {"reference_fidelity": 88}},
+                }))
+            manifest = build_dashboard(root)
+            page = (root / "observability" / "index.html").read_text()
+            self.assertEqual([row["work_id"] for row in manifest["canonical_sections"]], ["hip"])
+            self.assertIn("CANONICAL ACCEPTED SECTION", page)
+            self.assertIn("bbbbbbbbbbbb", page)
+            self.assertNotIn("cccccccccccc", page)
 
     def test_reference_score_is_calculated_from_closed_rubric(self):
         with tempfile.TemporaryDirectory() as temporary:
