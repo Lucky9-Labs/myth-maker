@@ -232,8 +232,15 @@ def main():
         center = [(minimum[i] + maximum[i]) / 2 for i in range(3)]
         axis_index = 'xyz'.index(spec['axis']); sign = 1 if spec['plate_side'] == 'positive' else -1
         objects = []
-        def box(name, ratios, axis_offset):
-            location = center[:]; location[axis_index] += sign * extent[axis_index] * axis_offset
+        lengths = [extent[axis_index] * spec[key][axis_index] for key in
+                   ('housing_size_ratio', 'spacer_size_ratio', 'plate_size_ratio')]
+        total_length = sum(lengths)
+        cursor = center[axis_index] - sign * total_length / 2
+        centers = []
+        for length in lengths:
+            centers.append(cursor + sign * length / 2); cursor += sign * length
+        def box(name, ratios, axis_center):
+            location = center[:]; location[axis_index] = axis_center
             bpy.ops.mesh.primitive_cube_add(location=location)
             item = bpy.context.object; item.name = a.component_id + '-' + name
             item.dimensions = tuple(extent[i] * ratios[i] for i in range(3))
@@ -243,9 +250,9 @@ def main():
                 bevel.width = max(item.dimensions) * spec['bevel_ratio']; bevel.segments = 2; bevel.limit_method = 'ANGLE'
                 bpy.context.view_layer.objects.active = item; bpy.ops.object.modifier_apply(modifier=bevel.name)
             objects.append(item); return item
-        housing = box('housing', spec['housing_size_ratio'], -0.16)
-        spacer = box('spacer', spec['spacer_size_ratio'], 0.24)
-        plate = box('plate', spec['plate_size_ratio'], 0.42)
+        housing = box('housing', spec['housing_size_ratio'], centers[0])
+        spacer = box('spacer', spec['spacer_size_ratio'], centers[1])
+        plate = box('plate', spec['plate_size_ratio'], centers[2])
         radial_axes = [index for index in range(3) if index != axis_index]
         radius = min(plate.dimensions[i] for i in radial_axes) * spec['bore_radius_ratio']
         bore_centers = []
