@@ -110,16 +110,16 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     torso_low, torso_high = bounds_box(torso)
     glass_low, glass_high = bounds_box(glass)
     torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
-    target = Vector((torso_size.x * .62, torso_size.y * .18, torso_size.z * .78))
+    target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))
     factors = Vector(tuple(target[i] / max(glass_size[i], 1e-6) for i in range(3)))
     glass.scale = Vector(tuple(glass.scale[i] * factors[i] for i in range(3)))
     bpy.context.view_layer.update()
     glass_low, glass_high = bounds_box(glass)
     glass_center = (glass_low + glass_high) * .5
     torso_center = (torso_low + torso_high) * .5
-    desired_front = torso_low.y + torso_size.y * .02
+    desired_front = torso_low.y + torso_size.y * .12
     desired_center = Vector((torso_center.x, desired_front + (glass_high.y - glass_low.y) * .5,
-                             torso_center.z - torso_size.z * .01))
+                             torso_center.z + torso_size.z * .025))
     glass.location += desired_center - glass_center
     glass.data.materials.clear()
     glass.data.materials.append(glass_material)
@@ -136,7 +136,7 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     frame = cockpit_perimeter_band(
         'cockpit-continuous-perimeter-frame', outline,
         glass_front_y - max(torso_size.y * .006, .004),
-        max(torso_size.y * .025, .012), .035, torso_material, root)
+        max(torso_size.y * .02, .010), .018, torso_material, root)
     frame['generated_connection_id'] = 'cockpit-continuous-perimeter'
     return frame
 
