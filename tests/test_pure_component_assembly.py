@@ -50,4 +50,17 @@ class Tests(unittest.TestCase):
     def test_rejects_duplicate_component(self):
         x=job(); x['components'].append(dict(x['components'][0]))
         with self.assertRaisesRegex(ValueError,'unique'): validate_pure_component_assembly_job(x)
+    def test_accepts_multiview_neighbor_graph(self):
+        x=job(); cid='torso'; x['frozen_reference_sha256']='c'*64
+        x['component_evidence']={cid:[{'view':'front','sha256':'d'*64},{'view':'three-quarter','sha256':'e'*64}]}
+        x['placement_graph']=[{'component_id':cid,'parent_component_id':None,'parent_anchor':[0,0,0],'self_anchor':[0,0,0],'offset':[0,0,0]}]
+        self.assertEqual(validate_pure_component_assembly_job(x),x)
+    def test_graph_requires_multiview_for_every_component(self):
+        x=job(); x['frozen_reference_sha256']='c'*64; x['component_evidence']={'torso':[{'view':'front','sha256':'d'*64}]}; x['placement_graph']=[]
+        with self.assertRaisesRegex(ValueError,'multiview'): validate_pure_component_assembly_job(x)
+    def test_blender_solves_rigid_neighbor_anchors_without_fill_scaling(self):
+        driver=(Path(__file__).parents[1]/'modal'/'pure_component_assembly_blender.py').read_text()
+        self.assertIn("child.location += parent_world-child_world+Vector(node['offset'])",driver)
+        self.assertIn("'multiview-neighbor-anchor'",driver)
+        self.assertIn("mirror.location=(-source.location.x,source.location.y,source.location.z)",driver)
 if __name__=='__main__': unittest.main()

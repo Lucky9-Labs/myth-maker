@@ -13,7 +13,7 @@ def main():
     job=json.loads(Path(a.job).read_text()); out=Path(a.output); submissions=Path(a.submissions)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mats={"structural":material("structural",(.055,.065,.075)),"armor-white":material("armor-white",(.72,.69,.64)),"armor-blue":material("armor-blue",(.16,.32,.48)),"lens":material("lens",(.05,.42,.58),.15,.22),"metal":material("metal",(.22,.24,.26),.8,.25)}
-    root=bpy.data.objects.new('mech-pure-root',None); bpy.context.collection.objects.link(root); manifest=[]
+    root=bpy.data.objects.new('mech-pure-root',None); bpy.context.collection.objects.link(root); manifest=[]; groups={}; mirrors={}; placed_dimensions={}
     for item in job['components']:
         before=set(bpy.context.scene.objects)
         source_path=submissions/item['artifact']['path']
@@ -43,6 +43,7 @@ def main():
         scale_candidates=[dims[i]/current[i] for i in range(3) if current[i]]
         uniform_scale=min(scale_candidates) if scale_candidates else 1.0
         group.scale=(uniform_scale,uniform_scale,uniform_scale)
+        groups[item['component_id']]=group; placed_dimensions[item['component_id']]=Vector(current)*uniform_scale
         bpy.context.view_layer.update()
         for index,o in enumerate(meshes):
             o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
@@ -53,12 +54,36 @@ def main():
                              'placement_mode':'uniform-envelope','uniform_scale':round(uniform_scale,8)})
         if item['mirror_x']:
             mirror=bpy.data.objects.new(item['component_id']+'-mirrored',None); bpy.context.collection.objects.link(mirror); mirror.parent=root
+            mirrors[item['component_id']]=mirror
             mirror.location=(-group.location.x,group.location.y,group.location.z); mirror.rotation_euler=group.rotation_euler; mirror.scale=(-group.scale.x,group.scale.y,group.scale.z)
             for index,o in enumerate(meshes):
                 q=o.copy(); q.data=o.data; q.name=f"{item['component_id']}-mirrored-{index:02d}"; bpy.context.collection.objects.link(q); q.parent=mirror
                 q.matrix_world=mirror.matrix_world @ Matrix.Translation(-center) @ source_world[o]
                 q['source_sha256']=item['artifact']['sha256']; q['component_id']=item['component_id']; manifest.append({'object':q.name,'source_sha256':item['artifact']['sha256'],'mirrored':True,
                     'placement_mode':'uniform-envelope','uniform_scale':round(uniform_scale,8)})
+    # A graph placement is a rigid component solve. Anchors are normalized to
+    # each component's authored bounds. The solver translates the child so the
+    # named neighboring landmarks meet; it never scales geometry to fill space.
+    pending={n['component_id']:n for n in job.get('placement_graph',[]) if n['parent_component_id'] is not None}
+    resolved={n['component_id'] for n in job.get('placement_graph',[]) if n['parent_component_id'] is None}
+    while pending:
+        progressed=False
+        for cid,node in list(pending.items()):
+            parent_id=node['parent_component_id']
+            if parent_id not in resolved: continue
+            parent=groups[parent_id]; child=groups[cid]
+            parent_local=Vector(node['parent_anchor'])*.5*placed_dimensions[parent_id]
+            child_local=Vector(node['self_anchor'])*.5*placed_dimensions[cid]
+            parent_world=parent.matrix_world @ parent_local
+            child_world=child.matrix_world @ child_local
+            child.location += parent_world-child_world+Vector(node['offset'])
+            child['placement_parent']=parent_id; child['placement_mode']='multiview-neighbor-anchor'
+            resolved.add(cid); del pending[cid]; progressed=True
+        if not progressed: raise RuntimeError('placement graph contains a cycle or unresolved parent')
+    for cid,mirror in mirrors.items():
+        source=groups[cid]
+        mirror.location=(-source.location.x,source.location.y,source.location.z)
+        mirror.rotation_euler=(source.rotation_euler.x,-source.rotation_euler.y,-source.rotation_euler.z)
     bpy.context.view_layer.update()
     world=bpy.context.scene.world or bpy.data.worlds.new('World'); bpy.context.scene.world=world; world.color=(.025,.025,.025)
     for loc,energy,size in [((4,-6,7),1400,5),((-4,-2,4),800,4),((0,5,6),1000,3)]:
