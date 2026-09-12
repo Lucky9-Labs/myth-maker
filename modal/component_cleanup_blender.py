@@ -24,6 +24,7 @@ def main():
     p.add_argument('--mechanical-patch')
     p.add_argument('--aperture-cutout')
     p.add_argument('--interface-rebuild')
+    p.add_argument('--socket-cutouts')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -176,6 +177,43 @@ def main():
                 bevel.width = max(dimensions) * spec['bevel_ratio']; bevel.segments = 2; bevel.limit_method = 'ANGLE'
                 bpy.ops.object.modifier_apply(modifier=bevel.name)
             patch_objects.append(interface); interface_objects.append(interface.name)
+    socket_records = []
+    if a.socket_cutouts:
+        sockets = json.loads(a.socket_cutouts)
+        minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        maximum = [max((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        extent = [maximum[i] - minimum[i] for i in range(3)]
+        rotations = {'x': (0, 1.57079632679, 0), 'y': (1.57079632679, 0, 0), 'z': (0, 0, 0)}
+        for spec in sockets:
+            axis_index = 'xyz'.index(spec['axis'])
+            radial_axes = [index for index in range(3) if index != axis_index]
+            center = [minimum[i] + extent[i] * spec['center_ratio'][i] for i in range(3)]
+            depth = extent[axis_index] * spec['depth_ratio']
+            center[axis_index] = (minimum[axis_index] + depth * .35 if spec['side'] == 'negative'
+                                  else maximum[axis_index] - depth * .35)
+            radius = min(extent[i] for i in radial_axes) * spec['radius_ratio']
+            bpy.ops.mesh.primitive_cylinder_add(vertices=64, radius=radius, depth=depth * 1.4,
+                                                location=center, rotation=rotations[spec['axis']])
+            cutter = bpy.context.object; cutter.name = a.component_id + '-' + spec['name'] + '-cutter'
+            bpy.context.view_layer.objects.active = obj
+            boolean = obj.modifiers.new('bounded-' + spec['name'], 'BOOLEAN')
+            boolean.operation = 'DIFFERENCE'; boolean.solver = 'EXACT'; boolean.object = cutter
+            bpy.ops.object.modifier_apply(modifier=boolean.name)
+            bpy.data.objects.remove(cutter, do_unlink=True)
+            group = obj.vertex_groups.get(spec['name']) or obj.vertex_groups.new(name=spec['name'])
+            tolerance = max(extent) * spec['seat_band_ratio']
+            indices = []
+            for vertex in obj.data.vertices:
+                world = obj.matrix_world @ vertex.co
+                radial = sum((world[i] - center[i]) ** 2 for i in radial_axes) ** .5
+                inside_depth = abs(world[axis_index] - center[axis_index]) <= depth * .72
+                if inside_depth and abs(radial - radius) <= tolerance:
+                    indices.append(vertex.index)
+            if not indices:
+                raise RuntimeError('socket cutout did not create a named seat: ' + spec['name'])
+            group.add(indices, 1.0, 'REPLACE')
+            socket_records.append({'name': spec['name'], 'axis': spec['axis'], 'side': spec['side'],
+                                   'vertices': len(indices), 'radius': radius, 'depth': depth})
     if a.mechanical_patch:
         patch = json.loads(a.mechanical_patch)
         minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
@@ -214,7 +252,8 @@ def main():
         'salvage_removed_vertices':salvage_removed_vertices,
         'aperture_seat_vertex_group':aperture_name,'aperture_seat_vertices':aperture_vertices,
         'mechanical_patch_objects':[item.name for item in patch_objects],
-        'interface_rebuild_objects':interface_objects}, indent=2, sort_keys=True)+'\n')
+        'interface_rebuild_objects':interface_objects,
+        'socket_cutouts':socket_records}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()

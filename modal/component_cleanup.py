@@ -27,7 +27,8 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "candidate", "source_review", "merge_distance_ratio", "decimate_ratio",
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
-    optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout", "interface_rebuild"}
+    optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout", "interface_rebuild",
+                "socket_cutouts"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
@@ -49,7 +50,9 @@ def validate_component_cleanup_job(value: dict) -> dict:
     patch = value.get("mechanical_patch")
     aperture = value.get("aperture_cutout")
     interfaces = value.get("interface_rebuild")
-    if review["decision"] == "regenerate" and bounds is None and patch is None and aperture is None and interfaces is None:
+    sockets = value.get("socket_cutouts")
+    if (review["decision"] == "regenerate" and bounds is None and patch is None
+            and aperture is None and interfaces is None and sockets is None):
         raise ValueError("regenerate review cleanup requires bounded salvage or mechanical patch")
     if bounds is not None:
         if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
@@ -119,6 +122,32 @@ def validate_component_cleanup_job(value: dict) -> dict:
                     or (interface["shape"] != "annulus" and inner != 0)
                     or not isinstance(bevel, (int, float)) or isinstance(bevel, bool) or not 0 <= bevel <= 0.05):
                 raise ValueError("component interface rebuild is invalid")
+    if sockets is not None:
+        keys = {"name", "axis", "side", "center_ratio", "radius_ratio", "depth_ratio",
+                "seat_band_ratio"}
+        if not isinstance(sockets, list) or not 1 <= len(sockets) <= 4:
+            raise ValueError("component socket cutouts are invalid")
+        names = set()
+        for socket in sockets:
+            if (not isinstance(socket, dict) or set(socket) != keys
+                    or not isinstance(socket.get("name"), str)
+                    or not IDENTIFIER.fullmatch(socket["name"]) or socket["name"] in names
+                    or socket.get("axis") not in {"x", "y", "z"}
+                    or socket.get("side") not in {"negative", "positive"}):
+                raise ValueError("component socket cutouts are invalid")
+            names.add(socket["name"])
+            center = socket.get("center_ratio")
+            if (not isinstance(center, list) or len(center) != 3
+                    or any(not isinstance(number, (int, float)) or isinstance(number, bool)
+                           or not 0 <= number <= 1 for number in center)):
+                raise ValueError("component socket cutouts are invalid")
+            for key, low, high in (("radius_ratio", 0.04, 0.35),
+                                   ("depth_ratio", 0.02, 0.3),
+                                   ("seat_band_ratio", 0.001, 0.03)):
+                number = socket.get(key)
+                if (not isinstance(number, (int, float)) or isinstance(number, bool)
+                        or not low <= number <= high):
+                    raise ValueError("component socket cutouts are invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -172,6 +201,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
         command += ["--aperture-cutout", json.dumps(checked["aperture_cutout"], separators=(",", ":"))]
     if "interface_rebuild" in checked:
         command += ["--interface-rebuild", json.dumps(checked["interface_rebuild"], separators=(",", ":"))]
+    if "socket_cutouts" in checked:
+        command += ["--socket-cutouts", json.dumps(checked["socket_cutouts"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -197,7 +228,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "salvage_bounds": checked.get("salvage_bounds"),
                               "mechanical_patch": checked.get("mechanical_patch"),
                               "aperture_cutout": checked.get("aperture_cutout"),
-                              "interface_rebuild": checked.get("interface_rebuild")},
+                              "interface_rebuild": checked.get("interface_rebuild"),
+                              "socket_cutouts": checked.get("socket_cutouts")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
