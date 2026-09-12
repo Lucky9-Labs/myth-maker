@@ -5,7 +5,8 @@ ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "modal"))
 from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
                             image_space_comparison, image_space_profile, reference_evaluation_inputs,
-                            reference_progress_history, validate_reference_evaluation, priced_model_usage)
+                            reference_progress_history, validate_reference_evaluation, priced_model_usage,
+                            current_component_selection)
 
 class AssetProgressTests(unittest.TestCase):
     def test_prices_measured_astra_usage_by_cache_class(self):
@@ -149,6 +150,28 @@ class AssetProgressTests(unittest.TestCase):
             self.assertIn("$0.8000", page)
             self.assertNotIn("Quality gain / 1k tokens", page)
             self.assertNotIn("quality_gain_per_1k_tokens", manifest["telemetry"]["efficiency"])
+
+    def test_component_selection_is_explicitly_not_promotion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            attempt = root / "agentic-stitch" / "hip" / "attempt-0002"
+            attempt.mkdir(parents=True)
+            (attempt / "job.json").write_text(json.dumps({"work_id": "hip", "attempt": 2,
+                "components": [{"component_id": "hip-seat", "artifact": {"sha256": "a" * 64}}]}))
+            selected = current_component_selection(root)
+            self.assertEqual(selected["hip-seat"]["sha256"], "a" * 64)
+            self.assertNotIn("canonical", selected["hip-seat"])
+
+    def test_dashboard_explains_candidate_lifecycle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            manifest = build_dashboard(root)
+            page = (root / "observability" / "index.html").read_text()
+            self.assertIn("Canonical</b> is reserved for a hash promoted", page)
+            self.assertIn("Component candidate quality gate", page)
+            self.assertIn('data-filter="active" aria-selected="true"', page)
+            self.assertIn("card.dataset.lifecycle===value", page)
+            self.assertEqual(manifest["component_selection"], {})
 
     def test_reference_score_is_calculated_from_closed_rubric(self):
         with tempfile.TemporaryDirectory() as temporary:
