@@ -10,7 +10,8 @@ SHA = re.compile(r"^[a-f0-9]{64}$")
 
 def validate_pure_component_assembly_job(value: dict) -> dict:
     required={"format","run_id","work_id","attempt","asset_id","components","retired_sha256"}
-    if not isinstance(value,dict) or set(value) not in (required, required|{"output_mode"}) or value.get("format")!=FORMAT or value.get("asset_id")!="mech":
+    optional={"output_mode","placement_graph","component_evidence","frozen_reference_sha256"}
+    if not isinstance(value,dict) or not required <= set(value) or not set(value) <= required|optional or value.get("format")!=FORMAT or value.get("asset_id")!="mech":
         raise ValueError("pure component assembly job has an invalid closed shape")
     if value.get("output_mode", "full") not in {"full", "review-preview"}:
         raise ValueError("pure component assembly output mode is invalid")
@@ -44,6 +45,33 @@ def validate_pure_component_assembly_job(value: dict) -> dict:
                 raise ValueError("pure component transform is invalid")
         if not isinstance(item["mirror_x"],bool) or item["material"] not in {"source","structural","armor-white","armor-blue","lens","metal"}:
             raise ValueError("pure component presentation is invalid")
+    graph=value.get("placement_graph")
+    evidence=value.get("component_evidence")
+    reference=value.get("frozen_reference_sha256")
+    if any(x is not None for x in (graph,evidence,reference)):
+        if not SHA.fullmatch(str(reference or "")):
+            raise ValueError("placement graph requires a frozen reference hash")
+        if not isinstance(evidence,dict) or set(evidence)!=seen:
+            raise ValueError("placement graph requires multiview evidence for every component")
+        for cid, views in evidence.items():
+            if not isinstance(views,list) or len(views)<2 or any(not isinstance(v,dict) or set(v)!={"view","sha256"} or not isinstance(v["view"],str) or not SHA.fullmatch(str(v["sha256"])) for v in views):
+                raise ValueError("component multiview evidence is invalid")
+        if not isinstance(graph,list) or len(graph)!=len(seen):
+            raise ValueError("placement graph must cover every component")
+        graph_ids=set()
+        for node in graph:
+            keys={"component_id","parent_component_id","parent_anchor","self_anchor","offset"}
+            if not isinstance(node,dict) or set(node)!=keys or node.get("component_id") not in seen or node["component_id"] in graph_ids:
+                raise ValueError("placement graph node is invalid")
+            graph_ids.add(node["component_id"]); parent=node["parent_component_id"]
+            if parent is not None and (parent not in seen or parent==node["component_id"]):
+                raise ValueError("placement graph parent is invalid")
+            for key,limit in (("parent_anchor",1),("self_anchor",1),("offset",5)):
+                vals=node[key]
+                if not isinstance(vals,list) or len(vals)!=3 or any(not isinstance(x,(int,float)) or isinstance(x,bool) or abs(x)>limit for x in vals):
+                    raise ValueError("placement graph anchor is invalid")
+        if graph_ids!=seen or not any(n["parent_component_id"] is None for n in graph):
+            raise ValueError("placement graph must have a root and cover every component")
     return json.loads(json.dumps(value))
 
 def run_pure_component_assembly(job:dict, submissions_root:Path, blender:str)->dict:
