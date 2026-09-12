@@ -416,6 +416,29 @@ def _plan_artifact(value: object) -> bool:
     )
 
 
+def _upgrade_legacy_accepted_plan(plan: object) -> object:
+    """Add bounded path data omitted by plans accepted before path stitching."""
+    if not isinstance(plan, dict) or not isinstance(plan.get("connections"), list):
+        return plan
+    upgraded = json.loads(json.dumps(plan))
+    legacy_keys = {
+        "connection_id", "from_component", "from_interface", "from_anchor_local_m",
+        "to_component", "to_interface", "to_anchor_local_m", "method", "connector", "max_gap_m",
+    }
+    for connection in upgraded["connections"]:
+        if not isinstance(connection, dict) or set(connection) != legacy_keys:
+            continue
+        radius = max(float((connection.get("connector") or {}).get("radius_m", .008)), .001)
+        offsets = ((-radius, 0.0, 0.0), (radius, 0.0, 0.0), (0.0, 0.0, radius))
+        for side in ("from", "to"):
+            anchor = connection[f"{side}_anchor_local_m"]
+            connection[f"{side}_path_local_m"] = [
+                [anchor[index] + offset[index] for index in range(3)] for offset in offsets
+            ]
+        connection["path_closed"] = True
+    return upgraded
+
+
 def validate_agentic_stitch_job(value: object) -> dict:
     """Validate the immutable inputs from which Astra must author the plan."""
     required = {
@@ -557,7 +580,7 @@ def run_agentic_stitch(
     reused_plan_sha256 = None
     if "accepted_plan" in checked:
         plan_bytes = _checked_bytes(submissions_root, checked["accepted_plan"], "accepted plan")
-        plan = json.loads(plan_bytes)
+        plan = _upgrade_legacy_accepted_plan(json.loads(plan_bytes))
         request_id = (plan.get("author") or {}).get("request_id")
         reused_plan_sha256 = checked["accepted_plan"]["sha256"]
         publish_stage("plan-reuse", status="completed", request_id=request_id,
