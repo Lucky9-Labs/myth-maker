@@ -236,18 +236,6 @@ def bevel_object(obj, width):
     bpy.ops.object.modifier_apply(modifier=modifier.name)
 
 
-def hard_surface_box(name, center, dimensions, mat, parent, bevel=.008):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=center)
-    obj = bpy.context.object
-    obj.name = name
-    obj.dimensions = dimensions
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    obj.data.materials.append(mat)
-    obj.parent = parent
-    bevel_object(obj, bevel)
-    return obj
-
-
 def reconstruct_hip_hard_surfaces(objects, root, mats):
     """Replace melted diffusion topology with bounded mechanical primitives.
 
@@ -361,15 +349,9 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
         seat.data.transform(Matrix.Translation(-local_center))
         seat.location += world_offset
         seat['postprocess'] = 'hunyuan-seat-envelope-normalization-v1'
-        # Retain the successful Hunyuan cap/body mass while replacing only the
-        # visibly melted outboard panel with a thin manufactured shell.
-        seat_panel = hard_surface_box(
-            'hip-seat-clean-outboard-panel', Vector((.507, 0, 0)),
-            Vector((.014, .164, .32)), mats['source'], root, .012)
-        seat_panel['component_id'] = 'hip-seat-block'
-        seat_panel['source_sha256'] = seat.get('source_sha256', '')
-        seat_panel['postprocess'] = 'local-planar-seat-panel-v1'
-        decorative.append(seat_panel)
+        # Preserve the accepted Hunyuan outward face. The mounting correction
+        # is limited to the inboard connector created below; adding an exterior
+        # cover plate obscures the successful source design.
 
     bpy.data.objects.remove(casing_source, do_unlink=True)
     bpy.data.objects.remove(rotor_source, do_unlink=True)
