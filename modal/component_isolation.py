@@ -21,7 +21,7 @@ def validate_component_isolation_job(value: dict) -> dict:
     required = {"format", "run_id", "work_id", "attempt", "asset_id", "component_id",
                 "model", "reference_polygon", "component_description", "material",
                 "symmetry", "attachment_surfaces", "quality"}
-    optional = {"source_artifact", "view_mode", "view_masks"}
+    optional = {"source_artifact", "view_mode", "view_masks", "registration_context"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component isolation job has an invalid closed shape")
     if value["format"] != FORMAT or value["model"] != MODEL or value["asset_id"] not in {"mech", "railgun"}:
@@ -40,6 +40,8 @@ def validate_component_isolation_job(value: dict) -> dict:
     for key in ("component_description", "material"):
         if not isinstance(value[key], str) or not 8 <= len(value[key]) <= 600:
             raise ValueError("component isolation description is invalid")
+    if "registration_context" in value and (not isinstance(value["registration_context"],str) or not 8 <= len(value["registration_context"]) <= 600):
+        raise ValueError("component registration context is invalid")
     if value["symmetry"] not in {"none", "bilateral", "mirrored-pair"}:
         raise ValueError("component isolation symmetry is invalid")
     if (not isinstance(value["attachment_surfaces"], list) or len(value["attachment_surfaces"]) > 8
@@ -112,10 +114,17 @@ def run_component_isolation(job: dict, submissions_root: Path, client) -> dict:
     crop = masked_component_crop(reference, checked["reference_polygon"], root / "source-crop.png")
     multiview = checked.get("view_mode") == "orthographic-multiview"
     view_instruction = _view_instruction(multiview)
+    context_instruction = (
+        " Preserve these adjacent parts only as faint translucent cyan registration silhouettes at the target component's attachment boundaries: "
+        + checked["registration_context"]
+        + ". The target component must remain the only opaque solid object. Do not merge, bridge, stretch, or fill toward the registration silhouettes. "
+        if checked.get("registration_context") else
+        " Remove every neighboring part, character, frame, highlight fragment, reflection, text, and background object. "
+    )
     prompt = (
         "Create one clean 3D reconstruction reference image for only this game-asset component: "
         + checked["component_description"] + ". Preserve the component's distinctive outline and proportions from the input. "
-        + "Remove every neighboring part, character, frame, highlight fragment, reflection, text, and background object. "
+        + context_instruction
         + view_instruction
         +
         "Use a flat transparent background, even studio lighting, crisp continuous surfaces, no cast shadow, and no labels. "
