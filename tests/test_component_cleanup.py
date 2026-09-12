@@ -64,4 +64,25 @@ class ComponentCleanupTests(unittest.TestCase):
         value=job(); value['max_smooth_displacement_ratio']=0.01
         with self.assertRaisesRegex(ValueError,'surface parameters'): validate_component_cleanup_job(value)
 
+    def test_accepts_bounded_longitudinal_socket_cutouts(self):
+        value = job()
+        value['source_review']['decision'] = 'regenerate'
+        value['socket_cutouts'] = [
+            {'name': 'elbow-seat', 'axis': 'z', 'side': 'positive',
+             'center_ratio': [.5, .5, 1], 'radius_ratio': .18,
+             'depth_ratio': .12, 'seat_band_ratio': .006},
+            {'name': 'wrist-seat', 'axis': 'z', 'side': 'negative',
+             'center_ratio': [.5, .5, 0], 'radius_ratio': .14,
+             'depth_ratio': .1, 'seat_band_ratio': .006},
+        ]
+        self.assertEqual(validate_component_cleanup_job(value), value)
+
+    def test_rejects_unbounded_socket_cutout(self):
+        value = job()
+        value['socket_cutouts'] = [{'name': 'wrist-seat', 'axis': 'z', 'side': 'negative',
+            'center_ratio': [.5, .5, 0], 'radius_ratio': .8,
+            'depth_ratio': .1, 'seat_band_ratio': .006}]
+        with self.assertRaisesRegex(ValueError, 'socket cutouts'):
+            validate_component_cleanup_job(value)
+
 if __name__=='__main__': unittest.main()
