@@ -14,6 +14,11 @@ class Tests(unittest.TestCase):
         self.assertIn("item['material']!='source'",driver)
         self.assertNotIn("bpy.ops.object.join()",driver)
         self.assertNotIn('BLENDER_EEVEE_NEXT',driver)
+    def test_dense_composition_has_a_bounded_thirty_minute_window(self):
+        runner=(Path(__file__).parents[1]/'modal'/'pure_component_assembly.py').read_text()
+        service=(Path(__file__).parents[1]/'modal'/'draft_trial.py').read_text()
+        self.assertIn('timeout=28*60',runner)
+        self.assertIn('timeout=30 * 60',service)
     def test_accepts_hash_locked_component(self): self.assertEqual(validate_pure_component_assembly_job(job()),job())
     def test_accepts_bounded_review_preview(self):
         x=job(); x['output_mode']='review-preview'

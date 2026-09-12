@@ -353,7 +353,7 @@ def run_component_isolation_job(job: dict) -> dict:
             part_leases.pop(lease_key)
 
 
-@app.function(image=image, cpu=4, memory=8192, timeout=12 * 60, retries=0,
+@app.function(image=image, cpu=4, memory=8192, timeout=30 * 60, retries=0,
               max_containers=4, secrets=[secret], volumes={"/submissions": volume})
 def run_component_review_job(job: dict) -> dict:
     """Render and diagnose one immutable generated component before assembly."""
