@@ -8,8 +8,9 @@ def job():
 class Tests(unittest.TestCase):
     def test_cloud_blender_uses_bounded_supported_review_engine(self):
         driver=(Path(__file__).parents[1]/'modal'/'pure_component_assembly_blender.py').read_text()
-        self.assertIn("scene.render.engine='BLENDER_EEVEE'",driver)
-        self.assertIn("320 if job.get('output_mode')=='review-preview' else 720",driver)
+        self.assertIn("'BLENDER_WORKBENCH' if review_preview else 'BLENDER_EEVEE'",driver)
+        self.assertIn("scene.display.shading.color_type='MATERIAL'",driver)
+        self.assertIn("320 if review_preview else 720",driver)
         self.assertNotIn("DECIMATE",driver)
         self.assertIn("item['material']!='source'",driver)
         self.assertIn("uniform_scale=min(scale_candidates)",driver)
