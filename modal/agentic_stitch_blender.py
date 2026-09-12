@@ -66,19 +66,68 @@ def convex_hull_xz(points):
     return lower[:-1] + upper[:-1]
 
 
-def cockpit_perimeter_band(name, outline, front_y, depth, width_scale, mat, parent):
-    """Build a closed, planar retaining band instead of a visible tube."""
-    center_x = sum(point[0] for point in outline) / len(outline)
-    center_z = sum(point[1] for point in outline) / len(outline)
-    outer = [(center_x + (x - center_x) * (1 + width_scale),
-              center_z + (z - center_z) * (1 + width_scale)) for x, z in outline]
-    inner = [(center_x + (x - center_x) * (1 - width_scale),
-              center_z + (z - center_z) * (1 - width_scale)) for x, z in outline]
-    back_y = front_y + depth
+def resample_closed_outline(outline, count=20):
+    points = [Vector((x, 0.0, z)) for x, z in outline]
+    lengths = [(points[(i + 1) % len(points)] - points[i]).length for i in range(len(points))]
+    perimeter = sum(lengths)
+    if perimeter <= 1e-6:
+        raise RuntimeError('cockpit contour has no measurable perimeter')
+    sampled = []
+    edge, consumed = 0, 0.0
+    for index in range(count):
+        target = perimeter * index / count
+        while consumed + lengths[edge] < target:
+            consumed += lengths[edge]
+            edge = (edge + 1) % len(points)
+        portion = (target - consumed) / max(lengths[edge], 1e-6)
+        point = points[edge].lerp(points[(edge + 1) % len(points)], portion)
+        sampled.append((point.x, point.z))
+    return sampled
+
+
+def cockpit_mating_boundaries(torso, glass):
+    """Measure paired glass and torso loops instead of inventing a hoop."""
+    glass_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices]
+    glass_front = min(point.y for point in glass_vertices)
+    glass_back = max(point.y for point in glass_vertices)
+    front_slice = [point for point in glass_vertices
+                   if point.y <= glass_front + (glass_back - glass_front) * .32]
+    outline = resample_closed_outline(convex_hull_xz(front_slice), 20)
+    glass_tree = KDTree(len(front_slice))
+    for index, point in enumerate(front_slice):
+        glass_tree.insert(Vector((point.x, 0.0, point.z)), index)
+    glass_tree.balance()
+    torso_vertices = [torso.matrix_world @ vertex.co for vertex in torso.data.vertices]
+    torso_tree = KDTree(len(torso_vertices))
+    for index, point in enumerate(torso_vertices):
+        torso_tree.insert(Vector((point.x, 0.0, point.z)), index)
+    torso_tree.balance()
+    inner, outer = [], []
+    center = Vector((sum(x for x, _ in outline) / len(outline), 0.0,
+                     sum(z for _, z in outline) / len(outline)))
+    for x, z in outline:
+        _, glass_index, _ = glass_tree.find(Vector((x, 0.0, z)))
+        glass_point = front_slice[glass_index]
+        _, torso_index, _ = torso_tree.find(Vector((x, 0.0, z)))
+        torso_point = torso_vertices[torso_index]
+        radial = Vector((x, 0.0, z)) - center
+        minimum_outer = Vector((x, glass_point.y + .006, z)) + radial * .028
+        measured_outer = Vector((torso_point.x, max(torso_point.y, glass_point.y + .004), torso_point.z))
+        # Use the measured torso rim when it is near this glass boundary, while
+        # preventing unrelated exterior vertices from producing long spikes.
+        if (Vector((measured_outer.x, 0.0, measured_outer.z)) - Vector((x, 0.0, z))).length > max(radial.length * .14, .025):
+            measured_outer = minimum_outer
+        inner.append(Vector((x, glass_point.y + .004, z)))
+        outer.append(measured_outer.lerp(minimum_outer, .35))
+    return inner, outer
+
+
+def cockpit_perimeter_band(name, inner, outer, depth, mat, parent):
+    """Bridge the measured glass boundary into the measured torso cavity rim."""
     vertices = []
-    for ring, y in ((outer, front_y), (inner, front_y), (outer, back_y), (inner, back_y)):
-        vertices.extend((x, y, z) for x, z in ring)
-    count = len(outline)
+    for ring, offset in ((outer, 0.0), (inner, 0.0), (outer, depth), (inner, depth)):
+        vertices.extend((point.x, point.y + offset, point.z) for point in ring)
+    count = len(inner)
     faces = []
     for index in range(count):
         nxt = (index + 1) % count
@@ -110,7 +159,7 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     torso_low, torso_high = bounds_box(torso)
     glass_low, glass_high = bounds_box(glass)
     torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
-    target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))
+    target = Vector((torso_size.x * .49, torso_size.y * .21, torso_size.z * .63))
     factors = Vector(tuple(target[i] / max(glass_size[i], 1e-6) for i in range(3)))
     glass.scale = Vector(tuple(glass.scale[i] * factors[i] for i in range(3)))
     bpy.context.view_layer.update()
@@ -119,25 +168,20 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     torso_center = (torso_low + torso_high) * .5
     desired_front = torso_low.y + torso_size.y * .12
     desired_center = Vector((torso_center.x, desired_front + (glass_high.y - glass_low.y) * .5,
-                             torso_center.z + torso_size.z * .025))
+                             torso_center.z + torso_size.z * .055))
     glass.location += desired_center - glass_center
     glass.data.materials.clear()
     glass.data.materials.append(glass_material)
     glass['fit_primitive'] = 'cockpit-glass-seat-v1'
     bpy.context.view_layer.update()
 
-    low, high = bounds_box(glass)
-    world_vertices = [glass.matrix_world @ vertex.co for vertex in glass.data.vertices]
-    outline = convex_hull_xz(world_vertices)
-    if len(outline) < 3:
-        raise RuntimeError('cockpit glass front contour could not be resolved')
-    glass_front_y = min(vertex.y for vertex in world_vertices)
+    inner, outer = cockpit_mating_boundaries(torso, glass)
     torso_material = torso.data.materials[0] if torso.data.materials else frame_material
     frame = cockpit_perimeter_band(
-        'cockpit-continuous-perimeter-frame', outline,
-        glass_front_y - max(torso_size.y * .006, .004),
-        max(torso_size.y * .02, .010), .018, torso_material, root)
+        'cockpit-continuous-perimeter-frame', inner, outer,
+        max(torso_size.y * .014, .007), torso_material, root)
     frame['generated_connection_id'] = 'cockpit-continuous-perimeter'
+    frame['fit_primitive'] = 'measured-paired-boundary-seat-v2'
     return frame
 
 
