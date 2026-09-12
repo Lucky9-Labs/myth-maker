@@ -131,5 +131,7 @@ class ComponentCleanupTests(unittest.TestCase):
         script = (Path(__file__).parents[1] / 'modal' / 'component_cleanup_blender.py').read_text()
         self.assertIn("'through_bores': 2", script)
         self.assertIn("boolean.operation = 'DIFFERENCE'", script)
+        self.assertIn("total_length = sum(lengths)", script)
+        self.assertIn("cursor += sign * length", script)
 
 if __name__=='__main__': unittest.main()
