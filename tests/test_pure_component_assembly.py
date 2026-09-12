@@ -63,4 +63,6 @@ class Tests(unittest.TestCase):
         self.assertIn("child.location += parent_world-child_world+Vector(node['offset'])",driver)
         self.assertIn("'multiview-neighbor-anchor'",driver)
         self.assertIn("mirror.location=(-source.location.x,source.location.y,source.location.z)",driver)
+        self.assertIn("placed_dimensions[item['component_id']]=Vector(current)",driver)
+        self.assertNotIn("placed_dimensions[item['component_id']]=Vector(current)*uniform_scale",driver)
 if __name__=='__main__': unittest.main()

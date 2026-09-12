@@ -43,7 +43,9 @@ def main():
         scale_candidates=[dims[i]/current[i] for i in range(3) if current[i]]
         uniform_scale=min(scale_candidates) if scale_candidates else 1.0
         group.scale=(uniform_scale,uniform_scale,uniform_scale)
-        groups[item['component_id']]=group; placed_dimensions[item['component_id']]=Vector(current)*uniform_scale
+        # Anchor coordinates live in group-local space; matrix_world applies the
+        # uniform scale exactly once when converting them to world space.
+        groups[item['component_id']]=group; placed_dimensions[item['component_id']]=Vector(current)
         bpy.context.view_layer.update()
         for index,o in enumerate(meshes):
             o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
