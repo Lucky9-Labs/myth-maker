@@ -31,6 +31,15 @@ class ComponentCleanupTests(unittest.TestCase):
             'hub_radius_ratio':0.8,'hub_depth_ratio':0.12,'seat_width_ratio':0.55,
             'seat_depth_ratio':0.5,'seat_thickness_ratio':0.08,'bevel_ratio':0.015}
         with self.assertRaisesRegex(ValueError,'mechanical patch'): validate_component_cleanup_job(value)
+    def test_accepts_regenerate_candidate_for_bounded_aperture_cutout(self):
+        value=job(); value['source_review']['decision']='regenerate'
+        value['aperture_cutout']={'type':'ellipsoid-through-cut','axis':'y','center':[0.5,0.35,0.56],
+            'size':[0.62,1.0,0.72],'seat_name':'cockpit-glass-seat','seat_band_ratio':0.015}
+        self.assertEqual(validate_component_cleanup_job(value),value)
+    def test_rejects_unbounded_aperture_cutout(self):
+        value=job(); value['aperture_cutout']={'type':'ellipsoid-through-cut','axis':'z','center':[0.5,0.5,0.5],
+            'size':[1.2,1.0,0.7],'seat_name':'bad seat','seat_band_ratio':0.1}
+        with self.assertRaisesRegex(ValueError,'aperture cutout'): validate_component_cleanup_job(value)
     def test_rejects_invalid_salvage_bounds(self):
         value=job(); value['salvage_bounds']={'x':[0.8,0.2],'y':[0,1],'z':[0,1]}
         with self.assertRaisesRegex(ValueError,'salvage bounds'): validate_component_cleanup_job(value)

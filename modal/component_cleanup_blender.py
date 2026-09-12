@@ -22,6 +22,7 @@ def main():
     p.add_argument('--lower-trim-ratio', type=float, required=True); p.add_argument('--seat-band-ratio', type=float, required=True)
     p.add_argument('--salvage-bounds')
     p.add_argument('--mechanical-patch')
+    p.add_argument('--aperture-cutout')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -100,6 +101,35 @@ def main():
         modifier = obj.modifiers.new('bounded-component-decimate', 'DECIMATE'); modifier.ratio = a.decimate_ratio
         modifier.use_collapse_triangulate = True; bpy.ops.object.modifier_apply(modifier=modifier.name)
     patch_objects = []
+    aperture_vertices = 0
+    aperture_name = None
+    if a.aperture_cutout:
+        aperture = json.loads(a.aperture_cutout)
+        minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        maximum = [max((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        extent = [maximum[i] - minimum[i] for i in range(3)]
+        center = [minimum[i] + extent[i] * aperture['center'][i] for i in range(3)]
+        radii = [max(extent[i] * aperture['size'][i] / 2, longest * 1e-5) for i in range(3)]
+        axis_index = 0 if aperture['axis'] == 'x' else 1
+        radii[axis_index] = extent[axis_index] * 0.8
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, location=center)
+        cutter = bpy.context.object; cutter.name = a.component_id + '-aperture-cutter'
+        cutter.scale = radii; bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        bpy.context.view_layer.objects.active = obj
+        boolean = obj.modifiers.new('bounded-aperture-cutout', 'BOOLEAN')
+        boolean.operation = 'DIFFERENCE'; boolean.solver = 'EXACT'; boolean.object = cutter
+        bpy.ops.object.modifier_apply(modifier=boolean.name)
+        bpy.data.objects.remove(cutter, do_unlink=True)
+        group = obj.vertex_groups.get(aperture['seat_name']) or obj.vertex_groups.new(name=aperture['seat_name'])
+        tolerance = aperture['seat_band_ratio']
+        indices = []
+        for vertex in obj.data.vertices:
+            world = obj.matrix_world @ vertex.co
+            q = sum(((world[i] - center[i]) / radii[i]) ** 2 for i in range(3))
+            if abs(q - 1.0) <= tolerance:
+                indices.append(vertex.index)
+        if indices: group.add(indices, 1.0, 'REPLACE')
+        aperture_vertices = len(indices); aperture_name = aperture['seat_name']
     if a.mechanical_patch:
         patch = json.loads(a.mechanical_patch)
         minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
@@ -136,6 +166,7 @@ def main():
         'seat_vertex_group':'canopy-frame-seat' if seat_vertices else None,'seat_vertices':seat_vertices,
         'salvage_bounds':json.loads(a.salvage_bounds) if a.salvage_bounds else None,
         'salvage_removed_vertices':salvage_removed_vertices,
+        'aperture_seat_vertex_group':aperture_name,'aperture_seat_vertices':aperture_vertices,
         'mechanical_patch_objects':[item.name for item in patch_objects]}, indent=2, sort_keys=True)+'\n')
 
 

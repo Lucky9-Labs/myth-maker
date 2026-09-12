@@ -27,7 +27,7 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "candidate", "source_review", "merge_distance_ratio", "decimate_ratio",
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
-    optional = {"salvage_bounds", "mechanical_patch"}
+    optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
@@ -47,7 +47,8 @@ def validate_component_cleanup_job(value: dict) -> dict:
         raise ValueError("component cleanup requires a matching Astra review")
     bounds = value.get("salvage_bounds")
     patch = value.get("mechanical_patch")
-    if review["decision"] == "regenerate" and bounds is None and patch is None:
+    aperture = value.get("aperture_cutout")
+    if review["decision"] == "regenerate" and bounds is None and patch is None and aperture is None:
         raise ValueError("regenerate review cleanup requires bounded salvage or mechanical patch")
     if bounds is not None:
         if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
@@ -72,6 +73,25 @@ def validate_component_cleanup_job(value: dict) -> dict:
             number = patch.get(key)
             if not isinstance(number, (int, float)) or isinstance(number, bool) or not low <= number <= high:
                 raise ValueError("component mechanical patch parameters are invalid")
+    if aperture is not None:
+        keys = {"type", "axis", "center", "size", "seat_name", "seat_band_ratio"}
+        if (not isinstance(aperture, dict) or set(aperture) != keys
+                or aperture.get("type") != "ellipsoid-through-cut"
+                or aperture.get("axis") not in {"x", "y"}
+                or not isinstance(aperture.get("seat_name"), str)
+                or not IDENTIFIER.fullmatch(aperture["seat_name"])):
+            raise ValueError("component aperture cutout is invalid")
+        for key in ("center", "size"):
+            vector = aperture.get(key)
+            if (not isinstance(vector, list) or len(vector) != 3
+                    or any(not isinstance(v, (int, float)) or isinstance(v, bool) for v in vector)):
+                raise ValueError("component aperture cutout is invalid")
+        if (any(not 0 <= v <= 1 for v in aperture["center"])
+                or any(not 0.05 <= v <= 1 for v in aperture["size"])
+                or not isinstance(aperture["seat_band_ratio"], (int, float))
+                or isinstance(aperture["seat_band_ratio"], bool)
+                or not 0 < aperture["seat_band_ratio"] <= 0.03):
+            raise ValueError("component aperture cutout parameters are invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -121,6 +141,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
         command += ["--salvage-bounds", json.dumps(checked["salvage_bounds"], separators=(",", ":"))]
     if "mechanical_patch" in checked:
         command += ["--mechanical-patch", json.dumps(checked["mechanical_patch"], separators=(",", ":"))]
+    if "aperture_cutout" in checked:
+        command += ["--aperture-cutout", json.dumps(checked["aperture_cutout"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -144,7 +166,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "lower_trim_ratio": checked["lower_trim_ratio"],
                               "seat_band_ratio": checked["seat_band_ratio"],
                               "salvage_bounds": checked.get("salvage_bounds"),
-                              "mechanical_patch": checked.get("mechanical_patch")},
+                              "mechanical_patch": checked.get("mechanical_patch"),
+                              "aperture_cutout": checked.get("aperture_cutout")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
