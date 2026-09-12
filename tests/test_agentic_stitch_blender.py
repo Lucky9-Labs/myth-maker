@@ -18,9 +18,9 @@ class AgenticStitchBlenderTests(unittest.TestCase):
 
     def test_every_resolved_edge_creates_real_geometry(self):
         source = DRIVER.read_text()
-        self.assertIn("cylinder_between(connection['connection_id'] + '-connector'", source)
-        self.assertIn("collar(connection['connection_id'] + '-from-collar'", source)
-        self.assertIn("collar(connection['connection_id'] + '-to-collar'", source)
+        self.assertIn("project_path_to_surface(source, connection['from_path_local_m'])", source)
+        self.assertIn("project_path_to_surface(target, connection['to_path_local_m'])", source)
+        self.assertIn("bridge_paths(connection['connection_id'] + '-fitted-seat'", source)
         self.assertIn("surface_gap = max(source_contact_m, target_contact_m)", source)
         self.assertIn("'anchor_span_m': round(anchor_span, 6)", source)
         self.assertIn("raise RuntimeError('agentic stitch left unresolved connections:", source)
