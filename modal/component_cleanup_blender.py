@@ -1,6 +1,7 @@
 """Blender-side bounded cleanup for one isolated GLB."""
 from __future__ import annotations
 import argparse, json
+from math import cos, pi, sin
 from pathlib import Path
 import bpy
 import bmesh
@@ -25,6 +26,7 @@ def main():
     p.add_argument('--aperture-cutout')
     p.add_argument('--interface-rebuild')
     p.add_argument('--socket-cutouts')
+    p.add_argument('--faceted-ring-rebuild')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -177,6 +179,49 @@ def main():
                 bevel.width = max(dimensions) * spec['bevel_ratio']; bevel.segments = 2; bevel.limit_method = 'ANGLE'
                 bpy.ops.object.modifier_apply(modifier=bevel.name)
             patch_objects.append(interface); interface_objects.append(interface.name)
+    faceted_ring_record = None
+    if a.faceted_ring_rebuild:
+        spec = json.loads(a.faceted_ring_rebuild)
+        minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        maximum = [max((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        extent = [maximum[i] - minimum[i] for i in range(3)]
+        center = [minimum[i] + extent[i] * spec['center_ratio'][i] for i in range(3)]
+        size = [extent[i] * spec['size_ratio'][i] for i in range(3)]
+        outer = (size[0] / 2, size[1] / 2)
+        inner = (outer[0] * spec['inner_ratio'], outer[1] * spec['inner_ratio'])
+        z0, z1 = center[2] - size[2] / 2, center[2] + size[2] / 2
+        vertices = []
+        for z, radii in ((z0, outer), (z0, inner), (z1, outer), (z1, inner)):
+            for index in range(spec['sides']):
+                angle = 2 * pi * index / spec['sides']
+                vertices.append((center[0] + radii[0] * cos(angle),
+                                 center[1] + radii[1] * sin(angle), z))
+        faces = []
+        sides = spec['sides']
+        for index in range(sides):
+            nxt = (index + 1) % sides
+            faces.extend([
+                (index, nxt, 2 * sides + nxt, 2 * sides + index),
+                (sides + nxt, sides + index, 3 * sides + index, 3 * sides + nxt),
+                (2 * sides + index, 2 * sides + nxt, 3 * sides + nxt, 3 * sides + index),
+                (nxt, index, sides + index, sides + nxt),
+            ])
+        mesh = bpy.data.meshes.new(a.component_id + '-faceted-ring-mesh')
+        mesh.from_pydata(vertices, [], faces); mesh.validate(verbose=False); mesh.update()
+        ring = bpy.data.objects.new(a.component_id, mesh); bpy.context.collection.objects.link(ring)
+        upper = ring.vertex_groups.new(name=spec['upper_seat_name'])
+        lower = ring.vertex_groups.new(name=spec['lower_seat_name'])
+        upper.add(list(range(2 * sides, 4 * sides)), 1.0, 'REPLACE')
+        lower.add(list(range(0, 2 * sides)), 1.0, 'REPLACE')
+        if spec['bevel_ratio']:
+            bevel = ring.modifiers.new('bounded-ring-bevel', 'BEVEL')
+            bevel.width = max(size) * spec['bevel_ratio']; bevel.segments = 2; bevel.limit_method = 'ANGLE'
+            bpy.context.view_layer.objects.active = ring; bpy.ops.object.modifier_apply(modifier=bevel.name)
+        bpy.data.objects.remove(obj, do_unlink=True); obj = ring
+        faceted_ring_record = {'object': ring.name, 'sides': sides,
+                               'upper_seat_name': spec['upper_seat_name'],
+                               'lower_seat_name': spec['lower_seat_name'],
+                               'through_opening': True}
     socket_records = []
     if a.socket_cutouts:
         sockets = json.loads(a.socket_cutouts)
@@ -270,7 +315,8 @@ def main():
         'aperture_seat_vertex_group':aperture_name,'aperture_seat_vertices':aperture_vertices,
         'mechanical_patch_objects':[item.name for item in patch_objects],
         'interface_rebuild_objects':interface_objects,
-        'socket_cutouts':socket_records}, indent=2, sort_keys=True)+'\n')
+        'socket_cutouts':socket_records,
+        'faceted_ring_rebuild':faceted_ring_record}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()

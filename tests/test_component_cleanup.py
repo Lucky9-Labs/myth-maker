@@ -85,10 +85,35 @@ class ComponentCleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'socket cutouts'):
             validate_component_cleanup_job(value)
 
+    def test_accepts_regenerate_candidate_for_faceted_through_ring(self):
+        value = job()
+        value['source_review']['decision'] = 'regenerate'
+        value['faceted_ring_rebuild'] = {
+            'type': 'faceted-through-ring', 'sides': 8,
+            'center_ratio': [.5, .5, .56], 'size_ratio': [.94, .9, .34],
+            'inner_ratio': .68, 'bevel_ratio': .008, 'replace_source': True,
+            'upper_seat_name': 'torso-waist', 'lower_seat_name': 'pelvis-armor-seat'}
+        self.assertEqual(validate_component_cleanup_job(value), value)
+
+    def test_rejects_closed_or_unbounded_faceted_ring(self):
+        value = job()
+        value['faceted_ring_rebuild'] = {
+            'type': 'faceted-through-ring', 'sides': 5,
+            'center_ratio': [.5, .5, .5], 'size_ratio': [1, 1, .3],
+            'inner_ratio': .1, 'bevel_ratio': .08, 'replace_source': False,
+            'upper_seat_name': 'bad seat', 'lower_seat_name': 'lower'}
+        with self.assertRaisesRegex(ValueError, 'faceted ring rebuild'):
+            validate_component_cleanup_job(value)
+
     def test_blender_socket_cleanup_preserves_existing_open_rims(self):
         script = (Path(__file__).parents[1] / 'modal' / 'component_cleanup_blender.py').read_text()
         self.assertIn("seat_source = 'existing-rim'", script)
         self.assertIn("inner = radius * .65", script)
         self.assertIn("outer = radius * 1.35", script)
+
+    def test_blender_faceted_ring_is_explicitly_through_open(self):
+        script = (Path(__file__).parents[1] / 'modal' / 'component_cleanup_blender.py').read_text()
+        self.assertIn("'through_opening': True", script)
+        self.assertIn("mesh.from_pydata(vertices, [], faces)", script)
 
 if __name__=='__main__': unittest.main()

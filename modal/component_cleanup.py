@@ -28,7 +28,7 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
     optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout", "interface_rebuild",
-                "socket_cutouts"}
+                "socket_cutouts", "faceted_ring_rebuild"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
@@ -51,8 +51,9 @@ def validate_component_cleanup_job(value: dict) -> dict:
     aperture = value.get("aperture_cutout")
     interfaces = value.get("interface_rebuild")
     sockets = value.get("socket_cutouts")
+    ring = value.get("faceted_ring_rebuild")
     if (review["decision"] == "regenerate" and bounds is None and patch is None
-            and aperture is None and interfaces is None and sockets is None):
+            and aperture is None and interfaces is None and sockets is None and ring is None):
         raise ValueError("regenerate review cleanup requires bounded salvage or mechanical patch")
     if bounds is not None:
         if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
@@ -148,6 +149,30 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 if (not isinstance(number, (int, float)) or isinstance(number, bool)
                         or not low <= number <= high):
                     raise ValueError("component socket cutouts are invalid")
+    if ring is not None:
+        keys = {"type", "sides", "center_ratio", "size_ratio", "inner_ratio",
+                "bevel_ratio", "replace_source", "upper_seat_name", "lower_seat_name"}
+        if (not isinstance(ring, dict) or set(ring) != keys
+                or ring.get("type") != "faceted-through-ring"
+                or not isinstance(ring.get("sides"), int) or isinstance(ring.get("sides"), bool)
+                or not 6 <= ring["sides"] <= 12
+                or ring.get("replace_source") is not True):
+            raise ValueError("faceted ring rebuild is invalid")
+        for key in ("center_ratio", "size_ratio"):
+            vector = ring.get(key)
+            if (not isinstance(vector, list) or len(vector) != 3
+                    or any(not isinstance(number, (int, float)) or isinstance(number, bool)
+                           for number in vector)):
+                raise ValueError("faceted ring rebuild is invalid")
+        if (any(not 0 <= number <= 1 for number in ring["center_ratio"])
+                or any(not 0.1 <= number <= 1 for number in ring["size_ratio"])
+                or not isinstance(ring.get("inner_ratio"), (int, float))
+                or isinstance(ring.get("inner_ratio"), bool) or not 0.35 <= ring["inner_ratio"] <= 0.85
+                or not isinstance(ring.get("bevel_ratio"), (int, float))
+                or isinstance(ring.get("bevel_ratio"), bool) or not 0 <= ring["bevel_ratio"] <= 0.05
+                or any(not isinstance(ring.get(name), str) or not IDENTIFIER.fullmatch(ring[name])
+                       for name in ("upper_seat_name", "lower_seat_name"))):
+            raise ValueError("faceted ring rebuild is invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -203,6 +228,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
         command += ["--interface-rebuild", json.dumps(checked["interface_rebuild"], separators=(",", ":"))]
     if "socket_cutouts" in checked:
         command += ["--socket-cutouts", json.dumps(checked["socket_cutouts"], separators=(",", ":"))]
+    if "faceted_ring_rebuild" in checked:
+        command += ["--faceted-ring-rebuild", json.dumps(checked["faceted_ring_rebuild"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -229,7 +256,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "mechanical_patch": checked.get("mechanical_patch"),
                               "aperture_cutout": checked.get("aperture_cutout"),
                               "interface_rebuild": checked.get("interface_rebuild"),
-                              "socket_cutouts": checked.get("socket_cutouts")},
+                              "socket_cutouts": checked.get("socket_cutouts"),
+                              "faceted_ring_rebuild": checked.get("faceted_ring_rebuild")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
