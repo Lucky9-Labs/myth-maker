@@ -63,6 +63,10 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("'postprocessed_objects'", source)
         self.assertIn("math.radians(22.5)", source)
         self.assertIn("hunyuan-seat-envelope-normalization-v1", source)
+        self.assertIn("casing_radius = .3", source)
+        self.assertIn("bore_radius = .182", source)
+        self.assertIn("rotor_radius = .18", source)
+        self.assertIn("target_size = Vector((.2, .2, .48))", source)
 
     def test_socket_fit_keeps_articulation_clearance_empty(self):
         source = DRIVER.read_text()
