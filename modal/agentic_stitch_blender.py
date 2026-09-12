@@ -6,7 +6,7 @@ from pathlib import Path
 
 import bpy
 import bmesh
-from mathutils import Vector
+from mathutils import Matrix, Vector
 from mathutils.kdtree import KDTree
 
 
@@ -204,13 +204,15 @@ def collar(name, center, direction, radius, depth, mat, parent, connection_id):
     return obj
 
 
-def cylinder_y(name, center, radius, depth, vertices, mat, parent):
+def cylinder_y(name, center, radius, depth, vertices, mat, parent, phase=0.0):
     """Create a mechanically aligned cylinder whose axis is world Y."""
     bpy.ops.mesh.primitive_cylinder_add(
         vertices=vertices, radius=radius, depth=depth, location=center,
         rotation=(math.radians(90), 0, 0))
     obj = bpy.context.object
     obj.name = name
+    if phase:
+        obj.data.transform(Matrix.Rotation(phase, 4, 'Z'))
     obj.data.materials.append(mat)
     obj.parent = parent
     return obj
@@ -253,7 +255,7 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     casing_depth = max(casing_size.y * .78, .02)
     bore_radius = casing_radius * .57
     casing = cylinder_y('hip-outer-casing', casing_center, casing_radius,
-                        casing_depth, 8, mats['source'], root)
+                        casing_depth, 8, mats['source'], root, math.radians(22.5))
     cutter = cylinder_y('hip-pivot-bore-cutter', casing_center, bore_radius,
                         casing_depth * 1.3, 96, mats['connector'], root)
     boolean = casing.modifiers.new('precision-pivot-bore', 'BOOLEAN')
@@ -285,7 +287,7 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     decorative = []
     front_y = rotor_center.y - rotor_depth * .5
     for index, (radius_scale, depth_scale, offset_scale) in enumerate((
-            (.88, .10, -.02), (.67, .07, -.07), (.38, .035, -.115))):
+            (.88, .06, -.03), (.67, .035, -.0175), (.38, .01, -.005))):
         part = cylinder_y(
             f'hip-pivot-front-step-{index + 1}',
             Vector((rotor_center.x, front_y + rotor_depth * offset_scale, rotor_center.z)),
@@ -294,12 +296,41 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
         part['component_id'] = 'hip-pivot-rotor'
         decorative.append(part)
 
+    # Normalize the promoted seat to the envelope authored by Astra before the
+    # graph solver touches it. The diffusion mesh keeps its shape and details;
+    # only its coordinate frame and dimensions become deterministic.
+    seat = objects.get('hip-seat-block')
+    if seat is not None:
+        seat_low, seat_high = bounds_box(seat)
+        seat_size = seat_high - seat_low
+        target_size = Vector((casing_radius * .67, casing_depth * .83, casing_radius * 1.6))
+        factors = Vector(tuple(target_size[i] / max(seat_size[i], 1e-6) for i in range(3)))
+        seat.scale = Vector(tuple(seat.scale[i] * factors[i] for i in range(3)))
+        bpy.context.view_layer.update()
+        normalized_low, normalized_high = bounds_box(seat)
+        seat.location += Vector((
+            casing_center.x + casing_radius + target_size.x * .5,
+            casing_center.y,
+            casing_center.z,
+        )) - (normalized_low + normalized_high) * .5
+        seat['postprocess'] = 'hunyuan-seat-envelope-normalization-v1'
+
     bpy.data.objects.remove(casing_source, do_unlink=True)
     bpy.data.objects.remove(rotor_source, do_unlink=True)
     objects['hip-outer-casing'] = casing
     objects['hip-pivot-rotor'] = rotor
     bpy.context.view_layer.update()
     return [casing, rotor, *decorative]
+
+
+def nonvisual_articulation(name, center, parent, connection_id):
+    joint = bpy.data.objects.new(name, None)
+    bpy.context.collection.objects.link(joint)
+    joint.location = center
+    joint.parent = parent
+    joint['generated_connection_id'] = connection_id
+    joint['interface_kind'] = 'nonvisual-articulation-clearance'
+    return joint
 
 
 def main():
@@ -397,6 +428,12 @@ def main():
         radius = max(dimensions['radius_m'] - dimensions['clearance_m'], .001)
         if connection['connection_id'] == 'cockpit-continuous-perimeter' and cockpit_frame is not None:
             connector = cockpit_frame
+        elif connection['method'] == 'socket-fit' and dimensions['clearance_m'] > 0:
+            # A moving bearing is connected by a constraint and captured faces,
+            # never by visible bridge geometry across its radial clearance.
+            connector = nonvisual_articulation(
+                connection['connection_id'] + '-articulation', (start + end) * .5,
+                root, connection['connection_id'])
         else:
             source_path = project_path_to_surface(source, connection['from_path_local_m'])
             target_path = project_path_to_surface(target, connection['to_path_local_m'])

@@ -61,6 +61,15 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("'postprocess'", source)
         self.assertIn("'hunyuan-bounds-hard-surface-v1'", source)
         self.assertIn("'postprocessed_objects'", source)
+        self.assertIn("math.radians(22.5)", source)
+        self.assertIn("hunyuan-seat-envelope-normalization-v1", source)
+
+    def test_socket_fit_keeps_articulation_clearance_empty(self):
+        source = DRIVER.read_text()
+        self.assertIn("def nonvisual_articulation", source)
+        self.assertIn("connection['method'] == 'socket-fit'", source)
+        self.assertIn("dimensions['clearance_m'] > 0", source)
+        self.assertIn("nonvisual-articulation-clearance", source)
 
     def test_review_camera_frames_generated_geometry(self):
         source = DRIVER.read_text()
