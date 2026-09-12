@@ -52,7 +52,7 @@ class AgenticStitchBlenderTests(unittest.TestCase):
     def test_has_bounded_cockpit_fit_primitive(self):
         source = DRIVER.read_text()
         self.assertIn("def fit_cockpit_glass", source)
-        self.assertIn("target = Vector((torso_size.x * .62, torso_size.y * .18, torso_size.z * .78))", source)
+        self.assertIn("target = Vector((torso_size.x * .54, torso_size.y * .24, torso_size.z * .68))", source)
         self.assertIn("outline = convex_hull_xz(world_vertices)", source)
         self.assertIn("glass.rotation_euler.x += math.radians(-8)", source)
         self.assertIn("def cockpit_perimeter_band", source)
