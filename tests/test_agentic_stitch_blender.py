@@ -67,6 +67,9 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("casing_radius = casing_apothem / math.cos(math.pi / 8)", source)
         self.assertIn("bore_radius = .182", source)
         self.assertIn("rotor_radius = .18", source)
+        self.assertIn("(.205, .035, front_y - .0175)", source)
+        self.assertIn("(.150, .025, front_y - .0350)", source)
+        self.assertIn("(.105, .012, front_y - .0340)", source)
         self.assertIn("target_size = Vector((.2, .2, .48))", source)
         self.assertIn("scale_matrix = Matrix.Diagonal((*seat.scale, 1.0))", source)
         self.assertIn("seat.data.transform(Matrix.Translation(-local_center))", source)
@@ -78,6 +81,11 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("connection['method'] == 'socket-fit'", source)
         self.assertIn("dimensions['clearance_m'] > 0", source)
         self.assertIn("nonvisual-articulation-clearance", source)
+
+    def test_generated_cylinders_use_world_aligned_local_anchor_frame(self):
+        source = DRIVER.read_text()
+        self.assertIn("obj.data.transform(obj.rotation_euler.to_matrix().to_4x4())", source)
+        self.assertIn("obj.rotation_euler = (0.0, 0.0, 0.0)", source)
 
     def test_review_camera_frames_generated_geometry(self):
         source = DRIVER.read_text()

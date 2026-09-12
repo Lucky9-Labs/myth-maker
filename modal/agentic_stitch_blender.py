@@ -213,6 +213,11 @@ def cylinder_y(name, center, radius, depth, vertices, mat, parent, phase=0.0):
     obj.name = name
     if phase:
         obj.data.transform(Matrix.Rotation(phase, 4, 'Z'))
+    # Generated connector geometry must use the same world-aligned local metre
+    # frame as the accepted stitch plan. Bake the primitive's axis rotation
+    # into its mesh so local anchors are not silently rotated a second time.
+    obj.data.transform(obj.rotation_euler.to_matrix().to_4x4())
+    obj.rotation_euler = (0.0, 0.0, 0.0)
     obj.data.materials.append(mat)
     obj.parent = parent
     return obj
@@ -280,17 +285,20 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     rotor['source_sha256'] = rotor_source.get('source_sha256', '')
     rotor['postprocess'] = 'hunyuan-bounds-hard-surface-v1'
 
-    # Add stepped annular shoulders and a recessed front hub. Their overlap is
+    # Add the plan-authored retaining drum, front ring and recessed center.
+    # Their overlap is
     # deliberate: the rotor is one rigid articulated member, while the casing
     # remains separate across the clearance boundary.
     decorative = []
     front_y = rotor_center.y - rotor_depth * .5
-    for index, (radius_scale, depth_scale, offset_scale) in enumerate((
-            (.88, .06, -.03), (.67, .035, -.0175), (.38, .01, -.005))):
+    for index, (step_radius, step_depth, center_y) in enumerate((
+            (.205, .035, front_y - .0175),
+            (.150, .025, front_y - .0350),
+            (.105, .012, front_y - .0340))):
         part = cylinder_y(
             f'hip-pivot-front-step-{index + 1}',
-            Vector((rotor_center.x, front_y + rotor_depth * offset_scale, rotor_center.z)),
-            rotor_radius * radius_scale, rotor_depth * depth_scale, 64,
+            Vector((rotor_center.x, center_y, rotor_center.z)),
+            step_radius, step_depth, 64,
             mats['connector'] if index != 1 else mats['source'], root)
         part['component_id'] = 'hip-pivot-rotor'
         decorative.append(part)
