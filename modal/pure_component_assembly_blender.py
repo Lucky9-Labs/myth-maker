@@ -17,7 +17,7 @@ def main():
     for item in job['components']:
         before=set(bpy.context.scene.objects)
         source_path=submissions/item['artifact']['path']
-        if item['artifact']['media_type']=='application/x-blender':
+        if item['artifact']['media_type'] in {'application/x-blender','application/x-blender-review-proxy'}:
             with bpy.data.libraries.load(str(source_path),link=False) as (source, target):
                 target.objects=source.objects
             for loaded in target.objects:

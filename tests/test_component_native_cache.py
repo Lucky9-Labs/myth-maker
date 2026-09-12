@@ -8,9 +8,13 @@ def job():
 
 class Tests(unittest.TestCase):
     def test_accepts_hash_locked_glb(self): self.assertEqual(validate_component_native_cache_job(job()),job())
-    def test_rejects_native_source(self):
+    def test_accepts_native_source_for_review_derivative(self):
         x=job(); x['source']['media_type']='application/x-blender'
-        with self.assertRaisesRegex(ValueError,'source'): validate_component_native_cache_job(x)
+        x['source']['path']='asset-production/pilot/torso.blend'; x['review_face_budget']=100000
+        self.assertEqual(validate_component_native_cache_job(x),x)
+    def test_rejects_unbounded_review_budget(self):
+        x=job(); x['review_face_budget']=1000
+        with self.assertRaisesRegex(ValueError,'face budget'): validate_component_native_cache_job(x)
     def test_rejects_path_escape(self):
         x=job(); x['source']['path']='../torso.glb'
         with self.assertRaisesRegex(ValueError,'source'): validate_component_native_cache_job(x)
@@ -18,9 +22,10 @@ class Tests(unittest.TestCase):
         driver=(Path(__file__).parents[1]/'modal'/'component_native_cache_blender.py').read_text()
         self.assertIn('bpy.ops.import_scene.gltf',driver)
         self.assertIn('bpy.ops.wm.save_as_mainfile',driver)
-        self.assertNotIn('DECIMATE',driver)
+        self.assertIn("modifier=obj.modifiers.new('review-only-decimate','DECIMATE')",driver)
         runner=(Path(__file__).parents[1]/'modal'/'component_native_cache.py').read_text()
-        self.assertIn('"geometry_changed":False',runner)
+        self.assertIn('"geometry_changed":review_only',runner)
+        self.assertIn('"review_only":review_only',runner)
         self.assertIn('"model_calls":0',runner)
     def test_dispatcher_uses_runtime_app_name(self):
         script=(Path(__file__).parents[1]/'scripts'/'run_component_native_cache.py').read_text()
