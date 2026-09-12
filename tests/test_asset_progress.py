@@ -6,7 +6,7 @@ sys.path.insert(0, str(ROOT / "modal"))
 from asset_progress import (build_dashboard, completed_developments, dashboard_bundle, production_observability,
                             image_space_comparison, image_space_profile, reference_evaluation_inputs,
                             reference_progress_history, validate_reference_evaluation, priced_model_usage,
-                            current_component_selection)
+                            current_component_selection, latest_whole_body_scaffold)
 
 class AssetProgressTests(unittest.TestCase):
     def test_prices_measured_astra_usage_by_cache_class(self):
@@ -172,6 +172,30 @@ class AssetProgressTests(unittest.TestCase):
             self.assertIn('data-filter="canonical" aria-selected="true"', page)
             self.assertIn("card.dataset.lifecycle===value", page)
             self.assertEqual(manifest["component_selection"], {})
+
+    def test_dashboard_surfaces_latest_verified_whole_body_scaffold_separately(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "run-one"
+            for attempt in (1, 2):
+                attempt_root = root / "pure-assembly" / "whole-mech" / f"attempt-{attempt:04d}"
+                attempt_root.mkdir(parents=True)
+                render = attempt_root / "three-quarter.png"
+                Image.new("RGB", (32, 24), (attempt * 30, 60, 90)).save(render)
+                data = render.read_bytes()
+                (attempt_root / "receipt.json").write_text(json.dumps({
+                    "status": "completed", "work_id": "whole-mech", "attempt": attempt,
+                    "completed_at": f"2026-09-12T00:0{attempt}:00+00:00",
+                    "artifacts": {"three-quarter.png": {
+                        "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}},
+                }))
+            selected = latest_whole_body_scaffold(root)
+            self.assertEqual(selected["receipt"]["attempt"], 2)
+            manifest = build_dashboard(root)
+            page = (root / "observability" / "index.html").read_text()
+            self.assertEqual(manifest["whole_body_scaffold"]["attempt"], 2)
+            self.assertIn("NONCANONICAL COMPOSITION", page)
+            self.assertIn('data-filter="scaffold" aria-selected="true"', page)
+            self.assertIn("Whole-body scaffold", page)
 
     def test_dashboard_lists_only_accepted_stitch_assemblies_as_canonical(self):
         with tempfile.TemporaryDirectory() as temporary:
