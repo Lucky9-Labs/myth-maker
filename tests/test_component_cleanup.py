@@ -85,4 +85,10 @@ class ComponentCleanupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'socket cutouts'):
             validate_component_cleanup_job(value)
 
+    def test_blender_socket_cleanup_preserves_existing_open_rims(self):
+        script = (Path(__file__).parents[1] / 'modal' / 'component_cleanup_blender.py').read_text()
+        self.assertIn("seat_source = 'existing-rim'", script)
+        self.assertIn("inner = radius * .65", script)
+        self.assertIn("outer = radius * 1.35", script)
+
 if __name__=='__main__': unittest.main()
