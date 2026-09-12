@@ -46,6 +46,42 @@ def bounds_box(obj):
     return low, high
 
 
+def remove_small_mesh_islands(obj, minimum_ratio=.12):
+    """Remove disconnected internal Hunyuan fragments from a dominant shell."""
+    mesh = bmesh.new()
+    try:
+        mesh.from_mesh(obj.data)
+        remaining = set(mesh.verts)
+        islands = []
+        while remaining:
+            pending = [remaining.pop()]
+            island = set(pending)
+            while pending:
+                current = pending.pop()
+                for edge in current.link_edges:
+                    neighbor = edge.other_vert(current)
+                    if neighbor in remaining:
+                        remaining.remove(neighbor)
+                        island.add(neighbor)
+                        pending.append(neighbor)
+            islands.append(island)
+        if len(islands) <= 1:
+            return 0
+        dominant = max(islands, key=len)
+        removable = set().union(*(island for island in islands
+                                  if island is not dominant and len(island) < len(dominant) * minimum_ratio))
+        if not removable:
+            return 0
+        count = len(removable)
+        bmesh.ops.delete(mesh, geom=list(removable), context='VERTS')
+        mesh.normal_update()
+        mesh.to_mesh(obj.data)
+        obj.data.update()
+        return count
+    finally:
+        mesh.free()
+
+
 def convex_hull_xz(points):
     unique = sorted(set((round(point.x, 6), round(point.z, 6)) for point in points))
     if len(unique) <= 2:
@@ -111,7 +147,7 @@ def cockpit_mating_boundaries(torso, glass):
         _, torso_index, _ = torso_tree.find(Vector((x, 0.0, z)))
         torso_point = torso_vertices[torso_index]
         radial = Vector((x, 0.0, z)) - center
-        minimum_outer = Vector((x, glass_point.y - .008, z)) + radial * .028
+        minimum_outer = Vector((x, glass_point.y - .008, z)) + radial * .055
         measured_y = min(torso_point.y, glass_point.y - .004)
         measured_y = max(measured_y, glass_point.y - .06)
         measured_outer = Vector((torso_point.x, measured_y, torso_point.z))
@@ -157,18 +193,19 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
     # The reference canopy follows the raked cockpit mouth rather than standing
     # vertically inside it. Keep this as a bounded rigid correction.
     glass.rotation_euler.x += math.radians(-8)
+    glass['removed_internal_vertices'] = remove_small_mesh_islands(glass)
     bpy.context.view_layer.update()
     torso_low, torso_high = bounds_box(torso)
     glass_low, glass_high = bounds_box(glass)
     torso_size, glass_size = torso_high - torso_low, glass_high - glass_low
-    target = Vector((torso_size.x * .40, torso_size.y * .18, torso_size.z * .56))
+    target = Vector((torso_size.x * .43, torso_size.y * .19, torso_size.z * .60))
     factors = Vector(tuple(target[i] / max(glass_size[i], 1e-6) for i in range(3)))
     glass.scale = Vector(tuple(glass.scale[i] * factors[i] for i in range(3)))
     bpy.context.view_layer.update()
     glass_low, glass_high = bounds_box(glass)
     glass_center = (glass_low + glass_high) * .5
     torso_center = (torso_low + torso_high) * .5
-    desired_front = torso_low.y + torso_size.y * .28
+    desired_front = torso_low.y + torso_size.y * .23
     desired_center = Vector((torso_center.x, desired_front + (glass_high.y - glass_low.y) * .5,
                              torso_center.z + torso_size.z * .055))
     glass.location += desired_center - glass_center
@@ -186,6 +223,12 @@ def fit_cockpit_glass(torso, glass, root, glass_material, frame_material):
         envelope = half_width * (.72 + .28 * math.sin(math.pi * vertical))
         world.x = glass_center.x + max(-envelope, min(envelope, world.x - glass_center.x))
         vertex.co = inverse @ world
+    glass.data.update()
+    mesh = bmesh.new()
+    mesh.from_mesh(glass.data)
+    mesh.normal_update()
+    mesh.to_mesh(glass.data)
+    mesh.free()
     glass.data.update()
     glass.data.materials.clear()
     glass.data.materials.append(glass_material)
