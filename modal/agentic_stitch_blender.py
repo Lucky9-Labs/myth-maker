@@ -244,16 +244,14 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
         return []
     casing_source = objects['hip-outer-casing']
     rotor_source = objects['hip-pivot-rotor']
-    casing_low, casing_high = bounds_box(casing_source)
-    rotor_low, rotor_high = bounds_box(rotor_source)
-    casing_center = (casing_low + casing_high) * .5
-    rotor_center = (rotor_low + rotor_high) * .5
-    casing_size = casing_high - casing_low
-    rotor_size = rotor_high - rotor_low
-
-    casing_radius = max(min(casing_size.x, casing_size.z) * .48, .02)
-    casing_depth = max(casing_size.y * .78, .02)
-    bore_radius = casing_radius * .57
+    # These dimensions come from the validated Astra plan. Raw Hunyuan meshes
+    # commonly arrive near a two-unit cube, so deriving mechanical dimensions
+    # from their unregistered bounds makes the casing swallow its neighbors.
+    casing_center = Vector((0, 0, 0))
+    rotor_center = Vector((0, 0, 0))
+    casing_radius = .3
+    casing_depth = .24
+    bore_radius = .182
     casing = cylinder_y('hip-outer-casing', casing_center, casing_radius,
                         casing_depth, 8, mats['source'], root, math.radians(22.5))
     cutter = cylinder_y('hip-pivot-bore-cutter', casing_center, bore_radius,
@@ -272,8 +270,8 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     casing['source_sha256'] = casing_source.get('source_sha256', '')
     casing['postprocess'] = 'hunyuan-bounds-hard-surface-v1'
 
-    rotor_radius = min(max(min(rotor_size.x, rotor_size.z) * .46, .015), bore_radius * .93)
-    rotor_depth = min(max(rotor_size.y * .62, .02), casing_depth * .92)
+    rotor_radius = .18
+    rotor_depth = .25
     rotor = cylinder_y('hip-pivot-rotor', rotor_center, rotor_radius,
                        rotor_depth, 64, mats['source'], root)
     bevel_object(rotor, rotor_radius * .018)
@@ -303,13 +301,13 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
     if seat is not None:
         seat_low, seat_high = bounds_box(seat)
         seat_size = seat_high - seat_low
-        target_size = Vector((casing_radius * .67, casing_depth * .83, casing_radius * 1.6))
+        target_size = Vector((.2, .2, .48))
         factors = Vector(tuple(target_size[i] / max(seat_size[i], 1e-6) for i in range(3)))
         seat.scale = Vector(tuple(seat.scale[i] * factors[i] for i in range(3)))
         bpy.context.view_layer.update()
         normalized_low, normalized_high = bounds_box(seat)
         seat.location += Vector((
-            casing_center.x + casing_radius + target_size.x * .5,
+            .404,
             casing_center.y,
             casing_center.z,
         )) - (normalized_low + normalized_high) * .5
