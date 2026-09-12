@@ -311,6 +311,21 @@ def reconstruct_hip_hard_surfaces(objects, root, mats):
             casing_center.y,
             casing_center.z,
         )) - (normalized_low + normalized_high) * .5
+        # The stitch plan expresses anchors in component-local metres. Hunyuan
+        # GLBs commonly arrive with an off-centre mesh origin and the envelope
+        # normalization above used object scale, so those anchors would be
+        # transformed by an arbitrary source-space offset and scale. Bake the
+        # fitted scale into the mesh, then move its origin to the fitted bounds
+        # centre without changing the visible world-space geometry.
+        scale_matrix = Matrix.Diagonal((*seat.scale, 1.0))
+        seat.data.transform(scale_matrix)
+        seat.scale = (1.0, 1.0, 1.0)
+        local_low = Vector(tuple(min(vertex.co[i] for vertex in seat.data.vertices) for i in range(3)))
+        local_high = Vector(tuple(max(vertex.co[i] for vertex in seat.data.vertices) for i in range(3)))
+        local_center = (local_low + local_high) * .5
+        world_offset = seat.matrix_world.to_3x3() @ local_center
+        seat.data.transform(Matrix.Translation(-local_center))
+        seat.location += world_offset
         seat['postprocess'] = 'hunyuan-seat-envelope-normalization-v1'
 
     bpy.data.objects.remove(casing_source, do_unlink=True)

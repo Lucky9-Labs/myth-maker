@@ -67,6 +67,9 @@ class AgenticStitchBlenderTests(unittest.TestCase):
         self.assertIn("bore_radius = .182", source)
         self.assertIn("rotor_radius = .18", source)
         self.assertIn("target_size = Vector((.2, .2, .48))", source)
+        self.assertIn("scale_matrix = Matrix.Diagonal((*seat.scale, 1.0))", source)
+        self.assertIn("seat.data.transform(Matrix.Translation(-local_center))", source)
+        self.assertIn("seat.location += world_offset", source)
 
     def test_socket_fit_keeps_articulation_clearance_empty(self):
         source = DRIVER.read_text()
