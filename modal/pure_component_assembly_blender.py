@@ -31,12 +31,8 @@ def main():
         group=bpy.data.objects.new(item['component_id'],None); bpy.context.collection.objects.link(group); group.parent=root
         group.location=item['location']; group.rotation_euler=[math.radians(x) for x in item['rotation_degrees']]
         group.scale=tuple(dims[i]/current[i] if current[i] else 1 for i in range(3))
-        total_polygons=sum(len(o.data.polygons) for o in meshes)
-        proxy_ratio=max(60000/total_polygons,0.02) if job.get('output_mode') == 'review-preview' and total_polygons>60000 else 1.0
         for index,o in enumerate(meshes):
             o.data.transform(Matrix.Translation(-center)); o.name=f"{item['component_id']}-{index:02d}"; o.parent=group
-            if proxy_ratio<1.0 and len(o.data.polygons)>32:
-                modifier=o.modifiers.new('bounded-review-proxy','DECIMATE'); modifier.ratio=proxy_ratio; bpy.context.view_layer.objects.active=o; bpy.ops.object.modifier_apply(modifier=modifier.name)
             if item['material']!='source': o.data.materials.clear(); o.data.materials.append(mats[item['material']])
             o['source_sha256']=item['artifact']['sha256']; o['component_id']=item['component_id']
             manifest.append({'object':o.name,'source_sha256':item['artifact']['sha256'],'mirrored':False})
