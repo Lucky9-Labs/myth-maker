@@ -54,7 +54,7 @@ def run_pure_component_assembly(job:dict, submissions_root:Path, blender:str)->d
         if len(data)!=item["artifact"]["bytes"] or hashlib.sha256(data).hexdigest()!=item["artifact"]["sha256"]:
             raise ValueError("pure component artifact hash mismatch")
     started=datetime.now(timezone.utc); clock=time.monotonic()
-    cp=subprocess.run([blender,"--background","--factory-startup","--disable-autoexec","--python","/opt/pure_component_assembly_blender.py","--","--job",str(root/"job.json"),"--submissions",str(submissions_root),"--output",str(root)],capture_output=True,text=True,timeout=12*60)
+    cp=subprocess.run([blender,"--background","--factory-startup","--disable-autoexec","--python","/opt/pure_component_assembly_blender.py","--","--job",str(root/"job.json"),"--submissions",str(submissions_root),"--output",str(root)],capture_output=True,text=True,timeout=28*60)
     expected=[root/"three-quarter.png",root/"front.png",root/"side.png",root/"manifest.json"]
     if checked.get("output_mode", "full") == "full": expected[:0]=[root/"assembly.blend",root/"assembly.glb"]
     if cp.returncode or not all(p.is_file() for p in expected):
