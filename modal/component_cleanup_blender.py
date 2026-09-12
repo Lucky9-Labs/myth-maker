@@ -27,6 +27,7 @@ def main():
     p.add_argument('--interface-rebuild')
     p.add_argument('--socket-cutouts')
     p.add_argument('--faceted-ring-rebuild')
+    p.add_argument('--two-bore-mount-rebuild')
     a = p.parse_args(tail)
     out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -222,6 +223,52 @@ def main():
                                'upper_seat_name': spec['upper_seat_name'],
                                'lower_seat_name': spec['lower_seat_name'],
                                'through_opening': True}
+    two_bore_mount_record = None
+    if a.two_bore_mount_rebuild:
+        spec = json.loads(a.two_bore_mount_rebuild)
+        minimum = [min((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        maximum = [max((obj.matrix_world @ v.co)[axis] for v in obj.data.vertices) for axis in range(3)]
+        extent = [maximum[i] - minimum[i] for i in range(3)]
+        center = [(minimum[i] + maximum[i]) / 2 for i in range(3)]
+        axis_index = 'xyz'.index(spec['axis']); sign = 1 if spec['plate_side'] == 'positive' else -1
+        objects = []
+        def box(name, ratios, axis_offset):
+            location = center[:]; location[axis_index] += sign * extent[axis_index] * axis_offset
+            bpy.ops.mesh.primitive_cube_add(location=location)
+            item = bpy.context.object; item.name = a.component_id + '-' + name
+            item.dimensions = tuple(extent[i] * ratios[i] for i in range(3))
+            bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+            if spec['bevel_ratio']:
+                bevel = item.modifiers.new('bounded-mount-bevel', 'BEVEL')
+                bevel.width = max(item.dimensions) * spec['bevel_ratio']; bevel.segments = 2; bevel.limit_method = 'ANGLE'
+                bpy.context.view_layer.objects.active = item; bpy.ops.object.modifier_apply(modifier=bevel.name)
+            objects.append(item); return item
+        housing = box('housing', spec['housing_size_ratio'], -0.16)
+        spacer = box('spacer', spec['spacer_size_ratio'], 0.24)
+        plate = box('plate', spec['plate_size_ratio'], 0.42)
+        radial_axes = [index for index in range(3) if index != axis_index]
+        radius = min(plate.dimensions[i] for i in radial_axes) * spec['bore_radius_ratio']
+        bore_centers = []
+        for direction in (-1, 1):
+            location = list(plate.location)
+            location[2] += direction * plate.dimensions.z * spec['bore_spacing_ratio'] / 2
+            bpy.ops.mesh.primitive_cylinder_add(vertices=48, radius=radius,
+                depth=plate.dimensions[axis_index] * 1.5, location=location,
+                rotation=(0, 1.57079632679, 0) if axis_index == 0 else (1.57079632679, 0, 0))
+            cutter = bpy.context.object; bpy.context.view_layer.objects.active = plate
+            boolean = plate.modifiers.new('bounded-mount-bore', 'BOOLEAN')
+            boolean.operation = 'DIFFERENCE'; boolean.solver = 'EXACT'; boolean.object = cutter
+            bpy.ops.object.modifier_apply(modifier=boolean.name); bpy.data.objects.remove(cutter, do_unlink=True)
+            bore_centers.append(location)
+        housing.vertex_groups.new(name=spec['inner_seat_name']).add(
+            list(range(len(housing.data.vertices))), 1.0, 'REPLACE')
+        plate.vertex_groups.new(name=spec['outer_seat_name']).add(
+            list(range(len(plate.data.vertices))), 1.0, 'REPLACE')
+        bpy.data.objects.remove(obj, do_unlink=True); obj = housing
+        for item in (spacer, plate): patch_objects.append(item)
+        two_bore_mount_record = {'objects': [item.name for item in objects], 'bore_centers': bore_centers,
+                                 'inner_seat_name': spec['inner_seat_name'],
+                                 'outer_seat_name': spec['outer_seat_name'], 'through_bores': 2}
     socket_records = []
     if a.socket_cutouts:
         sockets = json.loads(a.socket_cutouts)
@@ -316,7 +363,8 @@ def main():
         'mechanical_patch_objects':[item.name for item in patch_objects],
         'interface_rebuild_objects':interface_objects,
         'socket_cutouts':socket_records,
-        'faceted_ring_rebuild':faceted_ring_record}, indent=2, sort_keys=True)+'\n')
+        'faceted_ring_rebuild':faceted_ring_record,
+        'two_bore_mount_rebuild':two_bore_mount_record}, indent=2, sort_keys=True)+'\n')
 
 
 if __name__ == '__main__': main()

@@ -28,7 +28,7 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 "smooth_factor", "smooth_iterations", "max_smooth_displacement_ratio",
                 "lower_trim_ratio", "seat_band_ratio"}
     optional = {"salvage_bounds", "mechanical_patch", "aperture_cutout", "interface_rebuild",
-                "socket_cutouts", "faceted_ring_rebuild"}
+                "socket_cutouts", "faceted_ring_rebuild", "two_bore_mount_rebuild"}
     if not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional:
         raise ValueError("component cleanup job has an invalid closed shape")
     if value["format"] != FORMAT or value["asset_id"] not in {"mech", "railgun"}:
@@ -52,8 +52,10 @@ def validate_component_cleanup_job(value: dict) -> dict:
     interfaces = value.get("interface_rebuild")
     sockets = value.get("socket_cutouts")
     ring = value.get("faceted_ring_rebuild")
+    two_bore = value.get("two_bore_mount_rebuild")
     if (review["decision"] == "regenerate" and bounds is None and patch is None
-            and aperture is None and interfaces is None and sockets is None and ring is None):
+            and aperture is None and interfaces is None and sockets is None and ring is None
+            and two_bore is None):
         raise ValueError("regenerate review cleanup requires bounded salvage or mechanical patch")
     if bounds is not None:
         if not isinstance(bounds, dict) or set(bounds) != {"x", "y", "z"}:
@@ -173,6 +175,34 @@ def validate_component_cleanup_job(value: dict) -> dict:
                 or any(not isinstance(ring.get(name), str) or not IDENTIFIER.fullmatch(ring[name])
                        for name in ("upper_seat_name", "lower_seat_name"))):
             raise ValueError("faceted ring rebuild is invalid")
+    if two_bore is not None:
+        keys = {"type", "axis", "plate_side", "housing_size_ratio", "plate_size_ratio",
+                "spacer_size_ratio", "bore_radius_ratio", "bore_spacing_ratio", "bevel_ratio",
+                "replace_source", "inner_seat_name", "outer_seat_name"}
+        if (not isinstance(two_bore, dict) or set(two_bore) != keys
+                or two_bore.get("type") != "two-bore-hard-surface-mount"
+                or two_bore.get("axis") not in {"x", "y"}
+                or two_bore.get("plate_side") not in {"negative", "positive"}
+                or two_bore.get("replace_source") is not True):
+            raise ValueError("two bore mount rebuild is invalid")
+        for key in ("housing_size_ratio", "plate_size_ratio", "spacer_size_ratio"):
+            vector = two_bore.get(key)
+            if (not isinstance(vector, list) or len(vector) != 3
+                    or any(not isinstance(number, (int, float)) or isinstance(number, bool)
+                           or not 0.02 <= number <= 1 for number in vector)):
+                raise ValueError("two bore mount rebuild is invalid")
+        if (not isinstance(two_bore.get("bore_radius_ratio"), (int, float))
+                or isinstance(two_bore.get("bore_radius_ratio"), bool)
+                or not 0.04 <= two_bore["bore_radius_ratio"] <= 0.2
+                or not isinstance(two_bore.get("bore_spacing_ratio"), (int, float))
+                or isinstance(two_bore.get("bore_spacing_ratio"), bool)
+                or not 0.15 <= two_bore["bore_spacing_ratio"] <= 0.7
+                or not isinstance(two_bore.get("bevel_ratio"), (int, float))
+                or isinstance(two_bore.get("bevel_ratio"), bool)
+                or not 0 <= two_bore["bevel_ratio"] <= 0.05
+                or any(not isinstance(two_bore.get(name), str) or not IDENTIFIER.fullmatch(two_bore[name])
+                       for name in ("inner_seat_name", "outer_seat_name"))):
+            raise ValueError("two bore mount rebuild is invalid")
     merge = value["merge_distance_ratio"]
     decimate = value["decimate_ratio"]
     smooth = value["smooth_factor"]
@@ -230,6 +260,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
         command += ["--socket-cutouts", json.dumps(checked["socket_cutouts"], separators=(",", ":"))]
     if "faceted_ring_rebuild" in checked:
         command += ["--faceted-ring-rebuild", json.dumps(checked["faceted_ring_rebuild"], separators=(",", ":"))]
+    if "two_bore_mount_rebuild" in checked:
+        command += ["--two-bore-mount-rebuild", json.dumps(checked["two_bore_mount_rebuild"], separators=(",", ":"))]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=12 * 60)
     expected = [root / "cleaned.glb", root / "cleaned.blend", root / "cleanup-stats.json"]
     if completed.returncode or not all(path.is_file() for path in expected):
@@ -257,7 +289,8 @@ def run_component_cleanup(job: dict, submissions_root: Path, blender: str) -> di
                               "aperture_cutout": checked.get("aperture_cutout"),
                               "interface_rebuild": checked.get("interface_rebuild"),
                               "socket_cutouts": checked.get("socket_cutouts"),
-                              "faceted_ring_rebuild": checked.get("faceted_ring_rebuild")},
+                              "faceted_ring_rebuild": checked.get("faceted_ring_rebuild"),
+                              "two_bore_mount_rebuild": checked.get("two_bore_mount_rebuild")},
                "stats": json.loads((root / "cleanup-stats.json").read_text()), "artifacts": artifacts,
                "started_at": started.isoformat(), "completed_at": datetime.now(timezone.utc).isoformat(),
                "duration_ms": round((time.monotonic() - clock) * 1000)}
