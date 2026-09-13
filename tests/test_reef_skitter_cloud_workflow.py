@@ -60,6 +60,13 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("rig-id: ${{ steps.author.outputs.rig-id }}", text)
         self.assertIn('rig_id="${{ needs.rig.outputs.rig-id }}"', text)
 
+    def test_rig_instruction_prioritizes_known_binding_failures(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("A bone moving without its intended mesh is a blocking binding defect", text)
+        self.assertIn("repair the binding before continuing the audit", text)
+        self.assertIn("An unreadable reference pane is not a blocker", text)
+
 
 if __name__ == "__main__":
     unittest.main()
