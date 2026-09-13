@@ -38,7 +38,7 @@ def main() -> int:
     checkpoint_id = state.get("checkpoint_id", "")
     if (not re.fullmatch(work_id_pattern, work_id)
             or state.get("part") != work_id
-            or state.get("status") not in {"failed", "checkpointed_partial", "blocked"}
+            or state.get("status") not in {"failed", "checkpointed_partial", "blocked", "ready_for_review"}
             or provider_name not in {"github-actions-runner", "modal"}
             or (provider_name == "github-actions-runner" and provider.get("run_id") != int(args.run_id))
             or (provider_name == "github-actions-runner" and provider.get("artifact_name") != artifact.name)
