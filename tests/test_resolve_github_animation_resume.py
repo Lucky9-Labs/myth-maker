@@ -73,6 +73,36 @@ class ResolveGitHubAnimationResumeTests(unittest.TestCase):
 
             self.assertEqual(json.loads(result.stdout)["provider"], "modal")
 
+    def test_resolves_a_receipted_modal_checkpoint_when_downloaded_evidence_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = Path(temporary) / "reef-skitter-rig-42-2"
+            job_id = "draft-gui-reef-rig-42-run-90-a2-c2"
+            checkpoint_id = "cp-0022-abcdef123456"
+            receipt = artifact / "receipts" / "reef-skitter-rig.json"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(json.dumps({
+                "work_order": {"work_id": "reef-rig-42"},
+                "worker_state": {
+                    "status": "checkpointed_partial", "part": "reef-rig-42", "job_id": job_id,
+                    "checkpoint_id": checkpoint_id,
+                    "provider_receipt": {
+                        "provider": "modal", "volume_name": "myth-maker-encounter-submissions",
+                        "app_name": "myth-maker-encounter-draft",
+                        "function_name": "run_draft_from_volume_manifest",
+                    },
+                },
+            }))
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(artifact), "42"],
+                check=True, capture_output=True, text=True,
+            )
+            resolved = json.loads(result.stdout)
+
+            self.assertEqual(resolved["job_id"], job_id)
+            self.assertEqual(resolved["checkpoint_id"], checkpoint_id)
+            self.assertEqual(resolved["job_dir"], "")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from run_cloud_gui_animation_job import (build_manifest, build_work_order, collect_inputs,
                                          continuation_available, fetch_job, resume_stage_job_id,
-                                         stage_resume_job, validate_deployment_receipt, validate_resume_job)
+                                         stage_resume_job, validate_deployment_receipt,
+                                         validate_modal_resume_identity, validate_resume_job)
 
 
 GLB = b"glTF\x02\x00\x00\x00\x0c\x00\x00\x00"
@@ -62,6 +63,19 @@ class CloudGuiAnimationJobTests(unittest.TestCase):
         self.assertEqual(order["continuation"], 1)
         self.assertEqual(order["resume_job"], "draft-gui-reef-rig-42-run-99-a2")
         self.assertEqual(order["checkpoint_id"], "cp-0004-abcdef123456")
+
+    def test_direct_modal_resume_requires_both_valid_provider_identities(self):
+        self.assertEqual(
+            validate_modal_resume_identity(
+                "draft-gui-reef-rig-42-run-99-a2-c2", "cp-0022-abcdef123456"
+            ),
+            ("draft-gui-reef-rig-42-run-99-a2-c2", "cp-0022-abcdef123456"),
+        )
+        for job_id, checkpoint_id in (("", "cp-0022-abcdef123456"),
+                                      ("draft-gui-reef-rig-42", ""),
+                                      ("../job", "cp-0022-abcdef123456")):
+            with self.subTest(job_id=job_id), self.assertRaises(ValueError):
+                validate_modal_resume_identity(job_id, checkpoint_id)
 
     def test_quota_failure_never_schedules_a_continuation(self):
         state = {"status": "failed", "checkpoint_id": "cp-0004-abcdef123456",
