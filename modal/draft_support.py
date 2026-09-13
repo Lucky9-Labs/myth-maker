@@ -61,7 +61,7 @@ def budget_phase(state: dict, remaining_seconds: float) -> str:
             or state.get("output_tokens", 0) >= 20_000 or remaining_seconds <= 0):
         return "exhausted"
     if (state.get("actions", 0) >= 270 or state.get("turns", 0) >= 32
-            or state.get("input_tokens", 0) >= 480_000
+            or state.get("input_tokens", 0) >= 400_000
             or state.get("output_tokens", 0) >= 14_000 or remaining_seconds <= 150):
         return "checkpoint"
     return "work"
