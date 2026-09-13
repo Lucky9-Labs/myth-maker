@@ -55,7 +55,7 @@ class DraftPolicyTests(unittest.TestCase):
     def test_budget_caps_and_checkpoint_reserve(self):
         for field, cap in (("actions", 350), ("turns", 40), ("input_tokens", 650000), ("output_tokens", 20000)):
             self.assertEqual(budget_phase({field: cap}, 720), "exhausted")
-        for field, reserve in (("actions", 270), ("turns", 32), ("input_tokens", 480000), ("output_tokens", 14000)):
+        for field, reserve in (("actions", 270), ("turns", 32), ("input_tokens", 400000), ("output_tokens", 14000)):
             self.assertEqual(budget_phase({field: reserve}, 720), "checkpoint")
 
     def test_component_output_and_prompt_are_generic(self):
@@ -186,6 +186,12 @@ class DraftPolicyTests(unittest.TestCase):
         )
         self.assertIn("End with READY_FOR_REVIEW only if every requested check is verified", text)
         self.assertNotIn("end with DRAFT_STATUS: PARTIAL plus the handoff", text)
+
+    def test_budget_checkpoint_saves_recoverable_authoring_before_cleanup(self):
+        text = (MODAL_DIR / "draft_trial.py").read_text()
+
+        self.assertIn("save it immediately before any rollback, correction, or additional inspection", text)
+        self.assertIn("A recoverable imperfect checkpoint is preferable to losing the authoring pass", text)
 
     def test_blender_archive_is_verified_before_it_can_cross_a_builder_step(self):
         text = (MODAL_DIR / "install_blender.sh").read_text()
