@@ -90,6 +90,21 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("vertex groups without splitting the provider object", text)
         self.assertIn("source-derived locomotor limb count", text)
 
+    def test_run_lane_uses_objective_acceptance_without_direct_walk_access(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("Direct access to the walk Action is unavailable by design", text)
+        self.assertIn("a direct visual comparison is not required", text)
+        self.assertIn("12-frame loop", text)
+        self.assertIn("24-frame walk specification", text)
+        self.assertIn("preserve the root transform", text)
+
+    def test_each_clip_lane_removes_the_inherited_source_action_in_the_gui(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("Remove every inherited empty or source Action through the visible Blender GUI", text)
+        self.assertIn("leave exactly the selected target Action", text)
+
 
 if __name__ == "__main__":
     unittest.main()

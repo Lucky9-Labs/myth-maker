@@ -24,18 +24,27 @@ class ReefSkitterCloudIntegrationWorkflowTests(unittest.TestCase):
     def test_downloads_the_exact_deployment_and_cross_run_animation_artifacts(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count("github-token: ${{ github.token }}"), 3)
+        self.assertEqual(text.count("github-token: ${{ github.token }}"), 7)
         self.assertIn("run-id: ${{ inputs.modal_deployment_run_id }}", text)
         self.assertIn("pattern: deployment-receipt-modal-dev-${{ github.sha }}", text)
-        self.assertEqual(text.count("run-id: ${{ inputs.source_animation_run_id }}"), 2)
+        self.assertEqual(text.count("run-id: ${{ inputs.source_animation_run_id }}"), 1)
         self.assertIn(
             "pattern: reef-skitter-rig-${{ inputs.source_animation_run_id }}-*",
             text,
         )
-        self.assertIn(
-            "pattern: reef-skitter-clip-*-${{ inputs.source_animation_run_id }}-*",
-            text,
-        )
+        for clip in ("idle", "walk", "run", "attack", "death"):
+            self.assertIn(f"{clip}_clip_run_id:", text)
+            selected_run = (
+                "${{ inputs."
+                f"{clip}_clip_run_id || inputs.source_animation_run_id"
+                " }}"
+            )
+            self.assertIn(f"run-id: {selected_run}", text)
+            self.assertIn(
+                f"pattern: reef-skitter-clip-{clip}-{selected_run}-*",
+                text,
+            )
+            self.assertIn(f"path: clip-artifacts/{clip}", text)
 
     def test_resolves_prior_run_work_ids_from_immutable_artifacts(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -46,7 +55,14 @@ class ReefSkitterCloudIntegrationWorkflowTests(unittest.TestCase):
             '"$rig_receipt" --prefix reef-rig-)"',
             text,
         )
-        self.assertIn('clip_id="reef-${clip}-${SOURCE_ANIMATION_RUN_ID}"', text)
+        self.assertIn('clip_run_id="${clip_run_ids[$clip]}"', text)
+        self.assertIn(
+            'clip_id="$(python3 scripts/resolve_github_animation_work_id.py '
+            '"$clip_receipt" --prefix "reef-${clip}-")"',
+            text,
+        )
+        self.assertNotIn('clip_id="reef-${clip}-${clip_run_id}"', text)
+        self.assertIn('prefix="reef-skitter-clip-${clip}-${clip_run_id}"', text)
         self.assertNotIn("needs.", text)
 
     def test_runs_only_cloud_integration_and_preserves_all_proof_gates(self):
