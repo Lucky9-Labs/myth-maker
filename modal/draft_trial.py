@@ -1219,7 +1219,10 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             if phase != "work":
                 state["checkpoint_requested"] = True
                 instruction = (f"CHECKPOINT NOW: do not start another feature. If the loaded native has unsaved authoring "
-                               f"changes, save /output/{native} through the GUI and leave a clear comparison view. "
+                               f"changes, save it immediately before any rollback, correction, or additional inspection, "
+                               f"using the Blender GUI at /output/{native}. "
+                               "A recoverable imperfect checkpoint is preferable to losing the authoring pass. "
+                               "Only after that save, use remaining time for a clear comparison view. "
                                "If this pass only verified an already saved native and made no changes, do not save again. "
                                "End with READY_FOR_REVIEW only if every requested check is verified; otherwise end with "
                                "DRAFT_STATUS: PARTIAL plus a precise resumable handoff. Independent acceptance is still separate.")
