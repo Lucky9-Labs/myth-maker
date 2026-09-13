@@ -104,6 +104,8 @@ class DraftPolicyTests(unittest.TestCase):
     def test_key_and_console_guards(self):
         for name, expected in KEY_ALIASES.items():
             self.assertEqual(normalize_keys([name]), [expected])
+        self.assertEqual(normalize_keys(["NUMPAD_SLASH"]), ["KP_Divide"])
+        self.assertEqual(normalize_keys(["KP_SLASH"]), ["KP_Divide"])
         self.assertEqual(normalize_pointer_keys(["shift", "RIGHT_MOUSE"]), (["shift"], "right"))
         for keys in (["SHIFT", "F4"], ["ALT", "F2"], ["CTRL", "ALT", "T"], ["UNKNOWN"], []):
             with self.assertRaises(ValueError):
