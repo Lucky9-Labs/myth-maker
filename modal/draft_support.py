@@ -51,7 +51,7 @@ def finalize_terminal_state(state: dict, finalize) -> dict:
 def blender_launch_args(resuming: bool, component_id: str) -> list[str]:
     # /output and /inputs are stable aliases across containers. Opening through
     # /submissions/<new-job>/output silently rebases Blender's relative images.
-    return ["blender", "--disable-autoexec", "--window-geometry", "0", "0", "1600", "1000",
+    return ["blender", "--disable-autoexec", "--no-splash", "--window-geometry", "0", "0", "1600", "1000",
             *(["/output/" + native_name(component_id)] if resuming else ["--factory-startup"])]
 
 
@@ -295,7 +295,8 @@ def render_prompt(template: str, component_id: str, *, source_asset: str = "sour
     if source_asset == "source_scene.blend":
         source_action = "Open `/inputs/source_scene.blend` through Blender's visible File > Open flow before editing."
     elif source_asset == "source_asset.glb":
-        source_action = "Import `/inputs/source_asset.glb` through Blender's visible File > Import > glTF 2.0 flow before editing."
+        source_action = ("This is a fresh GLB import; no continuation `.blend` exists yet. "
+                         "Import `/inputs/source_asset.glb` through Blender's visible File > Import > glTF 2.0 flow before editing.")
     else:
         raise ValueError("unsupported source asset")
     return (template.replace("{{COMPONENT_ID}}", component_id)
