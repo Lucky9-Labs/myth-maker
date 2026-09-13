@@ -160,6 +160,7 @@ secret = modal.Secret.from_name(
 MAX_ACTIONS = 350
 MAX_TURNS = 40
 MAX_SECONDS = 12 * 60
+DRAFT_FUNCTION_TIMEOUT_SECONDS = 20 * 60
 part_leases = modal.Dict.from_name(
     RUNTIME.lease_dict_name,
 )
@@ -709,7 +710,7 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
     return len(actions)
 
 
-@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=16 * 60,
+@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=DRAFT_FUNCTION_TIMEOUT_SECONDS,
               retries=0, max_containers=4, secrets=[secret], volumes={"/submissions": volume})
 def run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, project_id: str, part: str,
               resume_job: str = "", checkpoint_id: str = "", feedback: str = "",
@@ -723,7 +724,7 @@ def run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, project_i
                             baseline_score, baseline_source, prior_model_self_score)
 
 
-@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=16 * 60,
+@app.function(image=image, gpu="T4", cpu=4, memory=8192, timeout=DRAFT_FUNCTION_TIMEOUT_SECONDS,
               retries=0, max_containers=4, secrets=[secret], volumes={"/submissions": volume})
 def run_draft_from_volume_manifest(work_order: dict, manifest: dict, provenance: dict,
                                    project_id: str) -> dict:
