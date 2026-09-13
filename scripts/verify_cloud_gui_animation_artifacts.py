@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify GUI-worker artifacts downloaded from Modal against its provider receipt."""
+"""Verify cloud GUI-worker artifacts against their provider receipt."""
 from __future__ import annotations
 
 import argparse
@@ -27,7 +27,13 @@ def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], fram
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     order = receipt.get("work_order") or {}
     provider = (receipt.get("worker_state") or {}).get("provider_receipt") or {}
-    if provider.get("provider") != "modal" or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", order.get("work_id", "")):
+    provider_name = provider.get("provider")
+    trusted_provider = provider_name == "modal" or (
+        provider_name == "github-actions"
+        and provider.get("repository") == "Lucky9-Labs/myth-maker"
+        and re.fullmatch(r"[a-f0-9]{40}", provider.get("source_sha", ""))
+    )
+    if not trusted_provider or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", order.get("work_id", "")):
         raise ValueError("not a provider-observed cloud GUI animation receipt")
     verified = {}
     for kind, requested, metadata_by_name in (
@@ -46,6 +52,8 @@ def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], fram
     result = {
         "format": "myth-maker.cloud-gui-animation-verification/v1",
         "work_id": order["work_id"],
+        "provider": provider_name,
+        "source_sha": provider.get("source_sha"),
         "function_call_id": provider.get("function_call_id"),
         "verified_artifacts": verified,
     }

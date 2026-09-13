@@ -29,6 +29,25 @@ class CloudGuiAnimationArtifactVerificationTests(unittest.TestCase):
             self.assertEqual(result["work_id"], "reef-rig")
             self.assertEqual(set(result["verified_artifacts"]), {"output:reef-rig.blend", "frame:final"})
 
+    def test_verifies_github_hosted_gui_worker_artifacts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            native = b"BLENDER"
+            (root / "native.blend").write_bytes(native)
+            metadata = {"bytes": len(native), "sha256": hashlib.sha256(native).hexdigest(),
+                        "uri": "github-actions-artifact://Lucky9-Labs/myth-maker/1/1/rig/output/native.blend"}
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps({"work_order": {"work_id": "reef-rig"}, "worker_state": {
+                "provider_receipt": {"provider": "github-actions", "repository": "Lucky9-Labs/myth-maker",
+                    "function_call_id": "github-actions:1:1:rig",
+                    "source_sha": "a" * 40, "output_artifacts": {"reef-rig.blend": metadata},
+                    "blender_window_frames": {}}}}))
+
+            result = verify(receipt, root, {"reef-rig.blend": "native.blend"}, {})
+
+            self.assertEqual(result["provider"], "github-actions")
+            self.assertEqual(result["source_sha"], "a" * 40)
+
 
 if __name__ == "__main__":
     unittest.main()

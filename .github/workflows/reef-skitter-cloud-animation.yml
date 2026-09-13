@@ -8,8 +8,6 @@ permissions:
   actions: read
 
 env:
-  MODAL_ENVIRONMENT: dev
-  MODAL_VOLUME: myth-maker-encounter-submissions
   REEF_SOURCE: assets/reef-skitter/source/reef_skitter.tripo.glb
   REEF_REFERENCE: assets/reef-skitter/references/swarm-overview.png
   REEF_SOURCE_SHA256: 984eec1c52d4a8774f8beae3b794b3fa0f1805f41b7266c19fd2d62fad27d673
@@ -28,30 +26,20 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
-      - name: Download the exact main-revision Modal deployment receipt
+      - uses: ./.github/actions/setup-blender-gui
+      - name: Author and reopen the canonical rig in the GitHub-hosted Blender desktop
         env:
-          GH_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
-          deploy_run="$(gh run list --workflow deploy.yml --commit "$GITHUB_SHA" --status completed --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$deploy_run"
-          gh run download "$deploy_run" --name "deployment-receipt-modal-dev-$GITHUB_SHA" --dir deployment
-      - name: Verify and author the canonical rig in the Modal Blender desktop
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
-        run: |
-          set -euo pipefail
           printf '%s  %s\n' "$REEF_SOURCE_SHA256" "$REEF_SOURCE" | sha256sum --check --strict
           printf '%s  %s\n' "$REEF_REFERENCE_SHA256" "$REEF_REFERENCE" | sha256sum --check --strict
-          run_scope="run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rig_id="reef-rig-${GITHUB_RUN_ID}"
-          python3 scripts/run_cloud_gui_animation_job.py \
-            --environment "$MODAL_ENVIRONMENT" --run-scope "$run_scope" \
+          artifact_name="reef-skitter-rig-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo -E "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$rig_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-rig \
-            --deployment-receipt deployment/modal-dev.json \
+            --artifact-name "$artifact_name" --artifact-root evidence/rig \
             --instruction "Import the immutable Reef Skitter GLB through the visible Blender GUI. Preserve all 15 provider-authored mesh parts and materials without segmentation. Create one creature root and a rigid-part rig appropriate for the six-legged body, bind every part, pose-test all limbs, return to a neutral rest pose, and save through the GUI. Reopen that saved native through File > Open, verify the rig and all bindings survived, and leave the rig and Outliner visible as final evidence. Do not author animation clips. End READY_FOR_REVIEW only after save and reopen succeed." \
             --input "source_asset.glb=$REEF_SOURCE" \
             --input "structure_reference.png=$REEF_REFERENCE" \
@@ -59,22 +47,13 @@ jobs:
             --input "primary_artwork.png=$REEF_REFERENCE" \
             --input "concept_reference.png=$REEF_REFERENCE" \
             --output receipts/reef-skitter-rig.json
-          mkdir -p evidence/rig
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT/output/$rig_id.blend" "evidence/rig/$rig_id.blend"
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT/output/${rig_id}_preview.png" evidence/rig/preview.png
-          for frame in initial latest final; do
-            remote="final-desktop.png"
-            [[ "$frame" == initial ]] && remote="screenshots/000-initial.png"
-            [[ "$frame" == latest ]] && remote="latest.png"
-            modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-              "draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT/$remote" "evidence/rig/$frame.png"
-          done
+          sudo chown -R "$(id -u):$(id -g)" evidence receipts
+          job_root="evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
-            --receipt receipts/reef-skitter-rig.json --artifact-dir evidence/rig \
-            --output "$rig_id.blend=$rig_id.blend" --output "${rig_id}_preview.png=preview.png" \
-            --frame initial=initial.png --frame latest=latest.png --frame final=final.png
+            --receipt receipts/reef-skitter-rig.json --artifact-dir "$job_root" \
+            --output "$rig_id.blend=output/$rig_id.blend" \
+            --output "${rig_id}_preview.png=output/${rig_id}_preview.png" \
+            --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}
@@ -94,15 +73,15 @@ jobs:
       matrix:
         include:
           - clip: idle
-            instruction: "Open the canonical Reef Skitter rig through Blender's visible GUI. Author only an in-place looping idle Action named idle, preserving the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Make breathing, feeler, and subtle leg motion readable. Set a clean loop and save through the GUI."
+            instruction: "Author only an in-place looping idle Action named idle. Make breathing, feeler, and subtle leg motion readable."
           - clip: walk
-            instruction: "Open the canonical Reef Skitter rig through Blender's visible GUI. Author only an in-place looping six-leg scuttle Action named walk, preserving the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Use alternating tripod-like contacts and no root translation. Set a clean loop and save through the GUI."
+            instruction: "Author only an in-place looping six-leg scuttle Action named walk. Use alternating tripod-like contacts and no root translation."
           - clip: run
-            instruction: "Open the canonical Reef Skitter rig through Blender's visible GUI. Author only an in-place looping fast six-leg scuttle Action named run, preserving the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Give it a distinct faster cadence and stronger body compression than walk. Set a clean loop and save through the GUI."
+            instruction: "Author only an in-place looping fast six-leg scuttle Action named run, with a faster cadence and stronger body compression than walk."
           - clip: attack
-            instruction: "Open the canonical Reef Skitter rig through Blender's visible GUI. Author only a non-looping in-place pounce/strike Action named attack, preserving the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Start and finish idle-compatible, with clear anticipation, contact, and recovery. Save through the GUI."
+            instruction: "Author only a non-looping in-place pounce/strike Action named attack, with clear anticipation, contact, and recovery and idle-compatible endpoints."
           - clip: death
-            instruction: "Open the canonical Reef Skitter rig through Blender's visible GUI. Author only a non-looping in-place death-curl Action named death, preserving the exact armature, rest pose, 15 mesh bindings, materials, and root transform. End in a stable terminal curled pose with no recovery. Save through the GUI."
+            instruction: "Author only a non-looping in-place death-curl Action named death, ending in a stable terminal curled pose with no recovery."
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -112,69 +91,58 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
-      - name: Download the exact main-revision Modal deployment receipt
+      - uses: ./.github/actions/setup-blender-gui
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rig-artifact
+      - name: Author, reopen, play, and capture one isolated clip
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          deploy_run="$(gh run list --workflow deploy.yml --commit "$GITHUB_SHA" --status completed --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$deploy_run"
-          gh run download "$deploy_run" --name "deployment-receipt-modal-dev-$GITHUB_SHA" --dir deployment
-      - name: Retrieve the immutable rig and author one isolated clip
-        env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CLIP: ${{ matrix.clip }}
           CLIP_INSTRUCTION: ${{ matrix.instruction }}
         run: |
           set -euo pipefail
-          mkdir -p inputs "evidence/$CLIP"
           rig_id="reef-rig-${GITHUB_RUN_ID}"
           clip_id="reef-${CLIP}-${GITHUB_RUN_ID}"
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT/output/$rig_id.blend" inputs/source_scene.blend
-          run_scope="run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          python3 scripts/run_cloud_gui_animation_job.py \
-            --environment "$MODAL_ENVIRONMENT" --run-scope "$run_scope" \
+          rig_root="rig-artifact/evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT"
+          source_scene="$rig_root/output/$rig_id.blend"
+          test -s "$source_scene"
+          artifact_name="reef-skitter-clip-${CLIP}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo -E "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$clip_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-clip \
-            --deployment-receipt deployment/modal-dev.json \
-            --instruction "$CLIP_INSTRUCTION Reopen the saved native through File > Open, play the Action, and visibly inspect its start, middle, and end in separate timeline checks. End READY_FOR_REVIEW only after save/reopen succeeds and the timeline visibly shows the Action." \
-            --input source_scene.blend=inputs/source_scene.blend \
+            --artifact-name "$artifact_name" --artifact-root "evidence/$CLIP" --motion-capture-frames 40 \
+            --instruction "Open the canonical Reef Skitter rig through Blender's visible GUI. $CLIP_INSTRUCTION Preserve the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Save and reopen through the GUI, inspect the Action at start, middle, and end, then leave the Action playing in the viewport before ending READY_FOR_REVIEW. Do not use Python or scripts." \
+            --input "source_scene.blend=$source_scene" \
             --input "structure_reference.png=$REEF_REFERENCE" \
             --input "component_reference.png=$REEF_REFERENCE" \
             --input "primary_artwork.png=$REEF_REFERENCE" \
             --input "concept_reference.png=$REEF_REFERENCE" \
             --output "receipts/reef-skitter-clip-$CLIP.json"
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT/output/$clip_id.blend" "evidence/$CLIP/$CLIP.blend"
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT/output/${clip_id}_preview.png" "evidence/$CLIP/preview.png"
-          for frame in initial latest final; do
-            remote="final-desktop.png"
-            [[ "$frame" == initial ]] && remote="screenshots/000-initial.png"
-            [[ "$frame" == latest ]] && remote="latest.png"
-            modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-              "draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT/$remote" "evidence/$CLIP/$frame.png"
+          sudo chown -R "$(id -u):$(id -g)" evidence receipts
+          job_root="evidence/$CLIP/jobs/draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT"
+          verify_args=()
+          for raw_index in $(seq 0 39); do
+            index="$(printf '%03d' "$raw_index")"
+            verify_args+=(--frame "motion-$index=motion/frame-$index.png")
           done
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT/screenshots" "evidence/$CLIP/screenshots"
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-          ffmpeg -hide_banner -loglevel error -y -framerate 8 -pattern_type glob \
-            -i "evidence/$CLIP/screenshots/*.png" -t 5 \
-            -vf "fps=8,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" \
-            "evidence/$CLIP/$CLIP.gif"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
-            --receipt "receipts/reef-skitter-clip-$CLIP.json" --artifact-dir "evidence/$CLIP" \
-            --output "$clip_id.blend=$CLIP.blend" --output "${clip_id}_preview.png=preview.png" \
-            --frame initial=initial.png --frame latest=latest.png --frame final=final.png
+            --receipt "receipts/reef-skitter-clip-$CLIP.json" --artifact-dir "$job_root" \
+            --output "$clip_id.blend=output/$clip_id.blend" \
+            --output "${clip_id}_preview.png=output/${clip_id}_preview.png" \
+            --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png \
+            "${verify_args[@]}"
+          python3 scripts/verify_animation_motion.py --frame-dir "$job_root/motion" --minimum-frames 40 \
+            --output "$job_root/motion-verification.json"
+          ffmpeg -hide_banner -loglevel error -y -framerate 8 -i "$job_root/motion/frame-%03d.png" -t 5 \
+            -vf "fps=8,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" \
+            "$job_root/$CLIP.gif"
+          test -s "$job_root/$CLIP.gif"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: reef-skitter-clip-${{ matrix.clip }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            receipts/
+            receipts/reef-skitter-clip-${{ matrix.clip }}.json
             evidence/${{ matrix.clip }}/
           if-no-files-found: error
           retention-days: 30
@@ -192,70 +160,53 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-      - run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
-      - name: Download the exact main-revision Modal deployment receipt
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/main
-          deploy_run="$(gh run list --workflow deploy.yml --commit "$GITHUB_SHA" --status completed --limit 1 --json databaseId --jq '.[0].databaseId')"
-          test -n "$deploy_run"
-          gh run download "$deploy_run" --name "deployment-receipt-modal-dev-$GITHUB_SHA" --dir deployment
+      - uses: ./.github/actions/setup-blender-gui
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rig-artifact
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: reef-skitter-clip-*-${{ github.run_id }}-${{ github.run_attempt }}
           path: clip-artifacts
-          merge-multiple: true
-      - name: Integrate, reopen, export, and reimport through the Modal Blender desktop
+      - name: Integrate, reopen, export, and reimport in the GitHub-hosted Blender desktop
         env:
-          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
-          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p inputs evidence/final
           rig_id="reef-rig-${GITHUB_RUN_ID}"
           integration_id="reef-integrated-${GITHUB_RUN_ID}"
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT/output/$rig_id.blend" inputs/source_scene.blend
-          run_scope="run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          source_scene="rig-artifact/evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT/output/$rig_id.blend"
+          test -s "$source_scene"
           args=()
           for clip in idle walk run attack death; do
-            args+=(--input "dependency-$clip.blend=clip-artifacts/evidence/$clip/$clip.blend")
+            clip_id="reef-${clip}-${GITHUB_RUN_ID}"
+            artifact="reef-skitter-clip-${clip}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            native="clip-artifacts/$artifact/evidence/$clip/jobs/draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT/output/$clip_id.blend"
+            test -s "$native"
+            args+=(--input "dependency-$clip.blend=$native")
           done
-          python3 scripts/run_cloud_gui_animation_job.py \
-            --environment "$MODAL_ENVIRONMENT" --run-scope "$run_scope" \
+          artifact_name="reef-skitter-animation-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sudo -E "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$integration_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-integration \
-            --deployment-receipt deployment/modal-dev.json \
+            --artifact-name "$artifact_name" --artifact-root evidence/final \
             --instruction "Open the immutable canonical rig through Blender's visible GUI. Append only the Action from each of the five immutable dependency blend files. Reject any dependency that changes the rig, mesh bindings, materials, or rest pose. The exact Action set must be idle, walk, run, attack, death. Reopen the saved integrated blend through the GUI, inspect and play representative start/middle/end frames of every Action, then export an animated GLB through File > Export > glTF 2.0 to /output/reef-skitter-animation-integrated.glb. Start a fresh Blender scene, reimport that GLB through File > Import > glTF 2.0, verify the five Actions and all 15 mesh parts remain present, then save the integrated native through the GUI and finish READY_FOR_REVIEW. Do not use Python or scripts." \
-            --input source_scene.blend=inputs/source_scene.blend \
-            "${args[@]}" \
+            --input "source_scene.blend=$source_scene" "${args[@]}" \
             --input "structure_reference.png=$REEF_REFERENCE" \
             --input "component_reference.png=$REEF_REFERENCE" \
             --input "primary_artwork.png=$REEF_REFERENCE" \
             --input "concept_reference.png=$REEF_REFERENCE" \
             --output receipts/reef-skitter-animation-integrated.json
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT/output/$integration_id.blend" evidence/final/reef-skitter-animation-integrated.blend
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT/output/reef-skitter-animation-integrated.glb" evidence/final/reef-skitter-animation-integrated.glb
-          modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-            "draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT/output/${integration_id}_preview.png" evidence/final/preview.png
-          for frame in initial latest final; do
-            remote="final-desktop.png"
-            [[ "$frame" == initial ]] && remote="screenshots/000-initial.png"
-            [[ "$frame" == latest ]] && remote="latest.png"
-            modal volume get --env "$MODAL_ENVIRONMENT" "$MODAL_VOLUME" \
-              "draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT/$remote" "evidence/final/$frame.png"
-          done
+          sudo chown -R "$(id -u):$(id -g)" evidence receipts
+          job_root="evidence/final/jobs/draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
-            --receipt receipts/reef-skitter-animation-integrated.json --artifact-dir evidence/final \
-            --output "$integration_id.blend=reef-skitter-animation-integrated.blend" \
-            --output reef-skitter-animation-integrated.glb=reef-skitter-animation-integrated.glb \
-            --output "${integration_id}_preview.png=preview.png" \
-            --frame initial=initial.png --frame latest=latest.png --frame final=final.png
+            --receipt receipts/reef-skitter-animation-integrated.json --artifact-dir "$job_root" \
+            --output "$integration_id.blend=output/$integration_id.blend" \
+            --output reef-skitter-animation-integrated.glb=output/reef-skitter-animation-integrated.glb \
+            --output "${integration_id}_preview.png=output/${integration_id}_preview.png" \
+            --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png
           node scripts/inspect-animated-parted-glb.mjs \
-            evidence/final/reef-skitter-animation-integrated.glb > evidence/final/animation-inspection.json
+            "$job_root/output/reef-skitter-animation-integrated.glb" > "$job_root/animation-inspection.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: reef-skitter-animation-candidate-${{ github.run_id }}-${{ github.run_attempt }}

@@ -23,6 +23,21 @@ Root motion is intentionally disabled: navigation consumes its own deterministic
 velocity, which keeps instanced creatures from drifting differently from their
 authoritative gameplay positions.
 
+## Cloud GUI authoring
+
+`.github/workflows/reef-skitter-cloud-animation.yml` runs the entire authoring
+chain on GitHub-hosted Ubuntu workers. Each worker installs the checksum-pinned
+Blender 5.2.1 build plus Xvfb/Openbox, then drives the real Blender desktop with
+the same guarded computer-action loop used by the Modal adapter. The trusted
+`main` workflow creates the canonical rig first, runs at most four of the five
+clip lanes concurrently, and serializes final Action integration/export/reimport.
+
+Every job hashes its immutable inputs and all native, preview, and Blender-window
+evidence before GitHub uploads one named workflow artifact. Clip jobs additionally
+capture 40 desktop frames at 8 fps while the Action is playing; those provider-
+hashed frames must show material pixel change before a five-second GIF is encoded.
+This path performs no Blender or rendering work on the dispatching workstation.
+
 ## Runtime representation
 
 `src/parted-model-swarm-runtime.js` treats clip tracks as shared GPU data. An
