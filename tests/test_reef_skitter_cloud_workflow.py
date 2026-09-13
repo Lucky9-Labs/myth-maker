@@ -6,13 +6,15 @@ WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "reef-skitter-c
 
 
 class ReefSkitterCloudWorkflowTests(unittest.TestCase):
-    def test_cloud_pipeline_uses_github_gui_workers_and_four_parallel_clip_slots(self):
+    def test_cloud_pipeline_uses_modal_gui_workers_and_four_parallel_clip_slots(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count("scripts/run_github_gui_animation_job.py"), 3)
+        self.assertEqual(text.count("scripts/run_cloud_gui_animation_job.py"), 3)
+        self.assertNotIn("scripts/run_github_gui_animation_job.py", text)
         self.assertIn("max-parallel: 4", text)
-        self.assertNotIn("MODAL_TOKEN", text)
-        self.assertNotIn("modal volume", text)
+        self.assertEqual(text.count("MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}"), 3)
+        self.assertEqual(text.count("deployment-receipt-modal-dev-${{ github.sha }}"), 3)
+        self.assertNotIn("OPENAI_API_KEY", text)
 
     def test_all_five_actions_have_provider_hashed_motion_capture(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -24,8 +26,8 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/verify_animation_motion.py", text)
         self.assertEqual(text.count("scripts/inspect_blender_animation.py"), 3)
         self.assertIn("$job_root/$CLIP.gif", text)
-        self.assertEqual(text.count("scripts/seal_github_animation_receipt.py"), 3)
-        self.assertEqual(text.count("steps.upload-evidence.outputs.artifact-digest"), 3)
+        self.assertNotIn("scripts/seal_github_animation_receipt.py", text)
+        self.assertNotIn("--allow-runner-receipt", text)
 
     def test_reruns_resolve_the_latest_successful_dependency_attempt(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -35,17 +37,17 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("pattern: reef-skitter-clip-*-${{ github.run_id }}-*", text)
         self.assertNotIn('name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}\n          path: rig-artifact', text)
 
-    def test_worker_failures_restore_runner_read_access_before_evidence_upload(self):
+    def test_authoring_does_not_use_the_runner_desktop_or_root_owned_outputs(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count("worker_status=$?"), 3)
-        self.assertEqual(text.count('sudo chown -R "$(id -u):$(id -g)" evidence receipts'), 3)
-        self.assertEqual(text.count('exit "$worker_status"'), 3)
+        self.assertNotIn("sudo --preserve-env", text)
+        self.assertNotIn("sudo chown", text)
+        self.assertNotIn("GitHub-hosted Blender desktop", text)
 
     def test_each_stage_resolves_the_actual_final_continuation_job(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count("scripts/resolve_github_animation_job_root.py"), 5)
+        self.assertEqual(text.count("scripts/resolve_github_animation_job_root.py"), 6)
         self.assertNotIn('job_root="evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT"', text)
         self.assertNotIn('job_root="evidence/$CLIP/jobs/draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT"', text)
         self.assertNotIn('job_root="evidence/final/jobs/draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT"', text)
@@ -56,6 +58,7 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("rig_seed_run_id:", text)
         self.assertIn("run-id: ${{ inputs.rig_seed_run_id }}", text)
         self.assertIn("--resume-job-dir", text)
+        self.assertIn("--resume-already-staged", text)
         self.assertIn("scripts/resolve_github_animation_resume.py", text)
         self.assertIn("rig-id: ${{ steps.author.outputs.rig-id }}", text)
         self.assertIn('rig_id="${{ needs.rig.outputs.rig-id }}"', text)

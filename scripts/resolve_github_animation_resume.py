@@ -12,7 +12,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("artifact", type=Path)
     parser.add_argument("run_id")
-    parser.add_argument("--field", choices=("work-id", "job-id", "checkpoint-id", "job-dir"))
+    parser.add_argument("--field", choices=("work-id", "job-id", "checkpoint-id", "job-dir", "provider"))
     args = parser.parse_args()
     artifact = args.artifact.resolve()
     if not args.run_id.isdigit() or int(args.run_id) < 1:
@@ -23,14 +23,19 @@ def main() -> int:
     state = payload.get("worker_state") or {}
     provider = state.get("provider_receipt") or {}
     work_id = order.get("work_id", "")
-    job_id = provider.get("input_id", "")
+    provider_name = provider.get("provider", "")
+    job_id = state.get("job_id", "") if provider_name == "modal" else provider.get("input_id", "")
     checkpoint_id = state.get("checkpoint_id", "")
     if (not re.fullmatch(r"reef-rig-[0-9]+", work_id)
             or state.get("part") != work_id
             or state.get("status") not in {"failed", "checkpointed_partial", "blocked"}
-            or provider.get("provider") != "github-actions-runner"
-            or provider.get("run_id") != int(args.run_id)
-            or provider.get("artifact_name") != artifact.name
+            or provider_name not in {"github-actions-runner", "modal"}
+            or (provider_name == "github-actions-runner" and provider.get("run_id") != int(args.run_id))
+            or (provider_name == "github-actions-runner" and provider.get("artifact_name") != artifact.name)
+            or (provider_name == "modal" and (
+                provider.get("volume_name") != "myth-maker-encounter-submissions"
+                or provider.get("app_name") != "myth-maker-encounter-draft"
+                or provider.get("function_name") != "run_draft_from_volume_manifest"))
             or not re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", job_id)
             or not re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", checkpoint_id)):
         raise RuntimeError("artifact does not contain a trusted resumable rig checkpoint")
@@ -42,6 +47,7 @@ def main() -> int:
         "job_id": job_id,
         "checkpoint_id": checkpoint_id,
         "job_dir": str(job_dir),
+        "provider": provider_name,
     }
     if args.field:
         print(result[args.field.replace("-", "_")])

@@ -732,17 +732,36 @@ def run_draft_from_volume_manifest(work_order: dict, manifest: dict, provenance:
     volume.reload()
     inputs = load_volume_inputs(checked, SUBMISSIONS_ROOT, expected_volume=RUNTIME.volume_name)
     work_id, attempt = work_order.get("work_id"), work_order.get("attempt")
-    if not isinstance(work_id, str) or not isinstance(attempt, int) or isinstance(attempt, bool):
+    run_scope, continuation = work_order.get("run_scope"), work_order.get("continuation", 0)
+    resume_job, checkpoint_id = work_order.get("resume_job", ""), work_order.get("checkpoint_id", "")
+    motion_capture_frames = work_order.get("motion_capture_frames", 0)
+    if (not isinstance(work_id, str) or not isinstance(attempt, int) or isinstance(attempt, bool)
+            or (run_scope is not None and (not isinstance(run_scope, str)
+                                            or not re.fullmatch(r"run-[0-9]+", run_scope)))
+            or not isinstance(continuation, int) or isinstance(continuation, bool) or not 0 <= continuation <= 4
+            or not isinstance(motion_capture_frames, int) or isinstance(motion_capture_frames, bool)
+            or not 0 <= motion_capture_frames <= 240 or bool(resume_job) != bool(checkpoint_id)
+            or (resume_job and (not re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", resume_job)
+                                or not re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", checkpoint_id)))):
         raise ValueError("volume draft work order needs stable work_id and attempt")
-    job_id = f"draft-gui-{work_id}-a{attempt}"
+    job_id = f"draft-gui-{work_id}" + (f"-{run_scope}" if run_scope else "") + f"-a{attempt}"
+    if continuation:
+        job_id += f"-c{continuation}"
+    if len(job_id) > 128:
+        raise ValueError("volume draft job identity is too long")
     invocation_provenance = dict(provenance)
     invocation_provenance["encounter_work_order"] = {
         "work_id": work_id, "encounter_id": work_order.get("encounter_id"),
-        "lane": work_order.get("lane"), "attempt": attempt,
+        "lane": work_order.get("lane"), "attempt": attempt, "run_scope": run_scope,
+        "continuation": continuation, "motion_capture_frames": motion_capture_frames,
     }
     invocation_provenance["input_manifest"] = checked
-    return _run_draft_entry(job_id, inputs, invocation_provenance, project_id, work_id,
-                            feedback=work_order.get("instruction", ""))
+    return _run_draft_entry(
+        job_id, inputs, invocation_provenance, project_id, work_id,
+        resume_job=resume_job, checkpoint_id=checkpoint_id,
+        feedback=work_order.get("instruction", ""), motion_capture_frames=motion_capture_frames,
+        receipt_function_name="run_draft_from_volume_manifest",
+    )
 
 
 def _run_draft_entry(job_id: str, inputs: dict[str, bytes], provenance: dict, project_id: str,
@@ -750,7 +769,8 @@ def _run_draft_entry(job_id: str, inputs: dict[str, bytes], provenance: dict, pr
                      reviewed_score: float = -1, resume_artifact: str = "", resume_sha256: str = "",
                      incremental: bool = False, baseline_score: int = 0,
                      baseline_source: str = "explicit_incremental_self_score",
-                     prior_model_self_score: int = -1) -> dict:
+                     prior_model_self_score: int = -1, motion_capture_frames: int = 0,
+                     receipt_function_name: str = "run_draft") -> dict:
     native_name(project_id)
     native_name(part)
     lease_key = project_id + ":" + part
@@ -775,7 +795,8 @@ def _run_draft_entry(job_id: str, inputs: dict[str, bytes], provenance: dict, pr
             raise RuntimeError("Modal did not provide call and input identities to the Blender draft")
         return _run_draft(job_id, inputs, provenance, part, resume_job, checkpoint_id, feedback,
                           resume_artifact, resume_sha256, incremental, baseline_score,
-                          function_call_id, input_id)
+                          function_call_id, input_id, motion_capture_frames=motion_capture_frames,
+                          receipt_function_name=receipt_function_name)
     finally:
         # Hard container termination may leave this protective lease. A coordinator
         # must verify terminal state before manually repairing it; no age stealing.
@@ -788,7 +809,8 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
                resume_artifact: str = "", resume_sha256: str = "",
                incremental: bool = False, baseline_score: int = 0,
                function_call_id: str = "", input_id: str = "",
-               execution: DraftExecution | None = None) -> dict:
+               execution: DraftExecution | None = None, motion_capture_frames: int = 0,
+               receipt_function_name: str = "run_draft") -> dict:
     if execution is None:
         execution = DraftExecution(
             submissions_root=SUBMISSIONS_ROOT,
@@ -800,10 +822,11 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             commit=volume.commit,
             receipt=lambda *, job_id, output_files, blender_frames: modal_volume_receipt(
                 volume_name=RUNTIME.volume_name, job_id=job_id, app_name=RUNTIME.app_name,
-                environment=RUNTIME.environment, function_name="run_draft",
+                environment=RUNTIME.environment, function_name=receipt_function_name,
                 function_call_id=function_call_id, input_id=input_id,
                 output_files=output_files, blender_frames=blender_frames,
             ),
+            motion_capture_frames=motion_capture_frames,
         )
     native = native_name(part)
     provenance["part"] = part
