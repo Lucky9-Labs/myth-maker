@@ -39,6 +39,7 @@ from component_native_cache import run_component_native_cache, validate_componen
 from pure_component_assembly import run_pure_component_assembly, validate_pure_component_assembly_job
 from component_coordinator import run_component_coordinator, validate_component_coordinator_job
 from agentic_stitch import run_agentic_stitch, validate_agentic_stitch_job
+from cloud_draft_execution import DraftExecution
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -64,6 +65,7 @@ image = (modal.Image.from_registry("python:3.12-slim-bookworm")
          .add_local_file(HERE / "encounter_worker_adapter.py", "/opt/encounter_worker_adapter.py", copy=True)
          .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True)
          .add_local_file(HERE / "modal_volume_inputs.py", "/opt/modal_volume_inputs.py", copy=True))
+image = image.add_local_file(HERE / "cloud_draft_execution.py", "/opt/cloud_draft_execution.py", copy=True)
 image = (image
          .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
          .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
@@ -109,6 +111,7 @@ diffusion_image = (modal.Image.from_registry("nvidia/cuda:12.4.1-runtime-ubuntu2
     .add_local_file(HERE / "encounter_worker_adapter.py", "/opt/encounter_worker_adapter.py", copy=True)
     .add_local_file(HERE / "glb_source_importer.py", "/opt/glb_source_importer.py", copy=True)
     .add_local_file(HERE / "infrastructure.py", "/opt/infrastructure.py", copy=True)
+    .add_local_file(HERE / "cloud_draft_execution.py", "/opt/cloud_draft_execution.py", copy=True)
     .add_local_file(HERE / "modal_volume_inputs.py", "/opt/modal_volume_inputs.py", copy=True)
     .add_local_file(HERE / "asset_production.py", "/opt/asset_production.py", copy=True)
     .add_local_file(HERE / "asset_progress.py", "/opt/asset_progress.py", copy=True)
@@ -784,7 +787,24 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
                resume_job: str = "", checkpoint_id: str = "", feedback: str = "",
                resume_artifact: str = "", resume_sha256: str = "",
                incremental: bool = False, baseline_score: int = 0,
-               function_call_id: str = "", input_id: str = "") -> dict:
+               function_call_id: str = "", input_id: str = "",
+               execution: DraftExecution | None = None) -> dict:
+    if execution is None:
+        execution = DraftExecution(
+            submissions_root=SUBMISSIONS_ROOT,
+            inputs_dir=Path("/inputs"),
+            output_link=Path("/output"),
+            prompt_template=Path("/opt/draft_prompt.md"),
+            resume_template=Path("/opt/draft_resume.md"),
+            reload=volume.reload,
+            commit=volume.commit,
+            receipt=lambda *, job_id, output_files, blender_frames: modal_volume_receipt(
+                volume_name=RUNTIME.volume_name, job_id=job_id, app_name=RUNTIME.app_name,
+                environment=RUNTIME.environment, function_name="run_draft",
+                function_call_id=function_call_id, input_id=input_id,
+                output_files=output_files, blender_frames=blender_frames,
+            ),
+        )
     native = native_name(part)
     provenance["part"] = part
     provenance["cloud_target"] = 8 if incremental else 4
@@ -808,8 +828,8 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
     resume = None
     input_aliases = {}
     if resume_job:
-        volume.reload()
-        parent_root = Path("/submissions") / resume_job
+        execution.reload()
+        parent_root = execution.submissions_root / resume_job
         resume = (load_terminal_artifact(parent_root, resume_artifact, resume_sha256, part=part)
                   if resume_artifact else load_resume(parent_root, checkpoint_id, part=part))
         inputs = resume["inputs"]
@@ -823,13 +843,13 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             }
     validate_input_names(inputs, resuming=bool(resume))
     validate_input_aliases(inputs, input_aliases if resume else {})
-    root = Path("/submissions") / job_id
+    root = execution.submissions_root / job_id
     root.mkdir(exist_ok=False)
-    reference_dir = Path("/inputs")
+    reference_dir = execution.inputs_dir
     reference_dir.mkdir()
     output = root / "output"
     output.mkdir()
-    Path("/output").symlink_to(output, target_is_directory=True)
+    execution.output_link.symlink_to(output, target_is_directory=True)
     job_inputs = root / "inputs"
     job_inputs.mkdir()
     for name, data in {**inputs, **input_aliases}.items():
@@ -841,10 +861,10 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
         job_destination.write_bytes(data)
         job_destination.chmod(0o444)
     source_asset = "source_asset.glb" if "source_asset.glb" in inputs else "source_scene.blend"
-    goal = render_prompt(Path("/opt/draft_prompt.md").read_text(), part, source_asset=source_asset)
+    goal = render_prompt(execution.prompt_template.read_text(), part, source_asset=source_asset)
     if feedback and not (resume_artifact or incremental):
         goal += "\n\n# User continuation direction\n" + feedback
-    protocol = render_prompt(Path("/opt/draft_resume.md").read_text(), part, source_asset=source_asset)
+    protocol = render_prompt(execution.resume_template.read_text(), part, source_asset=source_asset)
     prompt = goal + "\n\n" + protocol + pinned_worker_contract(provenance)
     if resume:
         (output / native).write_bytes(resume["blend"])
@@ -941,7 +961,7 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         state["artifacts"] = {p.name: p.stat().st_size for p in output.iterdir() if p.is_file()}
         write_json_atomic(root / "status.json", state)
-        volume.commit()
+        execution.commit()
         print(json.dumps(state), flush=True)
 
     try:
@@ -1167,6 +1187,22 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
     except Exception as error:
         state.update(terminal_failure(error))
     finally:
+        if execution.motion_capture_frames > 0 and processes and all(p.poll() is None for p in processes):
+            try:
+                motion_dir = root / "motion"
+                motion_dir.mkdir(exist_ok=True)
+                interval = 1 / execution.motion_capture_fps
+                for frame_index in range(execution.motion_capture_frames):
+                    screenshot(motion_dir / f"frame-{frame_index:03d}.png")
+                    if frame_index + 1 < execution.motion_capture_frames:
+                        time.sleep(interval)
+                state["motion_capture"] = {
+                    "frames": execution.motion_capture_frames,
+                    "fps": execution.motion_capture_fps,
+                    "duration_seconds": execution.motion_capture_frames / execution.motion_capture_fps,
+                }
+            except Exception as error:
+                state["motion_capture_error"] = str(error)[:600]
         try:
             screenshot(root / "final-desktop.png")
         except Exception:
@@ -1194,15 +1230,17 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
                 "latest": root / "latest.png",
                 "final": root / "final-desktop.png",
             }
+            if (root / "motion").is_dir():
+                frame_paths.update({
+                    f"motion-{index:03d}": path
+                    for index, path in enumerate(sorted((root / "motion").glob("frame-*.png")))
+                })
             frames = {
                 name: (str(path.relative_to(root)), {"bytes": path.stat().st_size, "sha256": digest(path.read_bytes())})
                 for name, path in frame_paths.items() if path.is_file()
             }
-            state["provider_receipt"] = modal_volume_receipt(
-                volume_name=RUNTIME.volume_name, job_id=job_id, app_name=RUNTIME.app_name,
-                environment=RUNTIME.environment, function_name="run_draft",
-                function_call_id=function_call_id, input_id=input_id,
-                output_files=state["files"], blender_frames=frames,
+            state["provider_receipt"] = execution.receipt(
+                job_id=job_id, output_files=state["files"], blender_frames=frames,
             )
             checkpoint(force=True)
             state["resumable"] = bool(state.get("checkpoint_id"))

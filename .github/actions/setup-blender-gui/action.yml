@@ -1,0 +1,20 @@
+name: Setup Blender GUI worker
+description: Install the hash-pinned Blender desktop and its X11 automation runtime.
+runs:
+  using: composite
+  steps:
+    - name: Install the X11 desktop and capture dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq \
+          ca-certificates curl ffmpeg libegl1 libgl1 libsm6 libxfixes3 libxi6 \
+          libxkbcommon0 libxkbcommon-x11-0 libxrender1 libxxf86vm1 openbox \
+          scrot tesseract-ocr x11-utils x11-xserver-utils xdotool xvfb xz-utils
+    - name: Install the exact Blender worker build
+      shell: bash
+      run: sudo sh modal/install_blender.sh
+    - name: Install the pinned GUI worker libraries
+      shell: bash
+      run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5' 'openai>=2,<3' 'Pillow>=10,<12' 'pyautogui>=0.9.54,<1'
