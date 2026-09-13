@@ -65,6 +65,14 @@ class DraftPolicyTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 native_name(invalid)
 
+    def test_glb_source_prompt_requires_visible_import(self):
+        template = (MODAL_DIR / "draft_prompt.md").read_text()
+        prompt = render_prompt(template, "reef-skitter-rig", source_asset="source_asset.glb")
+
+        self.assertIn("/inputs/source_asset.glb", prompt)
+        self.assertIn("File > Import > glTF 2.0", prompt)
+        self.assertNotIn("{{", prompt)
+
     def test_pinned_worker_contract_is_generic_and_caller_owned(self):
         self.assertEqual(pinned_worker_contract({"source": "test"}), "")
         rendered = pinned_worker_contract({"worker_contract": {"asset_type": "model", "constraints": ["save"]}})
@@ -72,9 +80,25 @@ class DraftPolicyTests(unittest.TestCase):
 
     def test_named_nonempty_input_contract_only(self):
         validate_input_names(INPUTS)
+        glb_inputs = {name: data for name, data in INPUTS.items() if name != "source_scene.blend"}
+        glb_inputs["source_asset.glb"] = b"glTF\x02\x00\x00\x00\x0c\x00\x00\x00"
+        validate_input_names(glb_inputs)
         altered = INPUTS | {"unexpected.png": b"bad"}
         with self.assertRaises(ValueError):
             validate_input_names(altered)
+        with self.assertRaises(ValueError):
+            validate_input_names(INPUTS | {"source_asset.glb": b"glTF\x02\x00\x00\x00\x0c\x00\x00\x00"})
+        malformed_glb = {name: data for name, data in INPUTS.items() if name != "source_scene.blend"}
+        malformed_glb["source_asset.glb"] = b"not-a-glb"
+        with self.assertRaisesRegex(ValueError, "GLB"):
+            validate_input_names(malformed_glb)
+
+    def test_input_contract_allows_only_named_immutable_blend_dependencies(self):
+        inputs = INPUTS | {"dependency-idle.blend": b"BLENDER", "dependency-death.blend": b"BLENDER"}
+        validate_input_names(inputs)
+        for invalid in ("dependency-.blend", "dependency-idle.glb", "../dependency-idle.blend"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_input_names(INPUTS | {invalid: b"bad"})
 
     def test_key_and_console_guards(self):
         for name, expected in KEY_ALIASES.items():
@@ -105,6 +129,7 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertNotIn("modal.Image.debian_slim", text)
         self.assertIn('"infrastructure.py", "/opt/infrastructure.py", copy=True', text)
         self.assertIn('"draft_support.py", "/opt/draft_support.py", copy=True', text)
+        self.assertIn('reference_dir / source_asset', text)
         self.assertNotIn("create_if_missing=True", text)
         self.assertNotIn("bpy.", text)
 

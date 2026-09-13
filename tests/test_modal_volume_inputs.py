@@ -36,6 +36,28 @@ class ModalVolumeInputTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "hash mismatch"):
                 load_volume_inputs(manifest, root, expected_volume="volume")
 
+    def test_loads_a_hash_verified_glb_source_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            input_root = root / "reef-rig" / "inputs"
+            input_root.mkdir(parents=True)
+            files = {
+                "source_asset.glb": b"glTF\x02\x00\x00\x00\x0c\x00\x00\x00",
+                "dependency-idle.blend": b"BLENDER-idle",
+                "structure_reference.png": b"png-a",
+                "component_reference.png": b"png-b",
+                "primary_artwork.png": b"png-c",
+                "concept_reference.png": b"png-d",
+            }
+            for name, data in files.items():
+                (input_root / name).write_bytes(data)
+            manifest = {
+                "schema_version": "1", "volume_name": "volume", "input_root": "reef-rig/inputs",
+                "files": {name: {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)} for name, data in files.items()},
+            }
+
+            self.assertEqual(load_volume_inputs(manifest, root, expected_volume="volume"), files)
+
     def test_rejects_unsafe_or_open_manifest_shapes(self):
         manifest = json.loads((MODAL_DIR / "kraken_input_manifest.json").read_text())
         validate_volume_input_manifest(manifest, expected_volume="myth-maker-encounter-submissions")

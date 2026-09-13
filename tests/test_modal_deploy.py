@@ -21,6 +21,11 @@ class ModalDeployTest(unittest.TestCase):
         self.assertIn('ASSET_LEDGER_FUNCTION = "record_asset_production_run"', source)
         self.assertIn('"max_asset_production_containers": 4', source)
 
+    def test_deployment_receipt_binds_the_volume_gui_entrypoint(self):
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn('VOLUME_DRAFT_FUNCTION = "run_draft_from_volume_manifest"', source)
+        self.assertIn('"volume_draft_function_id": volume_draft.object_id', source)
+
     def test_scheduled_refresh_does_not_run_paid_reference_evaluation(self):
         source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
         scheduled = source.split("def refresh_asset_progress_dashboards()", 1)[1].split(

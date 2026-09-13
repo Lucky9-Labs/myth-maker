@@ -43,6 +43,40 @@ Run `./run-mono-player-spike.sh` to rebuild the Mono player, execute it, and
 fail unless the player log contains that external-assembly receipt. EditMode
 tests cover null bytes plus missing and mismatched SHA-256 rejection.
 
+## Reef Skitter swarm benchmark
+
+`run-reef-skitter-swarm-benchmark.sh` builds a separate macOS development
+player and loads the hash-pinned, already-parted Reef Skitter GLB directly at
+runtime. It draws 400 candidates with shared meshes/materials and instanced
+draws, maintains deterministic compact per-agent state, performs camera-frustum
+and distance culling, and creates no per-creature `Animator` or GameObject.
+
+The standalone player records average and p95 frame time, main-thread and GPU
+timing counters when supported by the graphics backend, allocated memory,
+draw-call/batch counters, submitted instanced draw calls, and visible creature
+count. It writes a receipt and player screenshot under
+`output/reef-skitter/unity-swarm/`. This is a swarm-runtime proof over the real
+source meshes; because the input GLB contains no animation clips, its small
+deterministic bob exercises state/instance updates and is not animation proof.
+
+On macOS, Unity's in-player GPU frame counter may be unavailable even in a
+development build. `run-reef-skitter-metal-trace.sh` launches the already-built
+player under Xcode's Metal System Trace and exports process-scoped GPU
+intervals. `scripts/summarize-metal-trace.mjs` discards one second of process
+startup and reports per-frame GPU spans without double-counting overlapping
+Metal channels. The trace, TOC, interval export, player log/output, and compact
+GPU receipt all inherit the requested trace basename. Give the trace script a
+new destination when preserving an earlier capture; it intentionally refuses
+to overwrite any member of that evidence set.
+
+```sh
+spikes/unity-dynamic-load/run-reef-skitter-swarm-benchmark.sh
+spikes/unity-dynamic-load/run-reef-skitter-swarm-benchmark.sh \
+  output/reef-skitter/unity-swarm/runs/<new-run-id>
+spikes/unity-dynamic-load/run-reef-skitter-metal-trace.sh \
+  output/reef-skitter/unity-swarm/reef-skitter-metal-rerun.trace
+```
+
 ## Scope and non-goals
 
 This is a feasibility probe, not a production plugin runtime. `Assembly.Load`

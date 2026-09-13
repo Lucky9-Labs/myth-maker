@@ -1,0 +1,590 @@
+{
+  "schema_version": "parted-model-import.v1",
+  "model_id": "reef-skitter",
+  "provider": "tripo",
+  "imported_at": "2026-09-13T05:02:55.173Z",
+  "source": {
+    "path": "assets/reef-skitter/source/reef_skitter.tripo.glb",
+    "sha256": "984eec1c52d4a8774f8beae3b794b3fa0f1805f41b7266c19fd2d62fad27d673",
+    "byte_length": 3316860,
+    "media_type": "model/gltf-binary"
+  },
+  "contract": {
+    "kind": "already-parted-model",
+    "segmentation": "forbidden",
+    "preserve_part_nodes": true
+  },
+  "inspection": {
+    "schema_version": "parted-model-inspection.v1",
+    "source_sha256": "984eec1c52d4a8774f8beae3b794b3fa0f1805f41b7266c19fd2d62fad27d673",
+    "byte_length": 3316860,
+    "generator": "Tripo",
+    "scene_root_nodes": [
+      0
+    ],
+    "parts": [
+      {
+        "node_index": 1,
+        "name": "tripo_part_0",
+        "parent_index": 0,
+        "mesh_index": 0,
+        "primitive_count": 1,
+        "material_indexes": [
+          0
+        ],
+        "topology": {
+          "vertices": 2927,
+          "triangles": 3719
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 2,
+        "name": "tripo_part_1",
+        "parent_index": 0,
+        "mesh_index": 1,
+        "primitive_count": 1,
+        "material_indexes": [
+          1
+        ],
+        "topology": {
+          "vertices": 8932,
+          "triangles": 3976
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 3,
+        "name": "tripo_part_10",
+        "parent_index": 0,
+        "mesh_index": 2,
+        "primitive_count": 1,
+        "material_indexes": [
+          2
+        ],
+        "topology": {
+          "vertices": 376,
+          "triangles": 294
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 4,
+        "name": "tripo_part_11",
+        "parent_index": 0,
+        "mesh_index": 3,
+        "primitive_count": 1,
+        "material_indexes": [
+          3
+        ],
+        "topology": {
+          "vertices": 296,
+          "triangles": 286
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 5,
+        "name": "tripo_part_14",
+        "parent_index": 0,
+        "mesh_index": 4,
+        "primitive_count": 1,
+        "material_indexes": [
+          4
+        ],
+        "topology": {
+          "vertices": 238,
+          "triangles": 144
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 6,
+        "name": "tripo_part_15",
+        "parent_index": 0,
+        "mesh_index": 5,
+        "primitive_count": 1,
+        "material_indexes": [
+          5
+        ],
+        "topology": {
+          "vertices": 17,
+          "triangles": 10
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 7,
+        "name": "tripo_part_16",
+        "parent_index": 0,
+        "mesh_index": 6,
+        "primitive_count": 1,
+        "material_indexes": [
+          6
+        ],
+        "topology": {
+          "vertices": 34,
+          "triangles": 18
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 8,
+        "name": "tripo_part_2",
+        "parent_index": 0,
+        "mesh_index": 7,
+        "primitive_count": 1,
+        "material_indexes": [
+          7
+        ],
+        "topology": {
+          "vertices": 2147,
+          "triangles": 2072
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 9,
+        "name": "tripo_part_3",
+        "parent_index": 0,
+        "mesh_index": 8,
+        "primitive_count": 1,
+        "material_indexes": [
+          8
+        ],
+        "topology": {
+          "vertices": 1342,
+          "triangles": 1230
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 10,
+        "name": "tripo_part_4",
+        "parent_index": 0,
+        "mesh_index": 9,
+        "primitive_count": 1,
+        "material_indexes": [
+          9
+        ],
+        "topology": {
+          "vertices": 810,
+          "triangles": 848
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 11,
+        "name": "tripo_part_5",
+        "parent_index": 0,
+        "mesh_index": 10,
+        "primitive_count": 1,
+        "material_indexes": [
+          10
+        ],
+        "topology": {
+          "vertices": 668,
+          "triangles": 702
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 12,
+        "name": "tripo_part_6",
+        "parent_index": 0,
+        "mesh_index": 11,
+        "primitive_count": 1,
+        "material_indexes": [
+          11
+        ],
+        "topology": {
+          "vertices": 839,
+          "triangles": 978
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 13,
+        "name": "tripo_part_7",
+        "parent_index": 0,
+        "mesh_index": 12,
+        "primitive_count": 1,
+        "material_indexes": [
+          12
+        ],
+        "topology": {
+          "vertices": 606,
+          "triangles": 524
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 14,
+        "name": "tripo_part_8",
+        "parent_index": 0,
+        "mesh_index": 13,
+        "primitive_count": 1,
+        "material_indexes": [
+          13
+        ],
+        "topology": {
+          "vertices": 665,
+          "triangles": 662
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      },
+      {
+        "node_index": 15,
+        "name": "tripo_part_9",
+        "parent_index": 0,
+        "mesh_index": 14,
+        "primitive_count": 1,
+        "material_indexes": [
+          14
+        ],
+        "topology": {
+          "vertices": 589,
+          "triangles": 488
+        },
+        "transform": {
+          "translation": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    ],
+    "materials": [
+      {
+        "index": 0,
+        "name": "tripo_part_0_material"
+      },
+      {
+        "index": 1,
+        "name": "tripo_part_1_material"
+      },
+      {
+        "index": 2,
+        "name": "tripo_part_10_material"
+      },
+      {
+        "index": 3,
+        "name": "tripo_part_11_material"
+      },
+      {
+        "index": 4,
+        "name": "tripo_part_14_material"
+      },
+      {
+        "index": 5,
+        "name": "tripo_part_15_material"
+      },
+      {
+        "index": 6,
+        "name": "tripo_part_16_material"
+      },
+      {
+        "index": 7,
+        "name": "tripo_part_2_material"
+      },
+      {
+        "index": 8,
+        "name": "tripo_part_3_material"
+      },
+      {
+        "index": 9,
+        "name": "tripo_part_4_material"
+      },
+      {
+        "index": 10,
+        "name": "tripo_part_5_material"
+      },
+      {
+        "index": 11,
+        "name": "tripo_part_6_material"
+      },
+      {
+        "index": 12,
+        "name": "tripo_part_7_material"
+      },
+      {
+        "index": 13,
+        "name": "tripo_part_8_material"
+      },
+      {
+        "index": 14,
+        "name": "tripo_part_9_material"
+      }
+    ],
+    "topology": {
+      "vertices": 20486,
+      "triangles": 15951
+    },
+    "source_features": {
+      "skins": 0,
+      "animations": 0,
+      "embedded_binary_bytes": 3289488,
+      "extensions_used": [
+        "KHR_materials_volume",
+        "FB_ngon_encoding"
+      ]
+    },
+    "suitability": {
+      "parted_model": true,
+      "distinct_meshes": true,
+      "material_bound_parts": true,
+      "rigging": "requires-rigging",
+      "reason": "Each provider part is retained as a source node; no mesh segmentation is performed."
+    }
+  }
+}

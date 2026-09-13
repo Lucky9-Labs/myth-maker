@@ -150,12 +150,28 @@ def validate_typed_text(text: str) -> None:
         raise ValueError("Code, URLs and multiline pastes are outside this GUI-only trial")
 
 
+REFERENCE_INPUT_NAMES = {
+    "structure_reference.png", "component_reference.png", "primary_artwork.png", "concept_reference.png",
+}
+SOURCE_INPUT_NAMES = {"source_scene.blend", "source_asset.glb"}
+
+
 def validate_input_names(inputs: dict[str, bytes], *, resuming: bool = False) -> None:
-    expected = {"source_scene.blend", "structure_reference.png", "component_reference.png", "primary_artwork.png", "concept_reference.png"}
-    if resuming and "source_scene.blend" not in inputs:
-        expected.remove("source_scene.blend")
-    if set(inputs) != expected or any(not isinstance(b, bytes) or not b for b in inputs.values()):
-        raise ValueError("The trial requires the version-one five-file encounter input package")
+    names = set(inputs)
+    source_names = names & SOURCE_INPUT_NAMES
+    dependencies = names - REFERENCE_INPUT_NAMES - source_names
+    valid_dependencies = len(dependencies) <= 5 and all(
+        re.fullmatch(r"dependency-[a-z0-9][a-z0-9-]{0,42}\.blend", name) for name in dependencies
+    )
+    valid_fresh = names == REFERENCE_INPUT_NAMES | source_names | dependencies and len(source_names) == 1 and valid_dependencies
+    valid_resume = resuming and names == REFERENCE_INPUT_NAMES
+    if (not valid_fresh and not valid_resume) or any(not isinstance(b, bytes) or not b for b in inputs.values()):
+        raise ValueError("The trial requires four references and exactly one immutable source asset")
+    if "source_asset.glb" in inputs:
+        data = inputs["source_asset.glb"]
+        if (len(data) < 12 or data[:4] != b"glTF" or int.from_bytes(data[4:8], "little") != 2
+                or int.from_bytes(data[8:12], "little") != len(data)):
+            raise ValueError("The immutable GLB source has an invalid header")
     if sum(map(len, inputs.values())) > 30_000_000:
         raise ValueError("Unexpectedly large input package")
 
@@ -274,7 +290,15 @@ def record_incremental_rating(state: dict, rating: dict) -> dict:
     updated["current_rating"] = rating
     return updated
 
-def render_prompt(template: str, component_id: str) -> str:
+def render_prompt(template: str, component_id: str, *, source_asset: str = "source_scene.blend") -> str:
     name = native_name(component_id)
+    if source_asset == "source_scene.blend":
+        source_action = "Open `/inputs/source_scene.blend` through Blender's visible File > Open flow before editing."
+    elif source_asset == "source_asset.glb":
+        source_action = "Import `/inputs/source_asset.glb` through Blender's visible File > Import > glTF 2.0 flow before editing."
+    else:
+        raise ValueError("unsupported source asset")
     return (template.replace("{{COMPONENT_ID}}", component_id)
-            .replace("{{NATIVE}}", name))
+            .replace("{{NATIVE}}", name)
+            .replace("{{SOURCE_ASSET}}", source_asset)
+            .replace("{{SOURCE_ACTION}}", source_action))

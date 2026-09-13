@@ -7,11 +7,13 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Any
 
+from draft_support import validate_input_names
+
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
-REQUIRED_INPUTS = {
-    "source_scene.blend", "structure_reference.png", "component_reference.png",
-    "primary_artwork.png", "concept_reference.png",
+REFERENCE_INPUTS = {
+    "structure_reference.png", "component_reference.png", "primary_artwork.png", "concept_reference.png",
 }
+SOURCE_INPUTS = {"source_scene.blend", "source_asset.glb"}
 
 
 def validate_volume_input_manifest(value: Any, *, expected_volume: str) -> dict[str, Any]:
@@ -24,8 +26,15 @@ def validate_volume_input_manifest(value: Any, *, expected_volume: str) -> dict[
     if not path or path.is_absolute() or ".." in path.parts or "." in path.parts:
         raise ValueError("input_root must be a safe relative Modal Volume path")
     files = value.get("files")
-    if not isinstance(files, Mapping) or set(files) != REQUIRED_INPUTS:
-        raise ValueError("volume input manifest must name exactly the required draft inputs")
+    names = set(files) if isinstance(files, Mapping) else set()
+    source_names = names & SOURCE_INPUTS
+    dependencies = names - REFERENCE_INPUTS - source_names
+    valid_dependencies = len(dependencies) <= 5 and all(
+        re.fullmatch(r"dependency-[a-z0-9][a-z0-9-]{0,42}\.blend", name) for name in dependencies
+    )
+    if (not isinstance(files, Mapping) or names != REFERENCE_INPUTS | source_names | dependencies
+            or len(source_names) != 1 or not valid_dependencies):
+        raise ValueError("volume input manifest must name four references, one source asset, and only closed dependencies")
     for name, record in files.items():
         if (not isinstance(record, Mapping) or set(record) != {"sha256", "bytes"}
                 or not isinstance(record.get("sha256"), str) or not SHA256.fullmatch(record["sha256"])
@@ -46,4 +55,5 @@ def load_volume_inputs(value: Any, submissions_root: Path, *, expected_volume: s
         if hashlib.sha256(data).hexdigest() != record["sha256"]:
             raise ValueError(f"Modal Volume input hash mismatch for {name}")
         result[name] = data
+    validate_input_names(result)
     return result

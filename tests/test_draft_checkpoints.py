@@ -77,7 +77,7 @@ class CheckpointTests(unittest.TestCase):
         (root / "output").mkdir(parents=True)
         (root / "inputs").mkdir()
         (root / "output/Untitled.blend").write_bytes(BLEND)
-        inputs = {"source_scene.blend": BLEND, **REFS}
+        inputs = {"source_scene.blend": BLEND, "dependency-idle.blend": BLEND + b"idle", **REFS}
         for name, data in inputs.items():
             (root / "inputs" / name).write_bytes(data)
         (root / "status.json").write_text(json.dumps({"part": COMPONENT, "status": "blocked"}))
@@ -85,6 +85,7 @@ class CheckpointTests(unittest.TestCase):
         result = load_terminal_artifact(root, "Untitled.blend", sha256(BLEND), part=COMPONENT)
         self.assertEqual(result["blend"], BLEND)
         self.assertEqual(result["inputs"]["source_scene.blend"], BLEND)
+        self.assertEqual(result["inputs"]["dependency-idle.blend"], BLEND + b"idle")
         with self.assertRaisesRegex(ValueError, "hash"):
             load_terminal_artifact(root, "Untitled.blend", "0" * 64, part=COMPONENT)
 
