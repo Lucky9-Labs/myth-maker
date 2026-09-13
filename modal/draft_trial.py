@@ -648,10 +648,13 @@ def screenshot(path: Path) -> bytes:
 
 
 def execute_actions(actions: list, remaining: int, deadline: float) -> int:
-    import pyautogui as gui
     if len(actions) > remaining:
         raise RuntimeError("UI action budget exhausted")
-    gui.FAILSAFE = True
+    button_numbers = {"left": "1", "middle": "2", "right": "3"}
+
+    def move_pointer(x, y) -> None:
+        subprocess.run(["xdotool", "mousemove", "--sync", str(round(x)), str(round(y))], check=True)
+
     for raw in actions:
         if time.monotonic() >= deadline:
             raise RuntimeError("Interaction deadline exhausted before completing action batch")
@@ -670,7 +673,7 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
             subprocess.run(["xdotool", "key", "--clearmodifiers", "+".join(keys)], check=True)
         elif kind == "type":
             validate_typed_text(action["text"])
-            gui.write(action["text"], interval=0.004)
+            subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "4", "--", action["text"]], check=True)
         elif kind in {"click", "double_click", "drag", "move", "scroll"}:
             if keys:
                 subprocess.run(["xdotool", "keydown", *keys], check=True)
@@ -684,22 +687,30 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
                 if button not in {"left", "right", "middle"}:
                     raise ValueError("Unsupported mouse button")
                 if kind in {"click", "double_click"}:
-                    gui.click(action["x"], action["y"], clicks=2 if kind == "double_click" else 1, interval=0.12, button=button)
+                    move_pointer(action["x"], action["y"])
+                    command = ["xdotool", "click"]
+                    if kind == "double_click":
+                        command.extend(["--repeat", "2", "--delay", "120"])
+                    subprocess.run([*command, button_numbers[button]], check=True)
                 elif kind == "move":
-                    gui.moveTo(action["x"], action["y"])
+                    move_pointer(action["x"], action["y"])
                 elif kind == "scroll":
-                    gui.moveTo(action["x"], action["y"])
+                    move_pointer(action["x"], action["y"])
                     amount = action.get("scroll_y", 0)
-                    gui.scroll(-round(amount / 100) if abs(amount) >= 100 else -amount)
+                    clicks = round(amount / 100) if abs(amount) >= 100 else round(amount)
+                    if clicks:
+                        subprocess.run(["xdotool", "click", "--repeat", str(abs(clicks)),
+                                        "5" if clicks > 0 else "4"], check=True)
                 else:
                     path = action["path"]
-                    gui.moveTo(path[0]["x"], path[0]["y"])
-                    gui.mouseDown(button=button)
+                    move_pointer(path[0]["x"], path[0]["y"])
+                    subprocess.run(["xdotool", "mousedown", button_numbers[button]], check=True)
                     try:
                         for point in path[1:]:
-                            gui.moveTo(point["x"], point["y"], duration=0.08)
+                            move_pointer(point["x"], point["y"])
+                            time.sleep(0.08)
                     finally:
-                        gui.mouseUp(button=button)
+                        subprocess.run(["xdotool", "mouseup", button_numbers[button]], check=True)
             finally:
                 if keys:
                     subprocess.run(["xdotool", "keyup", *keys], check=True)

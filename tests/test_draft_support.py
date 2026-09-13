@@ -144,6 +144,23 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertNotIn("create_if_missing=True", text)
         self.assertNotIn("bpy.", text)
 
+    def test_gui_actions_use_fresh_xdotool_processes_instead_of_a_stale_xlib_pipe(self):
+        text = (MODAL_DIR / "draft_trial.py").read_text()
+        tree = ast.parse(text)
+        execute_actions = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "execute_actions"
+        )
+        source = ast.get_source_segment(text, execute_actions)
+
+        self.assertIn('["xdotool", "mousemove", "--sync"', source)
+        self.assertIn('["xdotool", "type", "--clearmodifiers"', source)
+        self.assertIn('["xdotool", "click"', source)
+        self.assertIn('["xdotool", "mousedown"', source)
+        self.assertIn('["xdotool", "mouseup"', source)
+        self.assertNotIn("pyautogui", source)
+        self.assertNotIn("gui.", source)
+
     def test_blender_archive_is_verified_before_it_can_cross_a_builder_step(self):
         text = (MODAL_DIR / "install_blender.sh").read_text()
         download = "curl --fail --location --retry 3 --retry-all-errors --silent --show-error"
