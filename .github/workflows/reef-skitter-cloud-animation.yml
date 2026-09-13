@@ -65,7 +65,7 @@ jobs:
             "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$rig_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-rig \
             --artifact-name "$artifact_name" --artifact-root evidence/rig "${resume_args[@]}" \
-            --instruction "Import the immutable Reef Skitter GLB through the visible Blender GUI. Preserve all 15 provider-authored mesh parts and materials without segmentation. Create one creature root and a rigid-part rig appropriate for the six-legged body, bind every part, pose-test all limbs, return to a neutral rest pose, and save through the GUI. A bone moving without its intended mesh is a blocking binding defect: identify the intended provider mesh or disconnected rigid region using the visible geometry, repair the binding before continuing the audit, and retest it in motion. An unreadable reference pane is not a blocker; use the visible creature geometry and existing verified bindings while preserving meshes and materials. Reopen that saved native through File > Open, verify the rig and all bindings survived, and leave the rig and Outliner visible as final evidence. Do not author animation clips. End READY_FOR_REVIEW only after save and reopen succeed." \
+            --instruction "Import the immutable Reef Skitter GLB through the visible Blender GUI. Preserve all 15 provider-authored mesh parts and materials without segmentation. Determine the source-derived locomotor limb count from the visible geometry before finalizing the rigid-part rig. Do not invent missing limbs. The hash-bound source inspection establishes that tripo_part_6 has two welded disconnected regions: a 644-triangle region centered near (-0.113,0.141,0.056) and a 334-triangle region centered near (-0.224,0.189,-0.064). Isolate and classify both regions visibly. If they need different bones, assign them with vertex groups without splitting the provider object. Bind every actual locomotor limb and articulated appendage, pose-test each independently, return to a neutral rest pose, and save through the GUI. A bone moving without its intended mesh is a blocking binding defect: identify the intended provider mesh or disconnected rigid region using the visible geometry, repair the binding before continuing the audit, and retest it in motion. An unreadable reference pane is not a blocker; use the visible creature geometry and existing verified bindings while preserving meshes and materials. Reopen that saved native through File > Open, verify the rig and all bindings survived, and leave the rig and Outliner visible as final evidence. Do not author animation clips. End READY_FOR_REVIEW only after save and reopen succeed." \
             --input "source_asset.glb=$REEF_SOURCE" \
             --input "structure_reference.png=$REEF_REFERENCE" \
             --input "component_reference.png=$REEF_REFERENCE" \
@@ -125,9 +125,9 @@ jobs:
           - clip: idle
             instruction: "Author only an in-place looping idle Action named idle. Make breathing, feeler, and subtle leg motion readable."
           - clip: walk
-            instruction: "Author only an in-place looping six-leg scuttle Action named walk. Use alternating tripod-like contacts and no root translation."
+            instruction: "Author only an in-place looping scuttle Action named walk. Use a stable alternating contact pattern appropriate to the source-derived locomotor limb count and no root translation."
           - clip: run
-            instruction: "Author only an in-place looping fast six-leg scuttle Action named run, with a faster cadence and stronger body compression than walk."
+            instruction: "Author only an in-place looping fast scuttle Action named run, using the source-derived locomotor limb count with a faster cadence and stronger body compression than walk."
           - clip: attack
             instruction: "Author only a non-looping in-place pounce/strike Action named attack, with clear anticipation, contact, and recovery and idle-compatible endpoints."
           - clip: death

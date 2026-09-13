@@ -67,6 +67,16 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("repair the binding before continuing the audit", text)
         self.assertIn("An unreadable reference pane is not a blocker", text)
 
+    def test_rig_and_gaits_follow_source_derived_limb_topology(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertNotIn("six-legged", text)
+        self.assertNotIn("six-leg scuttle", text)
+        self.assertIn("Do not invent missing limbs", text)
+        self.assertIn("tripo_part_6 has two welded disconnected regions", text)
+        self.assertIn("vertex groups without splitting the provider object", text)
+        self.assertIn("source-derived locomotor limb count", text)
+
 
 if __name__ == "__main__":
     unittest.main()

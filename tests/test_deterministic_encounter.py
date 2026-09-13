@@ -81,6 +81,7 @@ class DeterministicEncounterTests(unittest.TestCase):
 
         fake_modal = types.SimpleNamespace(
             App=FakeApp, Image=ChainImage, Volume=FakeResource, Secret=FakeResource, Dict=FakeResource,
+            Period=lambda **kwargs: types.SimpleNamespace(**kwargs),
             current_function_call_id=lambda: "fc-proof", current_input_id=lambda: "in-proof")
         previous = sys.modules.get("modal")
         sys.modules["modal"] = fake_modal

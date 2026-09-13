@@ -10,7 +10,7 @@ const ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
  */
 export function inspectPartedGlb(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 20) throw new TypeError("GLB bytes are required");
-  const { document, binaryBytes } = parseGlb(bytes);
+  const { document, binaryBytes, binaryChunk } = parseGlb(bytes);
   if (document.asset?.version !== "2.0") throw new TypeError("only glTF 2.0 is supported");
   if (!Array.isArray(document.nodes) || !Array.isArray(document.meshes)) throw new TypeError("GLB must contain nodes and meshes");
 
@@ -20,7 +20,7 @@ export function inspectPartedGlb(bytes) {
     if (!Number.isInteger(node.mesh)) return [];
     const mesh = document.meshes[node.mesh];
     if (!mesh || !Array.isArray(mesh.primitives) || mesh.primitives.length !== 1) throw new TypeError(`node ${nodeIndex} must have exactly one primitive`);
-    const primitiveStats = mesh.primitives.map((primitive, primitiveIndex) => primitiveInspection(document, primitive, primitiveIndex));
+    const primitiveStats = mesh.primitives.map((primitive, primitiveIndex) => primitiveInspection(document, binaryChunk, primitive, primitiveIndex));
     return [{
       node_index: nodeIndex,
       name: node.name || `part-${nodeIndex}`,
@@ -29,6 +29,7 @@ export function inspectPartedGlb(bytes) {
       primitive_count: primitiveStats.length,
       material_indexes: [...new Set(primitiveStats.flatMap((item) => item.material_index === null ? [] : [item.material_index]))],
       topology: sumTopology(primitiveStats),
+      ...(primitiveStats[0].geometry ? { geometry: primitiveStats[0].geometry } : {}),
       transform: normalizedTransform(node),
     }];
   });
@@ -127,28 +128,103 @@ export function validatePartedModelInspection(value) {
 function parseGlb(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(4, true) !== 2 || view.getUint32(8, true) !== bytes.byteLength) throw new TypeError("invalid GLB header");
-  let offset = 12; let json; let binaryBytes = 0;
+  let offset = 12; let json; let binaryBytes = 0; let binaryChunk;
   while (offset < bytes.byteLength) {
     if (offset + 8 > bytes.byteLength) throw new TypeError("invalid GLB chunk");
     const length = view.getUint32(offset, true); const type = view.getUint32(offset + 4, true); offset += 8;
     if (offset + length > bytes.byteLength) throw new TypeError("invalid GLB chunk length");
     if (type === 0x4e4f534a) { if (json) throw new TypeError("GLB has multiple JSON chunks"); json = JSON.parse(new TextDecoder().decode(bytes.subarray(offset, offset + length)).trim()); }
-    else if (type === 0x004e4942) binaryBytes += length;
+    else if (type === 0x004e4942) {
+      if (binaryChunk) throw new TypeError("GLB has multiple BIN chunks");
+      binaryChunk = bytes.subarray(offset, offset + length); binaryBytes += length;
+    }
     else throw new TypeError("unsupported GLB chunk");
     offset += length;
   }
   if (!json) throw new TypeError("GLB has no JSON chunk");
-  return { document: json, binaryBytes };
+  return { document: json, binaryBytes, binaryChunk };
 }
 
-function primitiveInspection(document, primitive, primitiveIndex) {
+function primitiveInspection(document, binaryChunk, primitive, primitiveIndex) {
   if ((primitive.mode ?? 4) !== 4 || !Number.isInteger(primitive.attributes?.POSITION)) throw new TypeError(`primitive ${primitiveIndex} is not a triangle mesh with POSITION`);
   const vertex = document.accessors?.[primitive.attributes.POSITION];
   const index = Number.isInteger(primitive.indices) ? document.accessors?.[primitive.indices] : undefined;
   if (!vertex || !Number.isInteger(vertex.count) || vertex.count < 3 || (index && (!Number.isInteger(index.count) || index.count % 3 !== 0))) throw new TypeError(`primitive ${primitiveIndex} has invalid topology`);
   if (primitive.material !== undefined && (!Number.isInteger(primitive.material) || primitive.material < 0 || primitive.material >= (document.materials?.length ?? 0))) throw new TypeError(`primitive ${primitiveIndex} has invalid material`);
-  return { material_index: primitive.material ?? null, vertices: vertex.count, triangles: (index?.count ?? vertex.count) / 3 };
+  const geometry = binaryChunk ? inspectPrimitiveGeometry(document, binaryChunk, primitive) : undefined;
+  return { material_index: primitive.material ?? null, vertices: vertex.count, triangles: (index?.count ?? vertex.count) / 3, ...(geometry ? { geometry } : {}) };
 }
+
+function inspectPrimitiveGeometry(document, binaryChunk, primitive) {
+  const positions = readAccessor(document, binaryChunk, primitive.attributes.POSITION, "VEC3", [5126]);
+  const indexes = Number.isInteger(primitive.indices)
+    ? readAccessor(document, binaryChunk, primitive.indices, "SCALAR", [5121, 5123, 5125]).map((value) => value[0])
+    : Array.from({ length: positions.length }, (_, index) => index);
+  if (indexes.some((index) => !Number.isInteger(index) || index < 0 || index >= positions.length)) throw new TypeError("primitive index is out of bounds");
+
+  const tolerance = 1e-5;
+  const keyFor = (position) => position.map((value) => Math.round(value / tolerance)).join(":");
+  const canonical = new Map();
+  const triangleKeys = [];
+  for (let offset = 0; offset < indexes.length; offset += 3) {
+    const keys = indexes.slice(offset, offset + 3).map((index) => {
+      const position = positions[index]; const key = keyFor(position);
+      if (!canonical.has(key)) canonical.set(key, position);
+      return key;
+    });
+    triangleKeys.push(keys);
+  }
+
+  const parent = new Map([...canonical.keys()].map((key) => [key, key]));
+  const find = (key) => { let root = key; while (parent.get(root) !== root) root = parent.get(root); while (key !== root) { const next = parent.get(key); parent.set(key, root); key = next; } return root; };
+  const union = (left, right) => { const leftRoot = find(left); const rightRoot = find(right); if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot); };
+  triangleKeys.forEach(([first, second, third]) => { union(first, second); union(first, third); });
+
+  const regions = new Map();
+  canonical.forEach((position, key) => {
+    const root = find(key); if (!regions.has(root)) regions.set(root, { positions: [], triangles: 0 }); regions.get(root).positions.push(position);
+  });
+  triangleKeys.forEach(([key]) => { regions.get(find(key)).triangles += 1; });
+  const connectedRegions = [...regions.values()].map((region) => ({
+    triangles: region.triangles,
+    unique_positions: region.positions.length,
+    local_bounds: bounds(region.positions),
+  })).sort((left, right) => right.triangles - left.triangles || compareVectors(left.local_bounds.center, right.local_bounds.center));
+  return {
+    local_bounds: bounds(positions),
+    weld_tolerance: tolerance,
+    connected_region_count: connectedRegions.length,
+    connected_regions: connectedRegions,
+  };
+}
+
+function readAccessor(document, binaryChunk, accessorIndex, expectedType, allowedComponentTypes) {
+  const accessor = document.accessors?.[accessorIndex];
+  if (!accessor || accessor.type !== expectedType || !allowedComponentTypes.includes(accessor.componentType) || accessor.sparse) throw new TypeError(`accessor ${accessorIndex} is unsupported`);
+  const view = document.bufferViews?.[accessor.bufferView];
+  if (!view || (view.buffer ?? 0) !== 0) throw new TypeError(`accessor ${accessorIndex} must use the embedded GLB buffer`);
+  const components = expectedType === "VEC3" ? 3 : 1;
+  const componentBytes = new Map([[5121, 1], [5123, 2], [5125, 4], [5126, 4]]).get(accessor.componentType);
+  const elementBytes = components * componentBytes; const stride = view.byteStride ?? elementBytes;
+  if (stride < elementBytes || stride % componentBytes !== 0) throw new TypeError(`accessor ${accessorIndex} has invalid stride`);
+  const start = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+  const end = start + (accessor.count - 1) * stride + elementBytes;
+  if (!Number.isInteger(accessor.count) || accessor.count < 1 || start < 0 || end > binaryChunk.byteLength || end > (view.byteOffset ?? 0) + view.byteLength) throw new TypeError(`accessor ${accessorIndex} exceeds its buffer view`);
+  const data = new DataView(binaryChunk.buffer, binaryChunk.byteOffset, binaryChunk.byteLength);
+  const read = accessor.componentType === 5121 ? (offset) => data.getUint8(offset)
+    : accessor.componentType === 5123 ? (offset) => data.getUint16(offset, true)
+      : accessor.componentType === 5125 ? (offset) => data.getUint32(offset, true)
+        : (offset) => data.getFloat32(offset, true);
+  return Array.from({ length: accessor.count }, (_, index) => Array.from({ length: components }, (_unused, component) => read(start + index * stride + component * componentBytes)));
+}
+
+function bounds(positions) {
+  const min = [Infinity, Infinity, Infinity]; const max = [-Infinity, -Infinity, -Infinity];
+  positions.forEach((position) => position.forEach((value, axis) => { min[axis] = Math.min(min[axis], value); max[axis] = Math.max(max[axis], value); }));
+  const clean = (value) => Object.is(value, -0) ? 0 : value;
+  return { min: min.map(clean), max: max.map(clean), center: min.map((value, axis) => clean((value + max[axis]) / 2)), size: min.map((value, axis) => clean(max[axis] - value)) };
+}
+function compareVectors(left, right) { for (let axis = 0; axis < left.length; axis += 1) { if (left[axis] !== right[axis]) return left[axis] - right[axis]; } return 0; }
 
 function parentIndexes(nodes) {
   const result = new Map();
