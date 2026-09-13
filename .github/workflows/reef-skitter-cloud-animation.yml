@@ -70,10 +70,15 @@ jobs:
           if [[ -n "$RIG_SEED_RUN_ID" ]]; then
             seed_artifact="$(python3 scripts/resolve_github_animation_artifact.py rig-seed-artifacts "reef-skitter-rig-$RIG_SEED_RUN_ID")"
             rig_id="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$RIG_SEED_RUN_ID" --field work-id)"
-            seed_job_dir="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$RIG_SEED_RUN_ID" --field job-dir)"
-            resume_args+=(--resume-job-dir "$seed_job_dir")
             seed_provider="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$RIG_SEED_RUN_ID" --field provider)"
-            if [[ "$seed_provider" == modal ]]; then resume_args+=(--resume-already-staged); fi
+            if [[ "$seed_provider" == modal ]]; then
+              seed_job_id="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$RIG_SEED_RUN_ID" --field job-id)"
+              seed_checkpoint_id="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$RIG_SEED_RUN_ID" --field checkpoint-id)"
+              resume_args+=(--resume-modal-job-id "$seed_job_id" --resume-modal-checkpoint-id "$seed_checkpoint_id")
+            else
+              seed_job_dir="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$RIG_SEED_RUN_ID" --field job-dir)"
+              resume_args+=(--resume-job-dir "$seed_job_dir")
+            fi
           fi
           "$pythonLocation/bin/python3" scripts/run_cloud_gui_animation_job.py \
             --environment dev --project-id reef-skitter-animation --run-scope "run-${GITHUB_RUN_ID}" \

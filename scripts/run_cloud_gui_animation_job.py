@@ -149,6 +149,13 @@ def resume_stage_job_id(part: str, run_scope: str, attempt: int) -> str:
     return candidate
 
 
+def validate_modal_resume_identity(job_id: str, checkpoint_id: str) -> tuple[str, str]:
+    if (not re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", job_id)
+            or not re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", checkpoint_id)):
+        raise ValueError("direct Modal resume identity is invalid")
+    return job_id, checkpoint_id
+
+
 def stage_resume_job(source: Path, *, part: str, expected_input_hashes: dict[str, dict[str, Any]],
                      environment: str, staged_job_id: str,
                      already_staged: bool = False) -> tuple[str, str]:
@@ -245,6 +252,8 @@ def main() -> int:
     parser.add_argument("--max-continuations", type=int, default=2)
     parser.add_argument("--resume-job-dir", type=Path)
     parser.add_argument("--resume-already-staged", action="store_true")
+    parser.add_argument("--resume-modal-job-id", default="")
+    parser.add_argument("--resume-modal-checkpoint-id", default="")
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -266,7 +275,16 @@ def main() -> int:
         name: {"bytes": len(data), "sha256": digest(data)}
         for name, (_, data) in sorted(inputs.items())
     }
-    if args.resume_job_dir:
+    direct_modal_resume = bool(args.resume_modal_job_id or args.resume_modal_checkpoint_id)
+    if args.resume_job_dir and direct_modal_resume:
+        raise ValueError("choose either a downloaded resume directory or direct Modal identity")
+    if direct_modal_resume:
+        if args.resume_already_staged:
+            raise ValueError("direct Modal resume is already provider-staged")
+        resume_job, checkpoint_id = validate_modal_resume_identity(
+            args.resume_modal_job_id, args.resume_modal_checkpoint_id,
+        )
+    elif args.resume_job_dir:
         resume_job, checkpoint_id = stage_resume_job(
             args.resume_job_dir, part=args.work_id, expected_input_hashes=input_hashes,
             environment=args.environment,

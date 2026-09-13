@@ -40,13 +40,15 @@ def main() -> int:
             or not re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", checkpoint_id)):
         raise RuntimeError("artifact does not contain a trusted resumable rig checkpoint")
     job_dir = (artifact / "evidence" / "rig" / "jobs" / job_id).resolve()
-    if not job_dir.is_relative_to(artifact) or not (job_dir / "checkpoints" / checkpoint_id).is_dir():
+    downloaded_checkpoint = (job_dir / "checkpoints" / checkpoint_id).is_dir()
+    if (not job_dir.is_relative_to(artifact)
+            or (provider_name == "github-actions-runner" and not downloaded_checkpoint)):
         raise RuntimeError("receipted rig checkpoint directory is missing")
     result = {
         "work_id": work_id,
         "job_id": job_id,
         "checkpoint_id": checkpoint_id,
-        "job_dir": str(job_dir),
+        "job_dir": str(job_dir) if downloaded_checkpoint else "",
         "provider": provider_name,
     }
     if args.field:
