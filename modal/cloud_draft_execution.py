@@ -95,16 +95,17 @@ def seal_github_actions_artifact_receipt(receipt: dict, *, artifact_id: str,
         raise ValueError("only a GitHub runner receipt can be sealed")
     repository = receipt.get("repository")
     run_id = str(receipt.get("run_id", ""))
+    normalized_digest = artifact_digest if artifact_digest.startswith("sha256:") else "sha256:" + artifact_digest
     if (repository != _REPOSITORY or not artifact_id.isdigit() or int(artifact_id) < 1
             or artifact_url != f"https://github.com/{repository}/actions/runs/{run_id}/artifacts/{artifact_id}"
-            or not re.fullmatch(r"sha256:[a-f0-9]{64}", artifact_digest)):
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", normalized_digest)):
         raise ValueError("invalid GitHub provider artifact identity")
     sealed = deepcopy(receipt)
     sealed["provider"] = "github-actions"
     sealed["storage"] = {
         "artifact_id": int(artifact_id),
         "artifact_url": artifact_url,
-        "artifact_digest": artifact_digest,
+        "artifact_digest": normalized_digest,
         "artifact_name": receipt["artifact_name"],
     }
     for collection_name in ("output_artifacts", "blender_window_frames"):

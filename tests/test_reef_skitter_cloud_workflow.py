@@ -32,6 +32,7 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
 
         self.assertIn("scripts/resolve_github_animation_artifact.py rig-artifacts", text)
         self.assertIn("scripts/resolve_github_animation_artifact.py clip-artifacts", text)
+        self.assertIn("pattern: reef-skitter-clip-*-${{ github.run_id }}-*", text)
         self.assertNotIn('name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}\n          path: rig-artifact', text)
 
 

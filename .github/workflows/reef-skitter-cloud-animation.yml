@@ -53,6 +53,7 @@ jobs:
           blender --background "$job_root/output/$rig_id.blend" --python scripts/inspect_blender_animation.py -- \
             --stage rig --output "$job_root/blender-inspection.json"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
+            --allow-runner-receipt \
             --receipt receipts/reef-skitter-rig.json --artifact-dir "$job_root" \
             --output "$rig_id.blend=output/$rig_id.blend" \
             --output "${rig_id}_preview.png=output/${rig_id}_preview.png" \
@@ -153,6 +154,7 @@ jobs:
             verify_args+=(--frame "motion-$index=motion/frame-$index.png")
           done
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
+            --allow-runner-receipt \
             --receipt "receipts/reef-skitter-clip-$CLIP.json" --artifact-dir "$job_root" \
             --output "$clip_id.blend=output/$clip_id.blend" \
             --output "${clip_id}_preview.png=output/${clip_id}_preview.png" \
@@ -213,7 +215,7 @@ jobs:
           path: rig-artifacts
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: reef-skitter-clip-*-${{ github.run_id }}-${{ github.run_attempt }}
+          pattern: reef-skitter-clip-*-${{ github.run_id }}-*
           path: clip-artifacts
       - name: Integrate, reopen, export, and reimport in the GitHub-hosted Blender desktop
         env:
@@ -253,6 +255,7 @@ jobs:
           blender --background "$job_root/output/$integration_id.blend" --python scripts/inspect_blender_animation.py -- \
             --stage integration --output "$job_root/blender-inspection.json"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
+            --allow-runner-receipt \
             --receipt receipts/reef-skitter-animation-integrated.json --artifact-dir "$job_root" \
             --output "$integration_id.blend=output/$integration_id.blend" \
             --output reef-skitter-animation-integrated.glb=output/reef-skitter-animation-integrated.glb \

@@ -43,9 +43,13 @@ class CloudGuiAnimationArtifactVerificationTests(unittest.TestCase):
                     "source_sha": "a" * 40, "output_artifacts": {"reef-rig.blend": metadata},
                     "blender_window_frames": {}}}}))
 
-            result = verify(receipt, root, {"reef-rig.blend": "native.blend"}, {})
+            with self.assertRaisesRegex(ValueError, "provider-observed"):
+                verify(receipt, root, {"reef-rig.blend": "native.blend"}, {})
+
+            result = verify(receipt, root, {"reef-rig.blend": "native.blend"}, {}, allow_runner_receipt=True)
 
             self.assertEqual(result["provider"], "github-actions-runner")
+            self.assertEqual(result["verification_scope"], "runner-local-preupload")
             self.assertEqual(result["source_sha"], "a" * 40)
 
 

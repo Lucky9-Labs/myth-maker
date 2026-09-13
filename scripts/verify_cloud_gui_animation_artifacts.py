@@ -23,13 +23,14 @@ def assignments(values: list[str]) -> dict[str, str]:
     return result
 
 
-def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], frames: dict[str, str]) -> dict:
+def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], frames: dict[str, str],
+           *, allow_runner_receipt: bool = False) -> dict:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     order = receipt.get("work_order") or {}
     provider = (receipt.get("worker_state") or {}).get("provider_receipt") or {}
     provider_name = provider.get("provider")
     trusted_provider = provider_name == "modal" or (
-        provider_name == "github-actions-runner"
+        allow_runner_receipt and provider_name == "github-actions-runner"
         and provider.get("repository") == "Lucky9-Labs/myth-maker"
         and re.fullmatch(r"[a-f0-9]{40}", provider.get("source_sha", ""))
     ) or (
@@ -59,6 +60,7 @@ def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], fram
         "format": "myth-maker.cloud-gui-animation-verification/v1",
         "work_id": order["work_id"],
         "provider": provider_name,
+        "verification_scope": "runner-local-preupload" if provider_name == "github-actions-runner" else "provider-observed",
         "source_sha": provider.get("source_sha"),
         "function_call_id": provider.get("function_call_id"),
         "verified_artifacts": verified,
@@ -70,11 +72,13 @@ def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], fram
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--receipt", type=Path, required=True)
+    parser.add_argument("--allow-runner-receipt", action="store_true")
     parser.add_argument("--artifact-dir", type=Path, required=True)
     parser.add_argument("--output", action="append", default=[])
     parser.add_argument("--frame", action="append", default=[])
     args = parser.parse_args()
-    print(json.dumps(verify(args.receipt, args.artifact_dir, assignments(args.output), assignments(args.frame)), sort_keys=True))
+    print(json.dumps(verify(args.receipt, args.artifact_dir, assignments(args.output), assignments(args.frame),
+                            allow_runner_receipt=args.allow_runner_receipt), sort_keys=True))
     return 0
 
 

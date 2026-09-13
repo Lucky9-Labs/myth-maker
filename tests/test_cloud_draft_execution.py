@@ -46,7 +46,7 @@ class GitHubActionsArtifactReceiptTests(unittest.TestCase):
         sealed = seal_github_actions_artifact_receipt(
             runner, artifact_id="1234",
             artifact_url="https://github.com/Lucky9-Labs/myth-maker/actions/runs/42/artifacts/1234",
-            artifact_digest="sha256:" + "b" * 64,
+            artifact_digest="b" * 64,
         )
 
         self.assertEqual(sealed["provider"], "github-actions")

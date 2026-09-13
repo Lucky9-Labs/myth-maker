@@ -38,6 +38,7 @@ def inspect(stage: str, expected_clip: str | None) -> dict:
     if any(len(obj.material_slots) < 1 or any(slot.material is None for slot in obj.material_slots) for obj in meshes):
         raise RuntimeError("every retained mesh part must keep a material binding")
     armature = armatures[0]
+    root_bone_names = {bone.name for bone in armature.data.bones if bone.parent is None}
     unbound = []
     for mesh in meshes:
         parent_bound = mesh.parent == armature
@@ -63,6 +64,12 @@ def inspect(stage: str, expected_clip: str | None) -> dict:
             raise RuntimeError(f"Action {name} has no nonzero keyed time range")
         if any(curve.data_path == "location" for curve in fcurves):
             raise RuntimeError(f"Action {name} animates scene-root/object location")
+        for curve in fcurves:
+            match = re.fullmatch(r'pose\.bones\["(.+)"\]\.location', curve.data_path)
+            if match and match.group(1) in root_bone_names and curve.array_index in {0, 1}:
+                values = [float(point.co.y) for point in curve.keyframe_points]
+                if values and max(values) - min(values) > 1e-4:
+                    raise RuntimeError(f"Action {name} has horizontal root-bone motion")
         loop = name in {"idle", "walk", "run"}
         endpoint_matches = sum(
             abs(float(curve.keyframe_points[0].co.y) - float(curve.keyframe_points[-1].co.y)) <= 1e-4
