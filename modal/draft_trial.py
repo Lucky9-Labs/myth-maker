@@ -1218,9 +1218,11 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
                                "Do not claim independent acceptance.")
             if phase != "work":
                 state["checkpoint_requested"] = True
-                instruction = (f"CHECKPOINT NOW: do not start another feature. Save /output/{native} through the GUI, "
-                               "leave a clear comparison view, and end with DRAFT_STATUS: PARTIAL plus the handoff. "
-                               "This pauses a resumable job; it does not mean the draft is accepted.")
+                instruction = (f"CHECKPOINT NOW: do not start another feature. If the loaded native has unsaved authoring "
+                               f"changes, save /output/{native} through the GUI and leave a clear comparison view. "
+                               "If this pass only verified an already saved native and made no changes, do not save again. "
+                               "End with READY_FOR_REVIEW only if every requested check is verified; otherwise end with "
+                               "DRAFT_STATUS: PARTIAL plus a precise resumable handoff. Independent acceptance is still separate.")
             request_input.append({"role": "user", "content": f"Progress budget: {state['actions']}/{MAX_ACTIONS} actions, {state['turns']}/{MAX_TURNS} responses, {state['input_tokens']}/650000 cumulative input tokens; {int(max(0, deadline-time.monotonic()))} seconds remain. {instruction}"})
             checkpoint()
             persist()
