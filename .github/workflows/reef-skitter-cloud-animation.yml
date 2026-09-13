@@ -55,12 +55,13 @@ jobs:
             --output "${rig_id}_preview.png=output/${rig_id}_preview.png" \
             --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             receipts/reef-skitter-rig.json
             evidence/rig/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   clips:
@@ -139,12 +140,13 @@ jobs:
             "$job_root/$CLIP.gif"
           test -s "$job_root/$CLIP.gif"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: reef-skitter-clip-${{ matrix.clip }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             receipts/reef-skitter-clip-${{ matrix.clip }}.json
             evidence/${{ matrix.clip }}/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   integrate-and-verify:
@@ -208,10 +210,11 @@ jobs:
           node scripts/inspect-animated-parted-glb.mjs \
             "$job_root/output/reef-skitter-animation-integrated.glb" > "$job_root/animation-inspection.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: reef-skitter-animation-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             receipts/reef-skitter-animation-integrated.json
             evidence/final/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30

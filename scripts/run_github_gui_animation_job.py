@@ -132,15 +132,14 @@ def main() -> int:
         function_call_id=f"github-actions:{context['run_id']}:{context['run_attempt']}:{context['job_name']}",
         input_id=job_id, execution=execution,
     )
+    result = {"work_order": order, "worker_state": state}
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if state.get("status") != "ready_for_review":
         raise RuntimeError("GUI worker did not produce a reviewable native: " + json.dumps(state)[:2000])
     native = args.work_id + ".blend"
     if native not in (state.get("files") or {}):
         raise RuntimeError("GUI worker omitted its native Blender artifact")
-
-    result = {"work_order": order, "worker_state": state}
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"work_id": args.work_id, "job_id": job_id, "status": state["status"], "native": state["files"][native]}))
     return 0
 
