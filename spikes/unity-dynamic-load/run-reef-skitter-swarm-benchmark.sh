@@ -4,11 +4,16 @@ set -euo pipefail
 spike_root=${0:A:h}
 repo_root=${spike_root:h:h}
 unity_binary=/Applications/Unity/Hub/Editor/6000.6.0f1/Unity.app/Contents/MacOS/Unity
-source_glb="$repo_root/assets/reef-skitter/source/reef_skitter.tripo.glb"
 output_root=${1:-"$repo_root/output/reef-skitter/unity-swarm"}
+source_glb=${REEF_SKITTER_GLB_PATH:-${2:-}}
 build_log="$output_root/build.log"
 player_log="$output_root/player.log"
 player_binary="$spike_root/Build/ReefSkitterSwarmBenchmark.app/Contents/MacOS/unity-dynamic-load"
+
+if [[ -z "$source_glb" || ! -f "$source_glb" ]]; then
+  print -u2 "Provide the integrated five-clip GLB as REEF_SKITTER_GLB_PATH or argument 2"
+  exit 2
+fi
 
 if [[ -e "$build_log" || -e "$player_log" || -e "$output_root/reef-skitter-swarm-benchmark.json" || -e "$output_root/reef-skitter-swarm.png" ]]; then
   print -u2 "Refusing to overwrite existing benchmark evidence in $output_root"

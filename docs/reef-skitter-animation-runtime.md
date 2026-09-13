@@ -7,9 +7,12 @@ source node. The importer explicitly forbids monolithic-mesh segmentation.
 
 ## Animation source contract
 
-The GUI-authored derivative `.blend` owns one rig/root plus 15 part bindings.
-It must export exactly these clips, each with one transform track per retained
-part:
+The GUI-authored derivative `.blend` owns one 10-bone rig/root plus 15 skinned
+part bindings. It must export exactly these clips as joint animation channels;
+every retained provider mesh keeps `JOINTS_0`/`WEIGHTS_0` bound to that one
+shared skin. This matters because a single provider part can contain regions
+weighted to different bones and therefore cannot be reduced to one rigid part
+transform:
 
 | Clip | Loop | Root motion | Runtime transition |
 | --- | --- | --- | --- |
@@ -45,7 +48,7 @@ path performs no Blender, rendering, or benchmark work on the dispatching Mac.
 
 ## Runtime representation
 
-`src/parted-model-swarm-runtime.js` treats clip tracks as shared GPU data. An
+`src/parted-model-swarm-runtime.js` treats sampled bone-matrix tracks as shared GPU data. An
 agent is a 32-byte state record (position, yaw, state, phase, deterministic
 seed, LOD); it is not a GameObject with a heavyweight Animator/rig update.
 After host frustum/occlusion culling, the runtime uploads only visible instance
@@ -59,16 +62,18 @@ responsible for actual GPU, frame-time, memory, and draw-call measurements.
 
 ## Proof boundary
 
-The representative Unity standalone Metal benchmark renders 400 visible Reef
-Skitters using one shared matrix buffer and 15 indirect instanced submissions
-(one per preserved source part/material), with zero per-agent `Animator`
-components. The in-player receipt records CPU, memory, submitted draw groups,
-and visible count. Because Unity's standalone GPU counter is unavailable on this
-target, the companion Xcode Metal System Trace receipt records process-scoped
-GPU frame spans.
+The representative Unity standalone benchmark now rejects the static source
+GLB. It accepts only the integrated five-clip derivative, samples each clip once
+into a shared GPU bone-matrix library, and renders up to 400 Reef Skitters
+with 15 indirect instanced submissions (one per preserved source
+part/material) while the shader applies each vertex's four shared-skin weights.
+The 32-byte agent contract selects clip, phase, and LOD without
+any per-agent `Animator` or CPU pose evaluation. Its receipt records CPU, GPU
+when available, memory, GC allocation, draw groups, visible count, state/LOD
+populations, pose-update count, and shared animation-buffer size. A companion
+Metal System Trace can supply process-scoped GPU frame spans when Unity's
+standalone counter is unavailable.
 
-The source GLB still has no authored animations. The runtime state tests and
-Unity benchmark exercise the compact state and instancing path only; neither is
-visual proof of the five requested clips. Those clips, their Blender
-save/reopen verification, and real-model motion captures remain a separate GUI
-authoring gate.
+The benchmark and five motion captures remain separate proof gates: the cloud
+integration artifact proves the exported/reimported clip set, while the cloud
+Unity run proves those shared tracks execute under the 400-agent workload.

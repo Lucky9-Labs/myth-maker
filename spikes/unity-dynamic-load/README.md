@@ -46,18 +46,20 @@ tests cover null bytes plus missing and mismatched SHA-256 rejection.
 ## Reef Skitter swarm benchmark
 
 `run-reef-skitter-swarm-benchmark.sh` builds a separate macOS development
-player and loads the hash-pinned, already-parted Reef Skitter GLB directly at
-runtime. It draws 400 candidates with shared meshes/materials and instanced
-draws, maintains deterministic compact per-agent state, performs camera-frustum
-and distance culling, and creates no per-creature `Animator` or GameObject.
+player and loads the hash-pinned, integrated Reef Skitter GLB directly at
+runtime. It samples the five clips into one immutable GPU bone-matrix library,
+then skins the 15 retained provider meshes from their `JOINTS_0`/`WEIGHTS_0`
+attributes and draws 400 candidates with shared meshes/materials and indirect
+instancing. Each agent carries only compact deterministic state; 30 Hz/10 Hz/
+static-pose LOD cadence and frustum/distance culling avoid a per-creature
+`Animator`, rig graph, or GameObject.
 
 The standalone player records average and p95 frame time, main-thread and GPU
 timing counters when supported by the graphics backend, allocated memory,
 draw-call/batch counters, submitted instanced draw calls, and visible creature
-count. It writes a receipt and player screenshot under
-`output/reef-skitter/unity-swarm/`. This is a swarm-runtime proof over the real
-source meshes; because the input GLB contains no animation clips, its small
-deterministic bob exercises state/instance updates and is not animation proof.
+count, shared animation-buffer size, LOD/state populations, pose-update count,
+and GC allocation. It writes a receipt and player screenshot under
+`output/reef-skitter/unity-swarm/`. A source-only zero-clip GLB is rejected.
 
 On macOS, Unity's in-player GPU frame counter may be unavailable even in a
 development build. `run-reef-skitter-metal-trace.sh` launches the already-built
@@ -70,10 +72,11 @@ new destination when preserving an earlier capture; it intentionally refuses
 to overwrite any member of that evidence set.
 
 ```sh
-spikes/unity-dynamic-load/run-reef-skitter-swarm-benchmark.sh
 spikes/unity-dynamic-load/run-reef-skitter-swarm-benchmark.sh \
-  output/reef-skitter/unity-swarm/runs/<new-run-id>
-spikes/unity-dynamic-load/run-reef-skitter-metal-trace.sh \
+  output/reef-skitter/unity-swarm/runs/<new-run-id> \
+  /path/to/reef-skitter-animation-integrated.glb
+REEF_SKITTER_GLB_PATH=/path/to/reef-skitter-animation-integrated.glb \
+  spikes/unity-dynamic-load/run-reef-skitter-metal-trace.sh \
   output/reef-skitter/unity-swarm/reef-skitter-metal-rerun.trace
 ```
 

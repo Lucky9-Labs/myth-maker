@@ -66,28 +66,78 @@ export function inspectPartedGlb(bytes) {
 /** Verify the closed runtime-animation contract on an exported parted GLB. */
 export function inspectAnimatedPartedGlb(bytes) {
   const inspection = inspectPartedGlb(bytes);
-  const { document } = parseGlb(bytes);
+  const { document, binaryChunk } = parseGlb(bytes);
+  if (!binaryChunk) throw new TypeError("animated GLB must embed skin and animation buffers");
   const expected = ["attack", "death", "idle", "run", "walk"];
   const animations = Array.isArray(document.animations) ? document.animations : [];
   const names = animations.map((animation) => animation.name).sort();
   if (JSON.stringify(names) !== JSON.stringify(expected)) throw new TypeError("animated GLB must contain the exact five clips");
-  if ((document.skins?.length || 0) !== 1 || (document.scenes?.[document.scene ?? 0]?.nodes || []).length !== 1) {
-    throw new TypeError("animated GLB must contain one rig and one scene root");
+  if ((document.skins?.length || 0) !== 1 || (document.scenes?.[document.scene ?? 0]?.nodes || []).length !== 1) throw new TypeError("animated GLB must contain one shared skin and one scene root");
+  const skin = document.skins[0];
+  if (!Array.isArray(skin.joints) || skin.joints.length < 2 || new Set(skin.joints).size !== skin.joints.length
+      || skin.joints.some((joint) => !Number.isInteger(joint) || joint < 0 || joint >= document.nodes.length || Number.isInteger(document.nodes[joint]?.mesh))) {
+    throw new TypeError("animated GLB shared skin has an invalid joint set");
   }
-  const sceneRoots = new Set(document.scenes?.[document.scene ?? 0]?.nodes || []);
+  const inverseBind = document.accessors?.[skin.inverseBindMatrices];
+  if (!inverseBind || inverseBind.type !== "MAT4" || inverseBind.componentType !== 5126 || inverseBind.count !== skin.joints.length) throw new TypeError("animated GLB inverse bind matrices must match the shared joint set");
+  const inverseBindValues = readAccessor(document, binaryChunk, skin.inverseBindMatrices, "MAT4", [5126]);
+  if (inverseBindValues.some((matrix) => matrix.some((value) => !Number.isFinite(value)))) throw new TypeError("animated GLB inverse bind matrices contain non-finite values");
+  const parents = parentIndexes(document.nodes);
+  if (skin.skeleton !== undefined) {
+    if (!Number.isInteger(skin.skeleton) || skin.skeleton < 0 || skin.skeleton >= document.nodes.length) throw new TypeError("animated GLB skin skeleton root is invalid");
+    for (const joint of skin.joints) {
+      let cursor = joint;
+      while (cursor !== undefined && cursor !== skin.skeleton) cursor = parents.get(cursor);
+      if (cursor !== skin.skeleton) throw new TypeError("every skin joint must descend from the shared skeleton root");
+    }
+  }
+  const partSkinBindings = inspection.parts.flatMap((part) => {
+    const node = document.nodes[part.node_index]; const primitive = document.meshes[part.mesh_index]?.primitives?.[0];
+    const joints = document.accessors?.[primitive?.attributes?.JOINTS_0]; const weights = document.accessors?.[primitive?.attributes?.WEIGHTS_0];
+    const metadataValid = node?.skin === 0 && primitive?.attributes?.JOINTS_1 === undefined && primitive?.attributes?.WEIGHTS_1 === undefined
+      && joints?.count === part.topology.vertices && joints?.type === "VEC4" && [5121, 5123].includes(joints?.componentType)
+      && weights?.count === part.topology.vertices && weights?.type === "VEC4"
+      && (weights?.componentType === 5126 || ([5121, 5123].includes(weights?.componentType) && weights.normalized === true));
+    if (!metadataValid) return [];
+    const jointRows = readAccessor(document, binaryChunk, primitive.attributes.JOINTS_0, "VEC4", [5121, 5123]);
+    const weightRows = readAccessor(document, binaryChunk, primitive.attributes.WEIGHTS_0, "VEC4", [5121, 5123, 5126]);
+    if (!jointRows.every((row) => row.every((joint) => Number.isInteger(joint) && joint >= 0 && joint < skin.joints.length))
+        || !weightRows.every((row) => row.every((weight) => Number.isFinite(weight) && weight >= 0) && row.some((weight) => weight > 0))) return [];
+    const usedJointIndexes = new Set();
+    jointRows.forEach((row, vertex) => row.forEach((joint, lane) => { if (weightRows[vertex][lane] > 0) usedJointIndexes.add(joint); }));
+    return [{ part_name: part.name, node_index: part.node_index, used_joint_indexes: [...usedJointIndexes].sort((left, right) => left - right) }];
+  });
+  if (partSkinBindings.length !== inspection.parts.length) throw new TypeError("every retained provider part must bind JOINTS_0 and WEIGHTS_0 to the shared skin");
+  const jointSet = new Set(skin.joints);
   const clips = animations.map((animation) => {
     const channels = Array.isArray(animation.channels) ? animation.channels : [];
+    const samplers = Array.isArray(animation.samplers) ? animation.samplers : [];
     const targets = channels.map((channel) => channel.target || {});
-    if (channels.length !== inspection.parts.length
-        || targets.some((target) => !Number.isInteger(target.node) || sceneRoots.has(target.node)
-          || !["translation", "rotation", "scale"].includes(target.path))
-        || new Set(targets.map((target) => target.node)).size !== inspection.parts.length) {
-      throw new TypeError(`clip ${animation.name || "unnamed"} must have one transform track per retained part`);
+    const targetedJoints = new Set(targets.map((target) => target.node));
+    const channelKeys = new Set(targets.map((target) => `${target.node}:${target.path}`));
+    if (channels.length === 0 || channelKeys.size !== channels.length
+        || targets.some((target) => !jointSet.has(target.node) || !["translation", "rotation", "scale"].includes(target.path))
+        || targetedJoints.size === 0) {
+      throw new TypeError(`clip ${animation.name || "unnamed"} must target shared skin joints and no provider mesh node`);
     }
-    return { name: animation.name, part_track_count: channels.length };
+    for (const channel of channels) {
+      const sampler = samplers[channel.sampler]; const input = document.accessors?.[sampler?.input]; const output = document.accessors?.[sampler?.output];
+      const expectedOutput = channel.target.path === "rotation" ? "VEC4" : "VEC3";
+      if (!Number.isInteger(channel.sampler) || !sampler || !input || !output || input.type !== "SCALAR" || input.componentType !== 5126
+          || output.type !== expectedOutput || output.componentType !== 5126 || output.count !== input.count
+          || ![undefined, "LINEAR", "STEP"].includes(sampler.interpolation)) {
+        throw new TypeError(`clip ${animation.name || "unnamed"} has an invalid joint animation sampler`);
+      }
+      const times = readAccessor(document, binaryChunk, sampler.input, "SCALAR", [5126]).map((value) => value[0]);
+      const values = readAccessor(document, binaryChunk, sampler.output, expectedOutput, [5126]);
+      if (times.length < 2 || times.at(-1) <= times[0] || times.some((value, index) => !Number.isFinite(value) || value < 0 || (index > 0 && value < times[index - 1]))
+          || values.some((value) => value.some((component) => !Number.isFinite(component)))) throw new TypeError(`clip ${animation.name || "unnamed"} has invalid joint animation values`);
+    }
+    return { name: animation.name, joint_channel_count: channels.length, animated_joint_count: targetedJoints.size };
   }).sort((left, right) => left.name.localeCompare(right.name));
   return { schema_version: "parted-model-animation-inspection.v1", source_sha256: inspection.source_sha256,
-    parts: inspection.parts.length, rig_count: document.skins.length, clips };
+    parts: inspection.parts.length, skinned_parts: partSkinBindings.length, part_skin_bindings: partSkinBindings,
+    rig_count: document.skins.length, joint_count: skin.joints.length, clips };
 }
 
 /** Create the immutable ingress record consumed by the animation pipeline. */
@@ -203,7 +253,8 @@ function readAccessor(document, binaryChunk, accessorIndex, expectedType, allowe
   if (!accessor || accessor.type !== expectedType || !allowedComponentTypes.includes(accessor.componentType) || accessor.sparse) throw new TypeError(`accessor ${accessorIndex} is unsupported`);
   const view = document.bufferViews?.[accessor.bufferView];
   if (!view || (view.buffer ?? 0) !== 0) throw new TypeError(`accessor ${accessorIndex} must use the embedded GLB buffer`);
-  const components = expectedType === "VEC3" ? 3 : 1;
+  const components = new Map([["SCALAR", 1], ["VEC3", 3], ["VEC4", 4], ["MAT4", 16]]).get(expectedType);
+  if (!components) throw new TypeError(`unsupported accessor type ${expectedType}`);
   const componentBytes = new Map([[5121, 1], [5123, 2], [5125, 4], [5126, 4]]).get(accessor.componentType);
   const elementBytes = components * componentBytes; const stride = view.byteStride ?? elementBytes;
   if (stride < elementBytes || stride % componentBytes !== 0) throw new TypeError(`accessor ${accessorIndex} has invalid stride`);
