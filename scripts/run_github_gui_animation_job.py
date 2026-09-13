@@ -77,9 +77,14 @@ def initial_job_id(work_id: str, *, attempt: int, run_id: str) -> str:
 
 
 def continuation_available(state: dict) -> bool:
+    error = str(state.get("error") or "").lower()
+    provider_quota_exhausted = (
+        "credit_balance_exhausted" in error or "insufficient_quota" in error
+    )
     return (
         state.get("status") in {"checkpointed_partial", "failed"}
         and bool(re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", state.get("checkpoint_id") or ""))
+        and not provider_quota_exhausted
     )
 
 

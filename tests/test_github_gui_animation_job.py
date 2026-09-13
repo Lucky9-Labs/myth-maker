@@ -93,6 +93,16 @@ class GitHubGuiAnimationJobTests(unittest.TestCase):
             "checkpoint_id": "cp-0002-abcdef123456",
         }))
 
+    def test_does_not_spend_continuations_after_provider_quota_exhaustion(self):
+        state = {
+            "status": "failed",
+            "stop_reason": "runtime_error",
+            "checkpoint_id": "cp-0002-abcdef123456",
+            "error": "Error code: 429 - {'error': {'type': 'insufficient_quota', 'code': 'credit_balance_exhausted'}}",
+        }
+
+        self.assertFalse(continuation_available(state))
+
     def test_continuation_drops_the_stale_x11_gui_client(self):
         sentinel = object()
         sys.modules["pyautogui"] = sentinel
