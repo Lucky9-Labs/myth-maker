@@ -1066,7 +1066,7 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
                 state["stop_reason"] = "budget_limit"
                 break
             kwargs = {"model": "gpt-6-astra", "tools": [{"type": "computer"}], "input": request_input,
-                      "reasoning": {"effort": "high"}, "max_output_tokens": min(3000, 20_000 - state["output_tokens"]),
+                      "reasoning": {"effort": "high"}, "max_output_tokens": min(6000, 20_000 - state["output_tokens"]),
                       "timeout": min(180, max(1, remaining_seconds))}
             if previous:
                 kwargs["previous_response_id"] = previous

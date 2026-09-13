@@ -165,6 +165,18 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertNotIn("pyautogui", source)
         self.assertNotIn("gui.", source)
 
+    def test_computer_turn_has_enough_output_headroom_for_reasoning_and_actions(self):
+        text = (MODAL_DIR / "draft_trial.py").read_text()
+
+        self.assertIn(
+            '"max_output_tokens": min(6000, 20_000 - state["output_tokens"])',
+            text,
+        )
+        self.assertNotIn(
+            '"max_output_tokens": min(3000, 20_000 - state["output_tokens"])',
+            text,
+        )
+
     def test_blender_archive_is_verified_before_it_can_cross_a_builder_step(self):
         text = (MODAL_DIR / "install_blender.sh").read_text()
         download = "curl --fail --location --retry 3 --retry-all-errors --silent --show-error"
