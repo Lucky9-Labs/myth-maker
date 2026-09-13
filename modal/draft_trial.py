@@ -652,8 +652,12 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
         raise RuntimeError("UI action budget exhausted")
     button_numbers = {"left": "1", "middle": "2", "right": "3"}
 
+    def run_xdotool(arguments: list[str]) -> None:
+        subprocess.run(["xdotool", *arguments], check=True,
+                       timeout=max(0.1, min(5, deadline - time.monotonic())))
+
     def move_pointer(x, y) -> None:
-        subprocess.run(["xdotool", "mousemove", "--sync", str(round(x)), str(round(y))], check=True)
+        run_xdotool(["mousemove", "--sync", str(round(x)), str(round(y))])
 
     for raw in actions:
         if time.monotonic() >= deadline:
@@ -670,13 +674,13 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
         if kind == "keypress":
             if not keys:
                 raise ValueError("Empty keypress")
-            subprocess.run(["xdotool", "key", "--clearmodifiers", "+".join(keys)], check=True)
+            run_xdotool(["key", "--clearmodifiers", "+".join(keys)])
         elif kind == "type":
             validate_typed_text(action["text"])
-            subprocess.run(["xdotool", "type", "--clearmodifiers", "--delay", "4", "--", action["text"]], check=True)
+            run_xdotool(["type", "--clearmodifiers", "--delay", "4", "--", action["text"]])
         elif kind in {"click", "double_click", "drag", "move", "scroll"}:
             if keys:
-                subprocess.run(["xdotool", "keydown", *keys], check=True)
+                run_xdotool(["keydown", *keys])
             try:
                 if pointer_button and kind in {"move", "scroll"}:
                     raise ValueError("Mouse button tokens are only permitted for click or drag actions")
@@ -688,10 +692,10 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
                     raise ValueError("Unsupported mouse button")
                 if kind in {"click", "double_click"}:
                     move_pointer(action["x"], action["y"])
-                    command = ["xdotool", "click"]
+                    command = ["click"]
                     if kind == "double_click":
                         command.extend(["--repeat", "2", "--delay", "120"])
-                    subprocess.run([*command, button_numbers[button]], check=True)
+                    run_xdotool([*command, button_numbers[button]])
                 elif kind == "move":
                     move_pointer(action["x"], action["y"])
                 elif kind == "scroll":
@@ -699,21 +703,21 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
                     amount = action.get("scroll_y", 0)
                     clicks = round(amount / 100) if abs(amount) >= 100 else round(amount)
                     if clicks:
-                        subprocess.run(["xdotool", "click", "--repeat", str(abs(clicks)),
-                                        "5" if clicks > 0 else "4"], check=True)
+                        run_xdotool(["click", "--repeat", str(abs(clicks)),
+                                     "5" if clicks > 0 else "4"])
                 else:
                     path = action["path"]
                     move_pointer(path[0]["x"], path[0]["y"])
-                    subprocess.run(["xdotool", "mousedown", button_numbers[button]], check=True)
+                    run_xdotool(["mousedown", button_numbers[button]])
                     try:
                         for point in path[1:]:
                             move_pointer(point["x"], point["y"])
                             time.sleep(0.08)
                     finally:
-                        subprocess.run(["xdotool", "mouseup", button_numbers[button]], check=True)
+                        run_xdotool(["mouseup", button_numbers[button]])
             finally:
                 if keys:
-                    subprocess.run(["xdotool", "keyup", *keys], check=True)
+                    run_xdotool(["keyup", *keys])
         elif kind == "wait":
             time.sleep(min(action.get("ms", 1000) / 1000, 5, max(0, deadline - time.monotonic())))
         elif kind != "screenshot":

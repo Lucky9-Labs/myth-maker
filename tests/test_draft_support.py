@@ -153,11 +153,12 @@ class DraftPolicyTests(unittest.TestCase):
         )
         source = ast.get_source_segment(text, execute_actions)
 
-        self.assertIn('["xdotool", "mousemove", "--sync"', source)
-        self.assertIn('["xdotool", "type", "--clearmodifiers"', source)
-        self.assertIn('["xdotool", "click"', source)
-        self.assertIn('["xdotool", "mousedown"', source)
-        self.assertIn('["xdotool", "mouseup"', source)
+        self.assertIn('run_xdotool(["mousemove", "--sync"', source)
+        self.assertIn('run_xdotool(["type", "--clearmodifiers"', source)
+        self.assertIn('command = ["click"]', source)
+        self.assertIn('run_xdotool(["mousedown"', source)
+        self.assertIn('run_xdotool(["mouseup"', source)
+        self.assertIn("timeout=max(0.1, min(5, deadline - time.monotonic()))", source)
         self.assertNotIn("pyautogui", source)
         self.assertNotIn("gui.", source)
 
