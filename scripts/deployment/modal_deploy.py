@@ -23,6 +23,7 @@ VOLUME_NAME = "myth-maker-encounter-submissions"
 DICT_NAME = "myth-maker-encounter-component-leases"
 SECRET_NAME = "myth-maker-encounter-openai"
 PROBE_FUNCTION = "run_dispatch_probe"
+VOLUME_DRAFT_FUNCTION = "run_draft_from_volume_manifest"
 ASSET_PRODUCTION_FUNCTION = "run_asset_production_job"
 ASSET_CRITIQUE_FUNCTION = "run_asset_visual_critique"
 ASSET_LEDGER_FUNCTION = "record_asset_production_run"
@@ -162,6 +163,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     import modal
 
     draft = modal.Function.from_name(APP_NAME, "run_draft", environment_name=environment)
+    volume_draft = modal.Function.from_name(APP_NAME, VOLUME_DRAFT_FUNCTION, environment_name=environment)
     probe = modal.Function.from_name(APP_NAME, PROBE_FUNCTION, environment_name=environment)
     production = modal.Function.from_name(APP_NAME, ASSET_PRODUCTION_FUNCTION, environment_name=environment)
     critique = modal.Function.from_name(APP_NAME, ASSET_CRITIQUE_FUNCTION, environment_name=environment)
@@ -173,6 +175,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     component_diffusion = modal.Function.from_name(APP_NAME, COMPONENT_DIFFUSION_FUNCTION, environment_name=environment)
     agentic_stitch = modal.Function.from_name(APP_NAME, AGENTIC_STITCH_FUNCTION, environment_name=environment)
     draft.hydrate()
+    volume_draft.hydrate()
     probe.hydrate()
     production.hydrate()
     critique.hydrate()
@@ -183,7 +186,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     correction_prepare.hydrate()
     component_diffusion.hydrate()
     agentic_stitch.hydrate()
-    if not all(item.object_id for item in (draft, probe, production, critique, ledger, progress_refresh, progress_fetch, reference_evaluation, correction_prepare, component_diffusion, agentic_stitch)):
+    if not all(item.object_id for item in (draft, volume_draft, probe, production, critique, ledger, progress_refresh, progress_fetch, reference_evaluation, correction_prepare, component_diffusion, agentic_stitch)):
         raise RuntimeError("Modal function verification did not resolve provider function IDs")
 
     work_id = "ci-modal-probe"
@@ -206,7 +209,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
     return {
         "deployment_id": app_id,
         "version_id": version_id,
-        "resource_ids": [resources["volume"], resources["dict"], draft.object_id, probe.object_id,
+        "resource_ids": [resources["volume"], resources["dict"], draft.object_id, volume_draft.object_id, probe.object_id,
                          production.object_id, critique.object_id, ledger.object_id,
                          progress_refresh.object_id, progress_fetch.object_id, reference_evaluation.object_id,
                          correction_prepare.object_id, component_diffusion.object_id, agentic_stitch.object_id],
@@ -215,6 +218,7 @@ def deploy_and_observe(environment: str, resources: dict[str, str]) -> dict:
             "environment": environment,
             "app_id": app_id,
             "run_draft_function_id": draft.object_id,
+            "volume_draft_function_id": volume_draft.object_id,
             "asset_production_function_id": production.object_id,
             "asset_critique_function_id": critique.object_id,
             "asset_ledger_function_id": ledger.object_id,

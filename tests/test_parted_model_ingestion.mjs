@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { createPartedModelImportManifest, inspectPartedGlb } from "../src/parted-model-ingestion.js";
+import { createPartedModelImportManifest, inspectAnimatedPartedGlb, inspectPartedGlb } from "../src/parted-model-ingestion.js";
 
 function glb(document) {
   let json = Buffer.from(JSON.stringify(document)); while (json.length % 4) json = Buffer.concat([json, Buffer.from(" ")]);
@@ -43,4 +43,24 @@ test("rejects cyclic provider node hierarchies", () => {
 test("enforces one independently animated primitive and material per provider part", () => {
   const document = { asset: { version: "2.0" }, nodes: [{ name: "a", mesh: 0 }, { name: "b", mesh: 1 }], meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }, { attributes: { POSITION: 1 }, material: 1 }] }, { primitives: [{ attributes: { POSITION: 2 }, material: 2 }] }], accessors: [{ count: 3 }, { count: 3 }, { count: 3 }], materials: [{}, {}, {}] };
   assert.throws(() => inspectPartedGlb(glb(document)), /exactly one primitive/);
+});
+
+test("accepts only the exact five clips with one transform track per retained part", () => {
+  const nodes = [{ name: "reef-root", children: Array.from({ length: 15 }, (_, index) => index + 1) },
+    ...Array.from({ length: 15 }, (_, index) => ({ name: `part-${index}`, mesh: index }))];
+  const animations = ["idle", "walk", "run", "attack", "death"].map((name) => ({ name,
+    channels: Array.from({ length: 15 }, (_, index) => ({ target: { node: index + 1, path: "rotation" }, sampler: index })),
+    samplers: Array.from({ length: 15 }, () => ({ input: 15, output: 16 })) }));
+  const document = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes,
+    meshes: Array.from({ length: 15 }, (_, index) => ({ primitives: [{ attributes: { POSITION: index }, material: index }] })),
+    accessors: [...Array.from({ length: 15 }, () => ({ count: 3 })), { count: 2 }, { count: 2 }],
+    materials: Array.from({ length: 15 }, (_, index) => ({ name: `material-${index}` })), skins: [{}], animations };
+
+  const result = inspectAnimatedPartedGlb(glb(document));
+
+  assert.equal(result.parts, 15);
+  assert.deepEqual(result.clips.map((clip) => clip.name), ["attack", "death", "idle", "run", "walk"]);
+  assert.ok(result.clips.every((clip) => clip.part_track_count === 15));
+  document.animations.pop();
+  assert.throws(() => inspectAnimatedPartedGlb(glb(document)), /exact five clips/);
 });

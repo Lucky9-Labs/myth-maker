@@ -840,10 +840,11 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
         job_destination = job_inputs / name
         job_destination.write_bytes(data)
         job_destination.chmod(0o444)
-    goal = render_prompt(Path("/opt/draft_prompt.md").read_text(), part)
+    source_asset = "source_asset.glb" if "source_asset.glb" in inputs else "source_scene.blend"
+    goal = render_prompt(Path("/opt/draft_prompt.md").read_text(), part, source_asset=source_asset)
     if feedback and not (resume_artifact or incremental):
         goal += "\n\n# User continuation direction\n" + feedback
-    protocol = render_prompt(Path("/opt/draft_resume.md").read_text(), part)
+    protocol = render_prompt(Path("/opt/draft_resume.md").read_text(), part, source_asset=source_asset)
     prompt = goal + "\n\n" + protocol + pinned_worker_contract(provenance)
     if resume:
         (output / native).write_bytes(resume["blend"])
@@ -1183,7 +1184,9 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
         if (root / "final-desktop.png").exists():
             shutil.copy2(root / "final-desktop.png", output / (Path(native).stem + "_preview.png"))
         def finalize_state():
-            state["input_snapshot_unchanged"] = (digest((reference_dir / "source_scene.blend").read_bytes()) == digest(inputs["source_scene.blend"])) if "source_scene.blend" in inputs else None
+            state["input_snapshot_unchanged"] = (
+                digest((reference_dir / source_asset).read_bytes()) == digest(inputs[source_asset])
+            )
             state["reference_snapshots_unchanged"] = all(digest((reference_dir / name).read_bytes()) == digest(data) for name, data in {**inputs, **input_aliases}.items())
             state["files"] = {str(p.relative_to(output)): {"bytes": p.stat().st_size, "sha256": digest(p.read_bytes())} for p in output.iterdir() if p.is_file()}
             frame_paths = {

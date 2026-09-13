@@ -79,13 +79,25 @@ Blender Python; it does not relax the GUI-only policy for `run_draft`.
 
 The worker has no GitHub credential, no mounted Unity checkout, no local desktop
 access, no old job migrations, and no automatic integration. It stages a
-version-one input package at stable paths:
+closed input package at stable paths. Exactly one immutable source is allowed:
 
-- `/inputs/source_scene.blend`
+- `/inputs/source_scene.blend`, opened through Blender's visible File > Open flow; or
+- `/inputs/source_asset.glb`, imported through Blender's visible File > Import > glTF 2.0 flow.
+
+Every package also contains:
+
 - `/inputs/structure_reference.png`
 - `/inputs/component_reference.png`
 - `/inputs/primary_artwork.png`
 - `/inputs/concept_reference.png`
+
+An integration job may additionally stage up to five immutable
+`/inputs/dependency-<id>.blend` files. Their byte lengths and hashes are part of
+the same manifest and checkpoint lineage. They remain read-only; the assigned
+worker may inspect or append/link them only through Blender's visible GUI and
+may save changes only to its own `/output/<component_id>.blend`. Supplying
+dependencies does not trigger automatic integration or permit a worker to
+rewrite another lane's checkpoint.
 
 The generic `component_id` is lowercase kebab-case and produces
 `/output/<component_id>.blend`. The caller must snapshot and hash inputs before
@@ -215,8 +227,8 @@ GUI-output validation remains separate operational checks; the local example is 
 evidence that Modal is deployable or that a Blender candidate is accepted.
 
 The deployed Railway bridge uses `ModalVolumeDraftBackend` instead. It passes a
-small closed manifest to `run_draft_from_volume_manifest`, which loads the five
-inputs from the private Modal Volume and verifies every recorded byte length and
+small closed manifest to `run_draft_from_volume_manifest`, which loads four
+references plus one source asset from the private Modal Volume and verifies every recorded byte length and
 SHA-256 before entering the same GUI-only draft implementation. The checked-in
 Kraken manifest is demo data; the manifest schema remains encounter-generic.
 

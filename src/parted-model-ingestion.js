@@ -62,6 +62,33 @@ export function inspectPartedGlb(bytes) {
   return inspection;
 }
 
+/** Verify the closed runtime-animation contract on an exported parted GLB. */
+export function inspectAnimatedPartedGlb(bytes) {
+  const inspection = inspectPartedGlb(bytes);
+  const { document } = parseGlb(bytes);
+  const expected = ["attack", "death", "idle", "run", "walk"];
+  const animations = Array.isArray(document.animations) ? document.animations : [];
+  const names = animations.map((animation) => animation.name).sort();
+  if (JSON.stringify(names) !== JSON.stringify(expected)) throw new TypeError("animated GLB must contain the exact five clips");
+  if ((document.skins?.length || 0) !== 1 || (document.scenes?.[document.scene ?? 0]?.nodes || []).length !== 1) {
+    throw new TypeError("animated GLB must contain one rig and one scene root");
+  }
+  const sceneRoots = new Set(document.scenes?.[document.scene ?? 0]?.nodes || []);
+  const clips = animations.map((animation) => {
+    const channels = Array.isArray(animation.channels) ? animation.channels : [];
+    const targets = channels.map((channel) => channel.target || {});
+    if (channels.length !== inspection.parts.length
+        || targets.some((target) => !Number.isInteger(target.node) || sceneRoots.has(target.node)
+          || !["translation", "rotation", "scale"].includes(target.path))
+        || new Set(targets.map((target) => target.node)).size !== inspection.parts.length) {
+      throw new TypeError(`clip ${animation.name || "unnamed"} must have one transform track per retained part`);
+    }
+    return { name: animation.name, part_track_count: channels.length };
+  }).sort((left, right) => left.name.localeCompare(right.name));
+  return { schema_version: "parted-model-animation-inspection.v1", source_sha256: inspection.source_sha256,
+    parts: inspection.parts.length, rig_count: document.skins.length, clips };
+}
+
 /** Create the immutable ingress record consumed by the animation pipeline. */
 export function createPartedModelImportManifest({ model_id, source_path, inspection, imported_at, provider = "tripo" } = {}) {
   if (!ID.test(model_id || "")) throw new TypeError("model_id must be a stable id");

@@ -1,10 +1,16 @@
 # Encounter component: {{COMPONENT_ID}}
 
 Create or refine only the encounter component named `{{COMPONENT_ID}}` for an
-FPS boss encounter. Treat `/inputs/source_scene.blend` and the four named
+FPS boss encounter. Treat `/inputs/{{SOURCE_ASSET}}` and the four named
 reference images as immutable context. Work only through Blender's visible GUI:
 do not open the Python Console, run scripts, use a terminal, paste code, or
 directly modify a `.blend` file.
+
+{{SOURCE_ACTION}}
+
+Any `/inputs/dependency-*.blend` files are immutable outputs owned by other
+lanes. Inspect or append/link them only through Blender's visible GUI. Never
+overwrite them; save the integrated derivative only at the assigned output path.
 
 The component contract supplied with the job is the authority for gameplay
 role, scale, attachment interfaces, collision intent, animation constraints,

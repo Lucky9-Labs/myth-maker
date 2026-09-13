@@ -230,10 +230,11 @@ def load_terminal_artifact(root: Path, artifact_name: str, expected_sha256: str,
     actual_sha256 = sha256(artifact_data)
     if actual_sha256 != expected_sha256:
         raise ValueError("Terminal artifact hash mismatch")
-    inputs = {}
-    for name in ("source_scene.blend", "structure_reference.png", "component_reference.png",
-                 "primary_artwork.png", "concept_reference.png"):
-        inputs[name] = read_stable(_safe_file(root / "inputs", name))
+    input_root = root / "inputs"
+    inputs = {
+        path.name: read_stable(_safe_file(input_root, path.name))
+        for path in input_root.iterdir() if path.is_file()
+    }
     validate_input_names(inputs, resuming=True)
     parent_provenance = json.loads((root / "provenance.json").read_text())
     for name, reference_data in inputs.items():
