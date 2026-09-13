@@ -3,7 +3,7 @@ set -euo pipefail
 
 spike_root=${0:A:h}
 repo_root=${spike_root:h:h}
-source_glb="$repo_root/assets/reef-skitter/source/reef_skitter.tripo.glb"
+source_glb=${REEF_SKITTER_GLB_PATH:-}
 output_root="$repo_root/output/reef-skitter/unity-swarm"
 trace_path=${1:-"$output_root/reef-skitter-metal.trace"}
 toc_path=${trace_path:r}-toc.xml
@@ -14,7 +14,10 @@ player_output=${trace_path:r}-run
 player_binary="$spike_root/Build/ReefSkitterSwarmBenchmark.app/Contents/MacOS/unity-dynamic-load"
 
 test -x "$player_binary"
-test -f "$source_glb"
+if [[ -z "$source_glb" || ! -f "$source_glb" ]]; then
+  print -u2 "REEF_SKITTER_GLB_PATH must name the integrated five-clip GLB"
+  exit 2
+fi
 if [[ -e "$trace_path" || -e "$toc_path" || -e "$intervals_path" || -e "$receipt_path" || -e "$player_log" || -e "$player_output" ]]; then
   print -u2 "Refusing to overwrite an existing trace or export: $trace_path"
   exit 2

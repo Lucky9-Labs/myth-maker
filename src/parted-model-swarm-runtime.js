@@ -60,22 +60,23 @@ export class PackedPartedSwarm {
 }
 
 /**
- * Data-only swarm representation for a rigid, provider-parted creature.
+ * Data-only swarm representation for a skinned, provider-parted creature.
  *
- * The host uploads one shared part transform-track library per model/LOD.
+ * The host uploads one shared sampled bone-matrix library per model/LOD; all
+ * retained provider parts reference it through their vertex skin weights.
  * An agent is merely a compact immutable seed plus a small state record; it
  * must not allocate an Animator, a rig graph, or clip objects per creature.
  */
-export function createPartedSwarmDefinition({ model_id, part_count, part_materials, clips, lods } = {}) {
-  if (!validId(model_id) || !Number.isInteger(part_count) || part_count < 2) throw new TypeError("model_id and part_count are required");
+export function createPartedSwarmDefinition({ model_id, part_count, joint_count, part_materials, clips, lods } = {}) {
+  if (!validId(model_id) || !Number.isInteger(part_count) || part_count < 2 || !Number.isInteger(joint_count) || joint_count < 2) throw new TypeError("model_id, part_count, and joint_count are required");
   if (!Array.isArray(part_materials) || part_materials.length !== part_count || part_materials.some((material) => !Number.isInteger(material) || material < 0)) throw new TypeError("part_materials must bind every part to a material");
-  const clipMap = normalizeClips(clips, part_count);
+  const clipMap = normalizeClips(clips, joint_count);
   const normalizedLods = normalizeLods(lods);
   return Object.freeze({
-    schema_version: "parted-swarm-runtime.v1", model_id, part_count,
+    schema_version: "parted-swarm-runtime.v1", model_id, part_count, joint_count,
     instance_layout: { bytes: AGENT_BYTES, fields: ["position.xyz", "yaw", "state", "phase", "seed", "lod"] },
-    animation_storage: { kind: "shared-part-transform-tracks", clips: clipMap, root_motion: "consumer-authored velocity; clips stay in-place" },
-    rendering: { kind: "part-instanced", batches: "model+lod+part+material", part_materials: Object.freeze([...part_materials]), per_agent_animator: false, cpu_pose_evaluation: false },
+    animation_storage: { kind: "shared-sampled-bone-matrix-tracks", joint_count, clips: clipMap, root_motion: "consumer-authored velocity; clips stay in-place" },
+    rendering: { kind: "gpu-skinned-part-instanced", batches: "model+lod+part+material", part_materials: Object.freeze([...part_materials]), per_agent_animator: false, cpu_pose_evaluation: false },
     culling: normalizedLods,
     variation: { kind: "deterministic-hash", seed_field: "seed", idle_phase_spread: true, speed_jitter: [0.94, 1.06] },
   });
@@ -135,15 +136,15 @@ export function buildPartedDrawPlan({ definition, agents, visible_indexes, camer
   return { visible_creatures: visibleCreatures, batches: [...batches.values()], instance_bytes: visibleCreatures * definition.instance_layout.bytes };
 }
 
-function normalizeClips(clips, partCount) {
+function normalizeClips(clips, jointCount) {
   if (!clips || typeof clips !== "object") throw new TypeError("five clips are required");
   const output = {};
   for (const state of REQUIRED_STATES) {
     const clip = clips[state];
-    if (!clip || !Number.isFinite(clip.duration_seconds) || clip.duration_seconds <= 0 || !Number.isInteger(clip.part_track_count) || clip.part_track_count !== partCount
+    if (!clip || !Number.isFinite(clip.duration_seconds) || clip.duration_seconds <= 0 || !Number.isInteger(clip.joint_track_count) || clip.joint_track_count !== jointCount
       || typeof clip.loop !== "boolean" || typeof clip.root_motion !== "boolean") throw new TypeError(`${state} clip is incompatible with the part set`);
     if ((state === "idle" || state === "walk" || state === "run") !== clip.loop || clip.root_motion) throw new TypeError(`${state} loop/root-motion policy is invalid`);
-    output[state] = Object.freeze({ duration_seconds: clip.duration_seconds, part_track_count: clip.part_track_count, loop: clip.loop, root_motion: false });
+    output[state] = Object.freeze({ duration_seconds: clip.duration_seconds, joint_track_count: clip.joint_track_count, loop: clip.loop, root_motion: false });
   }
   return Object.freeze(output);
 }

@@ -94,22 +94,50 @@ test("enforces one independently animated primitive and material per provider pa
   assert.throws(() => inspectPartedGlb(glb(document)), /exactly one primitive/);
 });
 
-test("accepts only the exact five clips with one transform track per retained part", () => {
-  const nodes = [{ name: "reef-root", children: Array.from({ length: 15 }, (_, index) => index + 1) },
-    ...Array.from({ length: 15 }, (_, index) => ({ name: `part-${index}`, mesh: index }))];
+test("accepts exact five clips sharing a valid joint hierarchy across retained parts", () => {
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const joints = new Uint8Array([0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0]);
+  const weights = new Float32Array([.5, .5, 0, 0, .5, .5, 0, 0, .5, .5, 0, 0]);
+  const inverseBind = new Float32Array(10 * 16);
+  for (let index = 0; index < 10; index += 1) for (let diagonal = 0; diagonal < 4; diagonal += 1) inverseBind[index * 16 + diagonal * 5] = 1;
+  const times = new Float32Array([0, 1]);
+  const rotations = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1]);
+  const chunks = [positions, joints, weights, inverseBind, times, rotations].map((array) => Buffer.from(array.buffer));
+  const offsets = chunks.reduce((result, chunk, index) => [...result, (result[index] ?? 0) + chunk.length], [0]);
+  const binary = Buffer.concat(chunks);
+  const jointNodes = Array.from({ length: 10 }, (_, index) => ({ name: `joint-${index}`, ...(index < 9 ? { children: [index + 3] } : {}) }));
+  const partNodes = Array.from({ length: 15 }, (_, index) => ({ name: `part-${index}`, mesh: index, skin: 0 }));
+  const nodes = [{ name: "reef-root", children: [1, ...Array.from({ length: 15 }, (_, index) => index + 12)] },
+    { name: "reef-skeleton", children: [2] }, ...jointNodes, ...partNodes];
   const animations = ["idle", "walk", "run", "attack", "death"].map((name) => ({ name,
-    channels: Array.from({ length: 15 }, (_, index) => ({ target: { node: index + 1, path: "rotation" }, sampler: index })),
-    samplers: Array.from({ length: 15 }, () => ({ input: 15, output: 16 })) }));
+    channels: Array.from({ length: 10 }, (_, index) => ({ target: { node: index + 2, path: "rotation" }, sampler: index })),
+    samplers: Array.from({ length: 10 }, () => ({ input: 4, output: 5 })) }));
   const document = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes,
-    meshes: Array.from({ length: 15 }, (_, index) => ({ primitives: [{ attributes: { POSITION: index }, material: index }] })),
-    accessors: [...Array.from({ length: 15 }, () => ({ count: 3 })), { count: 2 }, { count: 2 }],
-    materials: Array.from({ length: 15 }, (_, index) => ({ name: `material-${index}` })), skins: [{}], animations };
+    meshes: Array.from({ length: 15 }, (_, index) => ({ primitives: [{ attributes: { POSITION: 0, JOINTS_0: 1, WEIGHTS_0: 2 }, material: index }] })),
+    buffers: [{ byteLength: binary.length }], bufferViews: chunks.map((chunk, index) => ({ buffer: 0, byteOffset: offsets[index], byteLength: chunk.length })),
+    accessors: [
+      { bufferView: 0, count: 3, type: "VEC3", componentType: 5126 },
+      { bufferView: 1, count: 3, type: "VEC4", componentType: 5121 }, { bufferView: 2, count: 3, type: "VEC4", componentType: 5126 },
+      { bufferView: 3, count: 10, type: "MAT4", componentType: 5126 }, { bufferView: 4, count: 2, type: "SCALAR", componentType: 5126 }, { bufferView: 5, count: 2, type: "VEC4", componentType: 5126 }],
+    materials: Array.from({ length: 15 }, (_, index) => ({ name: `material-${index}` })), skins: [{ skeleton: 1, joints: Array.from({ length: 10 }, (_, index) => index + 2), inverseBindMatrices: 3 }], animations };
 
-  const result = inspectAnimatedPartedGlb(glb(document));
+  const result = inspectAnimatedPartedGlb(binaryGlb(document, binary));
 
   assert.equal(result.parts, 15);
+  assert.equal(result.skinned_parts, 15);
+  assert.equal(result.joint_count, 10);
+  assert.deepEqual(result.part_skin_bindings[0].used_joint_indexes, [0, 1]);
   assert.deepEqual(result.clips.map((clip) => clip.name), ["attack", "death", "idle", "run", "walk"]);
-  assert.ok(result.clips.every((clip) => clip.part_track_count === 15));
+  assert.ok(result.clips.every((clip) => clip.animated_joint_count === 10 && clip.joint_channel_count === 10));
+  delete document.nodes[12].skin;
+  assert.throws(() => inspectAnimatedPartedGlb(binaryGlb(document, binary)), /every retained provider part/);
+  document.nodes[12].skin = 0;
+  document.skins[0].joints[9] = 12;
+  assert.throws(() => inspectAnimatedPartedGlb(binaryGlb(document, binary)), /joint set/);
+  document.skins[0].joints[9] = 11;
+  document.animations[0].channels[0].target.node = 12;
+  assert.throws(() => inspectAnimatedPartedGlb(binaryGlb(document, binary)), /joint/);
+  document.animations[0].channels[0].target.node = 2;
   document.animations.pop();
-  assert.throws(() => inspectAnimatedPartedGlb(glb(document)), /exact five clips/);
+  assert.throws(() => inspectAnimatedPartedGlb(binaryGlb(document, binary)), /exact five clips/);
 });

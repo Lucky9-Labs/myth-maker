@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { advancePartedSwarm, buildPartedDrawPlan, createPartedSwarmDefinition, initializePartedSwarm } from "../src/parted-model-swarm-runtime.js";
 
-const clips = Object.fromEntries(["idle", "walk", "run", "attack", "death"].map((state) => [state, { duration_seconds: 1, part_track_count: 15, loop: ["idle", "walk", "run"].includes(state), root_motion: false }]));
-const definition = createPartedSwarmDefinition({ model_id: "reef-skitter", part_count: 15, part_materials: Array.from({ length: 15 }, (_, index) => index), clips, lods: [{ max_distance: 20, update_hz: 30, cast_shadows: true }, { max_distance: 55, update_hz: 10, cast_shadows: false }, { max_distance: Infinity, update_hz: 0, cast_shadows: false }] });
+const clips = Object.fromEntries(["idle", "walk", "run", "attack", "death"].map((state) => [state, { duration_seconds: 1, joint_track_count: 10, loop: ["idle", "walk", "run"].includes(state), root_motion: false }]));
+const definition = createPartedSwarmDefinition({ model_id: "reef-skitter", part_count: 15, joint_count: 10, part_materials: Array.from({ length: 15 }, (_, index) => index), clips, lods: [{ max_distance: 20, update_hz: 30, cast_shadows: true }, { max_distance: 55, update_hz: 10, cast_shadows: false }, { max_distance: Infinity, update_hz: 0, cast_shadows: false }] });
 
 test("stores only compact deterministic agent state and shares clips", () => {
   const swarm = initializePartedSwarm({ definition, agents: Array.from({ length: 400 }, (_, index) => ({ position: [index, 0, 0] })) });
   assert.equal(swarm.length, 400); assert.equal(swarm.byteLength, 400 * definition.instance_layout.bytes);
   assert.notEqual(swarm.getAgent(0).seed, swarm.getAgent(1).seed); assert.equal(definition.rendering.per_agent_animator, false);
+  assert.equal(definition.joint_count, 10); assert.equal(definition.animation_storage.kind, "shared-sampled-bone-matrix-tracks");
   const priorPhase = swarm.getAgent(0).phase;
   const next = advancePartedSwarm({ definition, agents: swarm, delta_seconds: .1, commands: [{ index: 1, state: "attack" }] });
   assert.equal(next, swarm, "the hot update path mutates packed state instead of allocating a new swarm");
@@ -35,4 +36,11 @@ test("death starts at clip entry, freezes at its end, and is terminal", () => {
   assert.equal(swarm.getAgent(0).state, 4); assert.ok(Math.abs(swarm.getAgent(0).phase - .4) < 1e-6);
   advancePartedSwarm({ definition, agents: swarm, delta_seconds: 2, commands: [{ index: 0, state: "run" }] });
   assert.equal(swarm.getAgent(0).state, 4); assert.equal(swarm.getAgent(0).phase, 1);
+});
+
+test("rejects a clip library that is not bound to the shared skin joint count", () => {
+  const incompatible = { ...clips, idle: { ...clips.idle, joint_track_count: 15 } };
+  assert.throws(() => createPartedSwarmDefinition({ model_id: "reef-skitter", part_count: 15, joint_count: 10,
+    part_materials: Array.from({ length: 15 }, (_, index) => index), clips: incompatible,
+    lods: [{ max_distance: 20, update_hz: 30 }, { max_distance: Infinity, update_hz: 0 }] }), /idle clip is incompatible/);
 });
