@@ -153,7 +153,8 @@ class DraftPolicyTests(unittest.TestCase):
         )
         source = ast.get_source_segment(text, execute_actions)
 
-        self.assertIn('run_xdotool(["mousemove", "--sync"', source)
+        self.assertIn('run_xdotool(["mousemove"', source)
+        self.assertNotIn('"mousemove", "--sync"', source)
         self.assertIn('run_xdotool(["type", "--clearmodifiers"', source)
         self.assertIn('command = ["click"]', source)
         self.assertIn('run_xdotool(["mousedown"', source)

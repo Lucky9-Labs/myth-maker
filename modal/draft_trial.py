@@ -657,7 +657,7 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
                        timeout=max(0.1, min(5, deadline - time.monotonic())))
 
     def move_pointer(x, y) -> None:
-        run_xdotool(["mousemove", "--sync", str(round(x)), str(round(y))])
+        run_xdotool(["mousemove", str(round(x)), str(round(y))])
 
     for raw in actions:
         if time.monotonic() >= deadline:
