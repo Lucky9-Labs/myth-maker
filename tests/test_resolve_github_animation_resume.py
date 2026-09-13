@@ -132,6 +132,33 @@ class ResolveGitHubAnimationResumeTests(unittest.TestCase):
             self.assertEqual(resolved["work_id"], "reef-idle-77")
             self.assertEqual(resolved["provider"], "modal")
 
+    def test_resolves_a_review_ready_clip_for_external_gate_correction(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = Path(temporary) / "reef-skitter-clip-attack-91-1"
+            job_id = "draft-gui-reef-attack-77-run-91-a1-c2"
+            checkpoint_id = "cp-0024-abcdef123456"
+            receipt = artifact / "receipts" / "reef-skitter-clip-attack.json"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(json.dumps({
+                "work_order": {"work_id": "reef-attack-77"},
+                "worker_state": {
+                    "status": "ready_for_review", "part": "reef-attack-77",
+                    "job_id": job_id, "checkpoint_id": checkpoint_id,
+                    "provider_receipt": {
+                        "provider": "modal", "volume_name": "myth-maker-encounter-submissions",
+                        "app_name": "myth-maker-encounter-draft",
+                        "function_name": "run_draft_from_volume_manifest",
+                    },
+                },
+            }))
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(artifact), "91", "--clip", "attack"],
+                check=True, capture_output=True, text=True,
+            )
+
+            self.assertEqual(json.loads(result.stdout)["checkpoint_id"], checkpoint_id)
+
 
 if __name__ == "__main__":
     unittest.main()
