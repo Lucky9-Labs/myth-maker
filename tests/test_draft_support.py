@@ -112,6 +112,8 @@ class DraftPolicyTests(unittest.TestCase):
             self.assertEqual(normalize_keys([name]), [expected])
         self.assertEqual(normalize_keys(["NUMPAD_SLASH"]), ["KP_Divide"])
         self.assertEqual(normalize_keys(["KP_SLASH"]), ["KP_Divide"])
+        self.assertEqual(normalize_keys(["NUMPAD_PERIOD"]), ["KP_Decimal"])
+        self.assertEqual(normalize_keys(["KP_PERIOD"]), ["KP_Decimal"])
         self.assertEqual(normalize_pointer_keys(["shift", "RIGHT_MOUSE"]), (["shift"], "right"))
         for keys in (["SHIFT", "F4"], ["ALT", "F2"], ["CTRL", "ALT", "T"], ["UNKNOWN"], []):
             with self.assertRaises(ValueError):
