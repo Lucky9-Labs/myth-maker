@@ -10,6 +10,43 @@ function glb(document) {
   result.writeUInt32LE(json.length, 12); result.writeUInt32LE(0x4e4f534a, 16); json.copy(result, 20);
   return result;
 }
+
+function binaryGlb(document, binary) {
+  let json = Buffer.from(JSON.stringify(document)); while (json.length % 4) json = Buffer.concat([json, Buffer.from(" ")]);
+  let bin = Buffer.from(binary); while (bin.length % 4) bin = Buffer.concat([bin, Buffer.alloc(1)]);
+  const result = Buffer.alloc(28 + json.length + bin.length);
+  result.write("glTF", 0); result.writeUInt32LE(2, 4); result.writeUInt32LE(result.length, 8);
+  result.writeUInt32LE(json.length, 12); result.writeUInt32LE(0x4e4f534a, 16); json.copy(result, 20);
+  const binaryHeader = 20 + json.length;
+  result.writeUInt32LE(bin.length, binaryHeader); result.writeUInt32LE(0x004e4942, binaryHeader + 4); bin.copy(result, binaryHeader + 8);
+  return result;
+}
+
+function weldedGeometryFixture() {
+  // Four triangles: two pairs share positions but use duplicate provider vertex
+  // indexes. A topology-only union would incorrectly report four components.
+  const positions = new Float32Array([
+    0, 0, 0, 1, 0, 0, 0, 1, 0,
+    1, 0, 0, 1, 1, 0, 0, 1, 0,
+    10, 0, 0, 11, 0, 0, 10, 1, 0,
+    11, 0, 0, 11, 1, 0, 10, 1, 0,
+  ]);
+  const indices = new Uint16Array(Array.from({ length: 12 }, (_, index) => index));
+  const binary = Buffer.concat([Buffer.from(positions.buffer), Buffer.from(indices.buffer)]);
+  const primitive = { attributes: { POSITION: 0 }, indices: 1, material: 0 };
+  const document = {
+    asset: { version: "2.0", generator: "Tripo" }, scene: 0, scenes: [{ nodes: [0, 1] }],
+    nodes: [{ name: "two-regions", mesh: 0 }, { name: "other", mesh: 1 }],
+    meshes: [{ primitives: [primitive] }, { primitives: [primitive] }], materials: [{ name: "shell" }],
+    buffers: [{ byteLength: binary.length }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.byteLength }, { buffer: 0, byteOffset: positions.byteLength, byteLength: indices.byteLength }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 12, type: "VEC3", min: [0, 0, 0], max: [11, 1, 0] },
+      { bufferView: 1, componentType: 5123, count: 12, type: "SCALAR" },
+    ],
+  };
+  return binaryGlb(document, binary);
+}
 function fixture() { return glb({ asset: { version: "2.0", generator: "Tripo" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ name: "reef-root", children: [1, 2] }, { name: "body", mesh: 0 }, { name: "claw", mesh: 1 }], meshes: [{ primitives: [{ attributes: { POSITION: 0 }, material: 0 }] }, { primitives: [{ attributes: { POSITION: 1 }, material: 1 }] }], accessors: [{ count: 6 }, { count: 9 }], materials: [{ name: "shell" }, { name: "claw" }] }); }
 
 test("inspects independent Tripo nodes without segmentation", () => {
@@ -17,6 +54,18 @@ test("inspects independent Tripo nodes without segmentation", () => {
   assert.equal(result.generator, "Tripo"); assert.equal(result.parts.length, 2); assert.equal(result.parts[0].name, "body");
   assert.deepEqual(result.topology, { vertices: 15, triangles: 5 }); assert.equal(result.suitability.rigging, "requires-rigging");
   assert.equal(result.source_sha256, createHash("sha256").update(bytes).digest("hex"));
+});
+
+test("reports spatial bounds and welds duplicate face vertices into anatomical regions", () => {
+  const result = inspectPartedGlb(weldedGeometryFixture());
+  const geometry = result.parts[0].geometry;
+
+  assert.deepEqual(geometry.local_bounds, { min: [0, 0, 0], max: [11, 1, 0], center: [5.5, 0.5, 0], size: [11, 1, 0] });
+  assert.equal(geometry.weld_tolerance, 1e-5);
+  assert.equal(geometry.connected_region_count, 2);
+  assert.deepEqual(geometry.connected_regions.map((region) => region.triangles), [2, 2]);
+  assert.deepEqual(geometry.connected_regions.map((region) => region.unique_positions), [4, 4]);
+  assert.deepEqual(geometry.connected_regions.map((region) => region.local_bounds.center), [[0.5, 0.5, 0], [10.5, 0.5, 0]]);
 });
 
 test("creates a hash-bound, no-segmentation import manifest", () => {
