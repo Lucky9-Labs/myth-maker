@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT / "modal"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from cloud_draft_execution import DraftExecution, github_actions_artifact_receipt
+from desktop_readiness import receipt_error
 from run_cloud_gui_animation_job import SAFE_ID, build_work_order, collect_inputs
 
 
@@ -65,6 +66,13 @@ def continuation_job_id(base_job_id: str, continuation: int) -> str:
     candidate = f"{base_job_id}-c{continuation}"
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", candidate):
         raise ValueError("continuation job ID is invalid")
+    return candidate
+
+
+def initial_job_id(work_id: str, *, attempt: int, run_id: str) -> str:
+    candidate = f"draft-gui-{work_id}-r{run_id}-a{attempt}"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", candidate):
+        raise ValueError("initial cloud job ID is invalid")
     return candidate
 
 
@@ -167,9 +175,7 @@ def main() -> int:
         paths["submissions_root"].mkdir(parents=True, exist_ok=False)
         resume_job, checkpoint_id = "", ""
     order = build_work_order(args.work_id, args.lane, args.instruction, attempt=args.attempt)
-    job_id = f"draft-gui-{args.work_id}-a{args.attempt}"
-    if resume_job == job_id:
-        job_id = continuation_job_id(job_id, 1)
+    job_id = initial_job_id(args.work_id, attempt=args.attempt, run_id=context["run_id"])
     approved_at = datetime.now(timezone.utc)
     provenance = {
         "source_sha": context["source_sha"],
@@ -212,32 +218,44 @@ def main() -> int:
     state = {}
     states = []
     current_job_id = job_id
-    for continuation in range(args.max_continuations + 1):
-        state = _run_draft(
-            current_job_id, input_bytes if continuation == 0 and not resume_job else {}, deepcopy(provenance),
-            args.work_id, resume_job=resume_job, checkpoint_id=checkpoint_id,
-            feedback=args.instruction,
-            function_call_id=f"github-actions:{context['run_id']}:{context['run_attempt']}:{context['job_name']}",
-            input_id=current_job_id, execution=execution,
-        )
-        states.append({
-            "job_id": current_job_id,
-            "status": state.get("status"),
-            "stop_reason": state.get("stop_reason"),
-            "checkpoint_id": state.get("checkpoint_id"),
-        })
-        if (state.get("status") == "ready_for_review"
-                or continuation == args.max_continuations
-                or not continuation_available(state)):
-            break
-        resume_job, checkpoint_id = prepare_continuation(
-            state=state, previous_job_id=current_job_id,
-            inputs_dir=execution.inputs_dir, output_link=execution.output_link,
-        )
-        current_job_id = continuation_job_id(job_id, continuation + 1)
-    result = {"work_order": order, "worker_attempts": states, "worker_state": state}
+    controller_error = None
+    try:
+        for continuation in range(args.max_continuations + 1):
+            state = _run_draft(
+                current_job_id, input_bytes if continuation == 0 and not resume_job else {}, deepcopy(provenance),
+                args.work_id, resume_job=resume_job, checkpoint_id=checkpoint_id,
+                feedback=args.instruction,
+                function_call_id=f"github-actions:{context['run_id']}:{context['run_attempt']}:{context['job_name']}",
+                input_id=current_job_id, execution=execution,
+            )
+            states.append({
+                "job_id": current_job_id,
+                "status": state.get("status"),
+                "stop_reason": state.get("stop_reason"),
+                "checkpoint_id": state.get("checkpoint_id"),
+            })
+            if (state.get("status") == "ready_for_review"
+                    or continuation == args.max_continuations
+                    or not continuation_available(state)):
+                break
+            resume_job, checkpoint_id = prepare_continuation(
+                state=state, previous_job_id=current_job_id,
+                inputs_dir=execution.inputs_dir, output_link=execution.output_link,
+            )
+            current_job_id = continuation_job_id(job_id, continuation + 1)
+    except Exception as error:
+        controller_error = receipt_error(error)
+        states.append({"job_id": current_job_id, "status": "controller_failed", "error": controller_error})
+    result = {
+        "work_order": order,
+        "worker_attempts": states,
+        "worker_state": state,
+        **({"controller_error": controller_error} if controller_error else {}),
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if controller_error:
+        raise RuntimeError("cloud GUI controller failed after preserving its receipt: " + controller_error)
     if state.get("status") != "ready_for_review":
         raise RuntimeError("GUI worker did not produce a reviewable native: " + json.dumps(state)[:2000])
     native = args.work_id + ".blend"
