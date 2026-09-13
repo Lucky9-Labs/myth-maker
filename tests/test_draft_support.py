@@ -61,7 +61,7 @@ class DraftPolicyTests(unittest.TestCase):
         self.assertIn("is never acceptance", prompt)
         self.assertEqual(blender_launch_args(True, "cryo-warden-arena")[-1], "/output/cryo-warden-arena.blend")
         self.assertIn("--disable-autoexec", blender_launch_args(False, "cryo-warden-arena"))
-        self.assertIn("--no-splash", blender_launch_args(False, "cryo-warden-arena"))
+        self.assertNotIn("--no-splash", blender_launch_args(False, "cryo-warden-arena"))
         for invalid in ("../escape", "Boss", "", "x" * 65):
             with self.assertRaises(ValueError):
                 native_name(invalid)

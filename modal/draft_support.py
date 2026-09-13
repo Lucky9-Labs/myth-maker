@@ -51,7 +51,7 @@ def finalize_terminal_state(state: dict, finalize) -> dict:
 def blender_launch_args(resuming: bool, component_id: str) -> list[str]:
     # /output and /inputs are stable aliases across containers. Opening through
     # /submissions/<new-job>/output silently rebases Blender's relative images.
-    return ["blender", "--disable-autoexec", "--no-splash", "--window-geometry", "0", "0", "1600", "1000",
+    return ["blender", "--disable-autoexec", "--window-geometry", "0", "0", "1600", "1000",
             *(["/output/" + native_name(component_id)] if resuming else ["--factory-startup"])]
 
 
