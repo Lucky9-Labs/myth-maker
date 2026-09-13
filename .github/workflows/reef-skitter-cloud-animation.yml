@@ -37,6 +37,7 @@ jobs:
           printf '%s  %s\n' "$REEF_REFERENCE_SHA256" "$REEF_REFERENCE" | sha256sum --check --strict
           rig_id="reef-rig-${GITHUB_RUN_ID}"
           artifact_name="reef-skitter-rig-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          set +e
           sudo --preserve-env=OPENAI_API_KEY,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_REF,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_JOB,GITHUB_WORKSPACE \
             "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$rig_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-rig \
@@ -48,8 +49,11 @@ jobs:
             --input "primary_artwork.png=$REEF_REFERENCE" \
             --input "concept_reference.png=$REEF_REFERENCE" \
             --output receipts/reef-skitter-rig.json
+          worker_status=$?
           sudo chown -R "$(id -u):$(id -g)" evidence receipts
-          job_root="evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT"
+          set -e
+          if (( worker_status != 0 )); then exit "$worker_status"; fi
+          job_root="$(python3 scripts/resolve_github_animation_job_root.py receipts/reef-skitter-rig.json evidence/rig)"
           blender --background "$job_root/output/$rig_id.blend" --python scripts/inspect_blender_animation.py -- \
             --stage rig --output "$job_root/blender-inspection.json"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \
@@ -133,6 +137,7 @@ jobs:
           source_scene="$rig_root/output/$rig_id.blend"
           test -s "$source_scene"
           artifact_name="reef-skitter-clip-${CLIP}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          set +e
           sudo --preserve-env=OPENAI_API_KEY,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_REF,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_JOB,GITHUB_WORKSPACE \
             "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$clip_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-clip \
@@ -144,8 +149,11 @@ jobs:
             --input "primary_artwork.png=$REEF_REFERENCE" \
             --input "concept_reference.png=$REEF_REFERENCE" \
             --output "receipts/reef-skitter-clip-$CLIP.json"
+          worker_status=$?
           sudo chown -R "$(id -u):$(id -g)" evidence receipts
-          job_root="evidence/$CLIP/jobs/draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT"
+          set -e
+          if (( worker_status != 0 )); then exit "$worker_status"; fi
+          job_root="$(python3 scripts/resolve_github_animation_job_root.py "receipts/reef-skitter-clip-$CLIP.json" "evidence/$CLIP")"
           blender --background "$job_root/output/$clip_id.blend" --python scripts/inspect_blender_animation.py -- \
             --stage clip --expected-clip "$CLIP" --output "$job_root/blender-inspection.json"
           verify_args=()
@@ -239,6 +247,7 @@ jobs:
             args+=(--input "dependency-$clip.blend=$native")
           done
           artifact_name="reef-skitter-animation-candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          set +e
           sudo --preserve-env=OPENAI_API_KEY,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_REF,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_JOB,GITHUB_WORKSPACE \
             "$pythonLocation/bin/python3" scripts/run_github_gui_animation_job.py \
             --work-id "$integration_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-integration \
@@ -250,8 +259,11 @@ jobs:
             --input "primary_artwork.png=$REEF_REFERENCE" \
             --input "concept_reference.png=$REEF_REFERENCE" \
             --output receipts/reef-skitter-animation-integrated.json
+          worker_status=$?
           sudo chown -R "$(id -u):$(id -g)" evidence receipts
-          job_root="evidence/final/jobs/draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT"
+          set -e
+          if (( worker_status != 0 )); then exit "$worker_status"; fi
+          job_root="$(python3 scripts/resolve_github_animation_job_root.py receipts/reef-skitter-animation-integrated.json evidence/final)"
           blender --background "$job_root/output/$integration_id.blend" --python scripts/inspect_blender_animation.py -- \
             --stage integration --output "$job_root/blender-inspection.json"
           python3 scripts/verify_cloud_gui_animation_artifacts.py \

@@ -35,6 +35,21 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("pattern: reef-skitter-clip-*-${{ github.run_id }}-*", text)
         self.assertNotIn('name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}\n          path: rig-artifact', text)
 
+    def test_worker_failures_restore_runner_read_access_before_evidence_upload(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertEqual(text.count("worker_status=$?"), 3)
+        self.assertEqual(text.count('sudo chown -R "$(id -u):$(id -g)" evidence receipts'), 3)
+        self.assertEqual(text.count('exit "$worker_status"'), 3)
+
+    def test_each_stage_resolves_the_actual_final_continuation_job(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertEqual(text.count("scripts/resolve_github_animation_job_root.py"), 3)
+        self.assertNotIn('job_root="evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT"', text)
+        self.assertNotIn('job_root="evidence/$CLIP/jobs/draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT"', text)
+        self.assertNotIn('job_root="evidence/final/jobs/draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT"', text)
+
 
 if __name__ == "__main__":
     unittest.main()

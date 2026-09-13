@@ -5,7 +5,12 @@ import unittest
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
-from run_github_gui_animation_job import trusted_context, worker_paths
+from run_github_gui_animation_job import (
+    continuation_job_id,
+    prepare_continuation,
+    trusted_context,
+    worker_paths,
+)
 
 
 class GitHubGuiAnimationJobTests(unittest.TestCase):
@@ -35,6 +40,34 @@ class GitHubGuiAnimationJobTests(unittest.TestCase):
             self.assertEqual(paths["prompt_template"], workspace.resolve() / "modal" / "draft_prompt.md")
             with self.assertRaisesRegex(ValueError, "artifact root"):
                 worker_paths(workspace=workspace, artifact_root=workspace.parent / "outside")
+
+    def test_continuation_uses_the_latest_immutable_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = root / "inputs"
+            output = root / "output"
+            inputs.mkdir()
+            output.symlink_to(root / "old-output", target_is_directory=True)
+
+            parent, checkpoint = prepare_continuation(
+                state={"status": "checkpointed_partial", "checkpoint_id": "cp-0024-abcdef123456"},
+                previous_job_id="draft-gui-reef-rig-42-a1",
+                inputs_dir=inputs,
+                output_link=output,
+            )
+
+            self.assertEqual(parent, "draft-gui-reef-rig-42-a1")
+            self.assertEqual(checkpoint, "cp-0024-abcdef123456")
+            self.assertFalse(inputs.exists())
+            self.assertFalse(output.exists())
+
+    def test_continuation_job_ids_remain_stable_and_bounded(self):
+        self.assertEqual(
+            continuation_job_id("draft-gui-reef-rig-42-a1", 2),
+            "draft-gui-reef-rig-42-a1-c2",
+        )
+        with self.assertRaisesRegex(ValueError, "continuation"):
+            continuation_job_id("draft-gui-reef-rig-42-a1", 0)
 
 
 if __name__ == "__main__":
