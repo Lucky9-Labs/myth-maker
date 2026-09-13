@@ -68,6 +68,13 @@ def continuation_job_id(base_job_id: str, continuation: int) -> str:
     return candidate
 
 
+def continuation_available(state: dict) -> bool:
+    return (
+        state.get("status") == "checkpointed_partial"
+        and bool(re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", state.get("checkpoint_id", "")))
+    )
+
+
 def prepare_continuation(*, state: dict, previous_job_id: str,
                          inputs_dir: Path, output_link: Path) -> tuple[str, str]:
     if state.get("status") != "checkpointed_partial":
@@ -178,7 +185,9 @@ def main() -> int:
             "stop_reason": state.get("stop_reason"),
             "checkpoint_id": state.get("checkpoint_id"),
         })
-        if state.get("status") == "ready_for_review" or continuation == args.max_continuations:
+        if (state.get("status") == "ready_for_review"
+                or continuation == args.max_continuations
+                or not continuation_available(state)):
             break
         resume_job, checkpoint_id = prepare_continuation(
             state=state, previous_job_id=current_job_id,

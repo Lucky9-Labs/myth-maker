@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from run_github_gui_animation_job import (
+    continuation_available,
     continuation_job_id,
     prepare_continuation,
     trusted_context,
@@ -68,6 +69,17 @@ class GitHubGuiAnimationJobTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "continuation"):
             continuation_job_id("draft-gui-reef-rig-42-a1", 0)
+
+    def test_does_not_attempt_to_resume_a_failed_non_checkpointed_state(self):
+        self.assertFalse(continuation_available({
+            "status": "failed",
+            "stop_reason": "runtime_error",
+            "checkpoint_id": None,
+        }))
+        self.assertTrue(continuation_available({
+            "status": "checkpointed_partial",
+            "checkpoint_id": "cp-0024-abcdef123456",
+        }))
 
 
 if __name__ == "__main__":
