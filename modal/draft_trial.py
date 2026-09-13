@@ -321,7 +321,7 @@ def run_asset_production_job(job: dict) -> dict:
             part_leases.pop(lease_key)
 
 
-@app.function(image=diffusion_image, gpu=["L40S", "A100-40GB", "A100-80GB", "any"],
+@app.function(image=diffusion_image, gpu="T4",
               cpu=4, memory=32768, timeout=30 * 60,
               retries=0, max_containers=4, volumes={"/submissions": volume})
 def run_component_diffusion_job(job: dict) -> dict:
