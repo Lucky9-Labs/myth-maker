@@ -648,10 +648,17 @@ def screenshot(path: Path) -> bytes:
 
 
 def execute_actions(actions: list, remaining: int, deadline: float) -> int:
-    import pyautogui as gui
     if len(actions) > remaining:
         raise RuntimeError("UI action budget exhausted")
-    gui.FAILSAFE = True
+    button_numbers = {"left": "1", "middle": "2", "right": "3"}
+
+    def run_xdotool(arguments: list[str]) -> None:
+        subprocess.run(["xdotool", *arguments], check=True,
+                       timeout=max(0.1, min(5, deadline - time.monotonic())))
+
+    def move_pointer(x, y) -> None:
+        run_xdotool(["mousemove", "--sync", str(round(x)), str(round(y))])
+
     for raw in actions:
         if time.monotonic() >= deadline:
             raise RuntimeError("Interaction deadline exhausted before completing action batch")
@@ -667,13 +674,13 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
         if kind == "keypress":
             if not keys:
                 raise ValueError("Empty keypress")
-            subprocess.run(["xdotool", "key", "--clearmodifiers", "+".join(keys)], check=True)
+            run_xdotool(["key", "--clearmodifiers", "+".join(keys)])
         elif kind == "type":
             validate_typed_text(action["text"])
-            gui.write(action["text"], interval=0.004)
+            run_xdotool(["type", "--clearmodifiers", "--delay", "4", "--", action["text"]])
         elif kind in {"click", "double_click", "drag", "move", "scroll"}:
             if keys:
-                subprocess.run(["xdotool", "keydown", *keys], check=True)
+                run_xdotool(["keydown", *keys])
             try:
                 if pointer_button and kind in {"move", "scroll"}:
                     raise ValueError("Mouse button tokens are only permitted for click or drag actions")
@@ -684,25 +691,33 @@ def execute_actions(actions: list, remaining: int, deadline: float) -> int:
                 if button not in {"left", "right", "middle"}:
                     raise ValueError("Unsupported mouse button")
                 if kind in {"click", "double_click"}:
-                    gui.click(action["x"], action["y"], clicks=2 if kind == "double_click" else 1, interval=0.12, button=button)
+                    move_pointer(action["x"], action["y"])
+                    command = ["click"]
+                    if kind == "double_click":
+                        command.extend(["--repeat", "2", "--delay", "120"])
+                    run_xdotool([*command, button_numbers[button]])
                 elif kind == "move":
-                    gui.moveTo(action["x"], action["y"])
+                    move_pointer(action["x"], action["y"])
                 elif kind == "scroll":
-                    gui.moveTo(action["x"], action["y"])
+                    move_pointer(action["x"], action["y"])
                     amount = action.get("scroll_y", 0)
-                    gui.scroll(-round(amount / 100) if abs(amount) >= 100 else -amount)
+                    clicks = round(amount / 100) if abs(amount) >= 100 else round(amount)
+                    if clicks:
+                        run_xdotool(["click", "--repeat", str(abs(clicks)),
+                                     "5" if clicks > 0 else "4"])
                 else:
                     path = action["path"]
-                    gui.moveTo(path[0]["x"], path[0]["y"])
-                    gui.mouseDown(button=button)
+                    move_pointer(path[0]["x"], path[0]["y"])
+                    run_xdotool(["mousedown", button_numbers[button]])
                     try:
                         for point in path[1:]:
-                            gui.moveTo(point["x"], point["y"], duration=0.08)
+                            move_pointer(point["x"], point["y"])
+                            time.sleep(0.08)
                     finally:
-                        gui.mouseUp(button=button)
+                        run_xdotool(["mouseup", button_numbers[button]])
             finally:
                 if keys:
-                    subprocess.run(["xdotool", "keyup", *keys], check=True)
+                    run_xdotool(["keyup", *keys])
         elif kind == "wait":
             time.sleep(min(action.get("ms", 1000) / 1000, 5, max(0, deadline - time.monotonic())))
         elif kind != "screenshot":
