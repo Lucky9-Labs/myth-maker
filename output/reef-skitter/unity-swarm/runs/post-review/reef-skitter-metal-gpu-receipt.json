@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "receiptKind": "metal-gpu-trace.v1",
+  "source": "/Users/lucky/.codex/worktrees/8fdf/myth-maker/output/reef-skitter/unity-swarm/runs/post-review/reef-skitter-metal-gpu-intervals.xml",
+  "evidenceHashes": {
+    "metalIntervalsSha256": "9eebbb1599f23da12f303a2cf4d15b00c69f8397fb65d29c864724ee8db2747e",
+    "benchmarkReceiptSha256": "b316b2c21422a66af0afa47c967b61f858d9d78b108a75dd68c531e05cfc1239",
+    "screenshotSha256": "502970d380c298d3cf0529e16e8c818e8e81d35126cf33a504493c3b7ff4f9b9"
+  },
+  "benchmark": {
+    "sourceSha256": "984eec1c52d4a8774f8beae3b794b3fa0f1805f41b7266c19fd2d62fad27d673",
+    "creaturesVisible": 400,
+    "submittedInstancedDrawCalls": 15,
+    "submittedBatchGroups": 15,
+    "perAgentAnimatorCount": 0,
+    "cpuMainThreadMsAverage": 1.5689387321472168,
+    "memoryAllocatedBytes": 113058153
+  },
+  "process": {
+    "name": "unity-dynamic-load",
+    "pid": 97374,
+    "traceRef": "108330"
+  },
+  "method": "Per GPU frame, span from earliest process-scoped Metal interval start to latest interval end; overlapping channel work is not double-counted.",
+  "eventCount": 52809,
+  "rawGpuFrames": 375,
+  "discardedProcessWarmupSeconds": 1,
+  "sampledGpuFrames": 320,
+  "gpuFrameMs": {
+    "average": 32.020320531250015,
+    "p50": 32.549958,
+    "p95": 44.859834,
+    "maximum": 527.779125,
+    "minimum": 9.006917
+  }
+}

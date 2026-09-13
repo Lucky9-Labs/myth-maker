@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="1" result="Passed" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.0275155">
+  <test-suite type="TestSuite" id="1000" name="unity-dynamic-load" fullname="unity-dynamic-load" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.027516" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties>
+      <property name="platform" value="EditMode" />
+    </properties>
+    <test-suite type="Assembly" id="1008" name="MythMaker.DynamicAssemblySpike.EditorTests.dll" fullname="/Users/lucky/.codex/worktrees/8fdf/myth-maker/spikes/unity-dynamic-load/Library/ScriptAssemblies/MythMaker.DynamicAssemblySpike.EditorTests.dll" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.024268" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="97121" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+        <property name="EditorOnly" value="True" />
+      </properties>
+      <test-suite type="TestSuite" id="1009" name="MythMaker" fullname="MythMaker" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.024054" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1010" name="DynamicAssemblySpike" fullname="MythMaker.DynamicAssemblySpike" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.023955" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1011" name="Tests" fullname="MythMaker.DynamicAssemblySpike.Tests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.023849" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestFixture" id="1006" name="ReefSkitterGlbRuntimeTests" fullname="MythMaker.DynamicAssemblySpike.Tests.ReefSkitterGlbRuntimeTests" classname="MythMaker.DynamicAssemblySpike.Tests.ReefSkitterGlbRuntimeTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.023454" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-case id="1007" name="LoadsRepresentativePartedSourceWithoutSegmentation" fullname="MythMaker.DynamicAssemblySpike.Tests.ReefSkitterGlbRuntimeTests.LoadsRepresentativePartedSourceWithoutSegmentation" methodname="LoadsRepresentativePartedSourceWithoutSegmentation" classname="MythMaker.DynamicAssemblySpike.Tests.ReefSkitterGlbRuntimeTests" runstate="Runnable" seed="562561260" result="Passed" start-time="2026-09-13 05:51:36Z" end-time="2026-09-13 05:51:36Z" duration="0.018614" asserts="0">
+                <properties>
+                  <property name="retryIteration" value="0" />
+                  <property name="repeatIteration" value="0" />
+                </properties>
+                <output><![CDATA[Saving results to: /Users/lucky/.codex/worktrees/8fdf/myth-maker/output/reef-skitter/unity-swarm/runs/post-review/editmode-results.xml
+]]></output>
+              </test-case>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

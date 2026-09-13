@@ -19,3 +19,11 @@ crash.log
 .build-room-state.json.next
 .local-blender-artifacts/
 .local-stress-artifacts/
+output/reef-skitter/unity-swarm/**/*.trace/
+output/reef-skitter/unity-swarm/**/*-gpu-intervals.xml
+output/reef-skitter/unity-swarm/**/*-toc.xml
+output/reef-skitter/unity-swarm/**/*.log
+output/reef-skitter/unity-swarm/editmode-results.xml
+output/reef-skitter/unity-swarm/metal-gpu-receipt.json
+output/reef-skitter/unity-swarm/metal-run/
+output/reef-skitter/unity-swarm/reef-skitter-swarm-benchmark.json
