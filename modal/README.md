@@ -143,12 +143,18 @@ disabled.
 
 ## Runtime boundary
 
-The function has a T4 GPU, 4 CPUs, 8 GiB memory, a 16-minute container timeout,
+The GUI authoring functions have a T4 GPU, 4 CPUs, 8 GiB memory, a 16-minute container timeout,
 a 12-minute interaction deadline, at most four containers, and zero function or
 API retries. It preserves the last valid checkpoint after a failure but does not
 provide a global coordinator, cross-release capacity limit, idempotent submission
 API, active-release pointer, or Unity importer. Build and validate those layers
 before treating it as a production service.
+
+The optional component-diffusion worker also uses the broadly available T4 tier.
+Keeping a restricted L40S/A100 declaration in this shared app prevents Modal from
+deploying the otherwise independent T4 animation functions on Starter workspaces.
+If diffusion later requires a larger accelerator, deploy it as a separate app so
+that its billing and hardware gates cannot disable the core animation service.
 
 `DRAFT_STATUS: READY_FOR_REVIEW` means only that the model requested additional
 inspection; it is not acceptance. Automated host validation must inspect the

@@ -82,6 +82,9 @@ class ModalDeployTest(unittest.TestCase):
     def test_component_diffusion_has_four_worker_capacity(self):
         source = (MODULE_PATH.parents[2] / "modal" / "draft_trial.py").read_text(encoding="utf-8")
         decorator = source.split("def run_component_diffusion_job", 1)[0].rsplit("@app.function", 1)[1]
+        self.assertIn('gpu="T4"', decorator)
+        self.assertNotIn("L40S", decorator)
+        self.assertNotIn("A100", decorator)
         self.assertIn("max_containers=4", decorator)
 
     def test_component_queue_reset_is_main_only_and_redeploys(self):
