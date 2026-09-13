@@ -33,10 +33,13 @@ the same guarded computer-action loop used by the Modal adapter. The trusted
 clip lanes concurrently, and serializes final Action integration/export/reimport.
 
 Every job hashes its immutable inputs and all native, preview, and Blender-window
-evidence before GitHub uploads one named workflow artifact. Clip jobs additionally
-capture 40 desktop frames at 8 fps while the Action is playing; those provider-
-hashed frames must show material pixel change before a five-second GIF is encoded.
-This path performs no Blender or rendering work on the dispatching workstation.
+evidence before GitHub uploads one named workflow artifact. The receipt is then
+sealed with GitHub's actual artifact ID, URL, and SHA-256 artifact digest. A
+read-only Blender reopen checks the exact mesh/rig/Action contract before upload.
+Clip jobs additionally capture 40 desktop frames at 8 fps while the Action is
+playing; at least half of adjacent pairs must show material pixel change in the
+central viewport before a five-second GIF is encoded. This path performs no
+Blender or rendering work on the dispatching workstation.
 
 ## Runtime representation
 

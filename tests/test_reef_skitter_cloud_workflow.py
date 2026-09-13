@@ -22,7 +22,17 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("--motion-capture-frames 40", text)
         self.assertIn("scripts/verify_cloud_gui_animation_artifacts.py", text)
         self.assertIn("scripts/verify_animation_motion.py", text)
+        self.assertEqual(text.count("scripts/inspect_blender_animation.py"), 3)
         self.assertIn("$job_root/$CLIP.gif", text)
+        self.assertEqual(text.count("scripts/seal_github_animation_receipt.py"), 3)
+        self.assertEqual(text.count("steps.upload-evidence.outputs.artifact-digest"), 3)
+
+    def test_reruns_resolve_the_latest_successful_dependency_attempt(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("scripts/resolve_github_animation_artifact.py rig-artifacts", text)
+        self.assertIn("scripts/resolve_github_animation_artifact.py clip-artifacts", text)
+        self.assertNotIn('name: reef-skitter-rig-${{ github.run_id }}-${{ github.run_attempt }}\n          path: rig-artifact', text)
 
 
 if __name__ == "__main__":

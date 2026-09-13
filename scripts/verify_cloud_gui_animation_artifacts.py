@@ -29,9 +29,15 @@ def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], fram
     provider = (receipt.get("worker_state") or {}).get("provider_receipt") or {}
     provider_name = provider.get("provider")
     trusted_provider = provider_name == "modal" or (
+        provider_name == "github-actions-runner"
+        and provider.get("repository") == "Lucky9-Labs/myth-maker"
+        and re.fullmatch(r"[a-f0-9]{40}", provider.get("source_sha", ""))
+    ) or (
         provider_name == "github-actions"
         and provider.get("repository") == "Lucky9-Labs/myth-maker"
         and re.fullmatch(r"[a-f0-9]{40}", provider.get("source_sha", ""))
+        and isinstance((provider.get("storage") or {}).get("artifact_id"), int)
+        and re.fullmatch(r"sha256:[a-f0-9]{64}", (provider.get("storage") or {}).get("artifact_digest", ""))
     )
     if not trusted_provider or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", order.get("work_id", "")):
         raise ValueError("not a provider-observed cloud GUI animation receipt")

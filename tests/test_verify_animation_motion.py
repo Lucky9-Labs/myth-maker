@@ -42,6 +42,23 @@ class AnimationMotionVerificationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "motion threshold"):
                 verify_motion(paths, minimum_frames=8, minimum_changed_fraction=.005)
 
+    def test_rejects_one_ui_like_change_followed_by_static_frames(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = []
+            for index in range(8):
+                path = root / f"frame-{index:03d}.png"
+                image = Image.new("RGB", (100, 80), "black")
+                if index > 0:
+                    for x in range(25, 45):
+                        for y in range(20, 40):
+                            image.putpixel((x, y), (0, 240, 220))
+                image.save(path)
+                paths.append(path)
+
+            with self.assertRaisesRegex(ValueError, "sustained motion"):
+                verify_motion(paths, minimum_frames=8, minimum_changed_fraction=.005)
+
 
 if __name__ == "__main__":
     unittest.main()

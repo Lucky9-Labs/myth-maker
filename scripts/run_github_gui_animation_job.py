@@ -115,7 +115,8 @@ def main() -> int:
     }
 
     receipt = lambda *, job_id, output_files, blender_frames: github_actions_artifact_receipt(
-        **context, artifact_name=args.artifact_name, job_id=job_id,
+        **context, artifact_name=args.artifact_name,
+        artifact_path_prefix=str(args.artifact_root.resolve().relative_to(workspace)), job_id=job_id,
         output_files=output_files, blender_frames=blender_frames,
     )
     execution = DraftExecution(
