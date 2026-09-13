@@ -181,7 +181,7 @@ def fetch_job(state: dict[str, Any], *, artifact_root: Path, environment: str) -
         raise RuntimeError("Modal evidence destination is unsafe or already exists")
     destination.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["modal", "volume", "get", "--env", environment, VOLUME_NAME, job_id, str(destination)],
+        ["modal", "volume", "get", "--env", environment, VOLUME_NAME, job_id, str(destination.parent)],
         check=True,
     )
     status = json.loads((destination / "status.json").read_text(encoding="utf-8"))
