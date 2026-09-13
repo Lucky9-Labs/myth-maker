@@ -27,9 +27,24 @@ def verify(receipt_path: Path, artifact_dir: Path, outputs: dict[str, str], fram
            *, allow_runner_receipt: bool = False) -> dict:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     order = receipt.get("work_order") or {}
-    provider = (receipt.get("worker_state") or {}).get("provider_receipt") or {}
+    state = receipt.get("worker_state") or {}
+    provider = state.get("provider_receipt") or {}
     provider_name = provider.get("provider")
-    trusted_provider = provider_name == "modal" or (
+    modal_job_id = state.get("job_id", "")
+    modal_prefix = f"modal-volume://myth-maker-encounter-submissions/{modal_job_id}/"
+    modal_artifacts = [*(provider.get("output_artifacts") or {}).values(),
+                       *(provider.get("blender_window_frames") or {}).values()]
+    trusted_provider = (
+        provider_name == "modal"
+        and re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", modal_job_id)
+        and provider.get("volume_name") == "myth-maker-encounter-submissions"
+        and provider.get("app_name") == "myth-maker-encounter-draft"
+        and provider.get("function_name") == "run_draft_from_volume_manifest"
+        and isinstance(provider.get("function_call_id"), str) and provider["function_call_id"]
+        and isinstance(provider.get("input_id"), str) and provider["input_id"]
+        and modal_artifacts
+        and all(str(item.get("uri", "")).startswith(modal_prefix) for item in modal_artifacts)
+    ) or (
         allow_runner_receipt and provider_name == "github-actions-runner"
         and provider.get("repository") == "Lucky9-Labs/myth-maker"
         and re.fullmatch(r"[a-f0-9]{40}", provider.get("source_sha", ""))

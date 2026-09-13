@@ -55,6 +55,31 @@ class ResolveGitHubAnimationJobRootTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("ready for review", result.stderr)
 
+    def test_resolves_a_provider_observed_modal_job(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            job = root / "jobs" / "draft-gui-reef-rig-42-run-77-a1"
+            job.mkdir(parents=True)
+            prefix = "modal-volume://myth-maker-encounter-submissions/" + job.name + "/"
+            receipt = root / "receipt.json"
+            receipt.write_text(json.dumps({"worker_state": {
+                "status": "ready_for_review", "job_id": job.name,
+                "provider_receipt": {
+                    "provider": "modal", "volume_name": "myth-maker-encounter-submissions",
+                    "app_name": "myth-maker-encounter-draft",
+                    "function_name": "run_draft_from_volume_manifest",
+                    "output_artifacts": {"reef-rig-42.blend": {"uri": prefix + "output/reef-rig-42.blend"}},
+                    "blender_window_frames": {"final": {"uri": prefix + "final-desktop.png"}},
+                },
+            }}))
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(receipt), str(root)],
+                check=True, capture_output=True, text=True,
+            )
+
+            self.assertEqual(Path(result.stdout.strip()), job.resolve())
+
 
 if __name__ == "__main__":
     unittest.main()

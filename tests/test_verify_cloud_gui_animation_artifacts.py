@@ -17,12 +17,18 @@ class CloudGuiAnimationArtifactVerificationTests(unittest.TestCase):
             native, final = b"BLENDER", b"png"
             (root / "native.blend").write_bytes(native)
             (root / "final.png").write_bytes(final)
-            metadata = lambda data: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(), "uri": "modal-volume://evidence"}
+            job_id = "draft-gui-reef-rig-run-1-a1"
+            metadata = lambda name, data: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                                           "uri": f"modal-volume://myth-maker-encounter-submissions/{job_id}/{name}"}
             receipt = root / "receipt.json"
             receipt.write_text(json.dumps({"work_order": {"work_id": "reef-rig"}, "worker_state": {
-                "provider_receipt": {"provider": "modal", "function_call_id": "fc-1",
-                    "output_artifacts": {"reef-rig.blend": metadata(native)},
-                    "blender_window_frames": {"final": metadata(final)}}}}))
+                "job_id": job_id, "provider_receipt": {
+                    "provider": "modal", "function_call_id": "fc-1", "input_id": "in-1",
+                    "volume_name": "myth-maker-encounter-submissions",
+                    "app_name": "myth-maker-encounter-draft",
+                    "function_name": "run_draft_from_volume_manifest",
+                    "output_artifacts": {"reef-rig.blend": metadata("output/reef-rig.blend", native)},
+                    "blender_window_frames": {"final": metadata("final-desktop.png", final)}}}}))
 
             result = verify(receipt, root, {"reef-rig.blend": "native.blend"}, {"final": "final.png"})
 

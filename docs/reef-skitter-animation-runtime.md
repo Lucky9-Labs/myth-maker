@@ -25,21 +25,23 @@ authoritative gameplay positions.
 
 ## Cloud GUI authoring
 
-`.github/workflows/reef-skitter-cloud-animation.yml` runs the entire authoring
-chain on GitHub-hosted Ubuntu workers. Each worker installs the checksum-pinned
-Blender 5.2.1 build plus Xvfb/Openbox, then drives the real Blender desktop with
-the same guarded computer-action loop used by the Modal adapter. The trusted
-`main` workflow creates the canonical rig first, runs at most four of the five
-clip lanes concurrently, and serializes final Action integration/export/reimport.
+`.github/workflows/reef-skitter-cloud-animation.yml` uses GitHub Actions only as
+the trusted controller. All GUI authoring, Blender saves/reopens, viewport
+playback, motion capture, integration, export, and reimport execute in the
+deployed `lakshya/dev` Modal app on T4 workers. The workflow requires an exact
+source-SHA deployment receipt before dispatch. It creates the canonical rig
+first, runs at most four of the five isolated Modal clip lanes concurrently,
+and serializes final Action integration/export/reimport in a separate Modal job.
 
-Every job hashes its immutable inputs and all native, preview, and Blender-window
-evidence before GitHub uploads one named workflow artifact. The receipt is then
-sealed with GitHub's actual artifact ID, URL, and SHA-256 artifact digest. A
-read-only Blender reopen checks the exact mesh/rig/Action contract before upload.
-Clip jobs additionally capture 40 desktop frames at 8 fps while the Action is
-playing; at least half of adjacent pairs must show material pixel change in the
-central viewport before a five-second GIF is encoded. This path performs no
-Blender or rendering work on the dispatching workstation.
+Every Modal worker hashes its immutable inputs and all native, preview, and
+Blender-window evidence into a provider receipt and private Volume paths. The
+controller downloads that exact job directory and verifies those hashes before
+GitHub stores a reviewer artifact. A read-only Blender inspection on the cloud
+CI runner checks the mesh/rig/Action contract; it is validation, not authoring.
+Clip jobs additionally capture 40 frames at 8 fps inside Modal while the Action
+is playing; at least half of adjacent pairs must show material pixel change in
+the central viewport before the cloud CI runner encodes a five-second GIF. This
+path performs no Blender, rendering, or benchmark work on the dispatching Mac.
 
 ## Runtime representation
 

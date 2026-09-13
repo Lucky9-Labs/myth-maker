@@ -232,11 +232,16 @@ workgraphs keep it false. Runtime credentials, spend limits, volume access, and
 GUI-output validation remains separate operational checks; the local example is not
 evidence that Modal is deployable or that a Blender candidate is accepted.
 
-The deployed Railway bridge uses `ModalVolumeDraftBackend` instead. It passes a
-small closed manifest to `run_draft_from_volume_manifest`, which loads four
-references plus one source asset from the private Modal Volume and verifies every recorded byte length and
-SHA-256 before entering the same GUI-only draft implementation. The checked-in
-Kraken manifest is demo data; the manifest schema remains encounter-generic.
+The deployed Railway bridge and the Reef Skitter animation workflow use
+`ModalVolumeDraftBackend`/`run_cloud_gui_animation_job.py`. They pass a small
+closed manifest to `run_draft_from_volume_manifest`, which loads hash-pinned
+inputs from the private Modal Volume and verifies every recorded byte length and
+SHA-256 before entering the same GUI-only draft implementation. Animation work
+orders also bind the GitHub run scope, continuation number, optional immutable
+checkpoint, and requested motion-capture frame count. Every continuation gets a
+new provider job directory; the controller downloads the final provider-owned
+directory only after Modal returns its identity. The checked-in Kraken manifest
+is demo data; the manifest schema remains encounter-generic.
 
 ## Automated-policy GLB importer sidecar
 
