@@ -82,10 +82,34 @@ def reset_gui_client_modules() -> None:
             sys.modules.pop(name, None)
 
 
+def stage_resume_job(*, source: Path, submissions_root: Path, part: str,
+                     expected_input_hashes: dict[str, dict]) -> tuple[str, str]:
+    source = source.resolve()
+    if not source.is_dir() or not re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", source.name):
+        raise ValueError("resume job directory is invalid")
+    state = json.loads((source / "status.json").read_text(encoding="utf-8"))
+    pointer = json.loads((source / "checkpoint-latest.json").read_text(encoding="utf-8"))
+    checkpoint_id = pointer.get("checkpoint_id", "")
+    package = source / "checkpoints" / checkpoint_id
+    manifest = json.loads((package / "checkpoint.json").read_text(encoding="utf-8"))
+    if (state.get("part") != part or manifest.get("schema_version") != 2
+            or manifest.get("part") != part or manifest.get("checkpoint_id") != checkpoint_id
+            or not continuation_available({"status": state.get("status"), "checkpoint_id": checkpoint_id})):
+        raise ValueError("resume checkpoint does not match the requested part")
+    files = manifest.get("files") or {}
+    for name, expected in expected_input_hashes.items():
+        if files.get("inputs/" + name) != expected:
+            raise ValueError("resume checkpoint input hash mismatch: " + name)
+    submissions_root.mkdir(parents=True, exist_ok=False)
+    destination = submissions_root / source.name
+    shutil.copytree(source, destination, symlinks=False)
+    return source.name, checkpoint_id
+
+
 def prepare_continuation(*, state: dict, previous_job_id: str,
                          inputs_dir: Path, output_link: Path) -> tuple[str, str]:
-    if state.get("status") != "checkpointed_partial":
-        raise ValueError("only a checkpointed partial can continue")
+    if not continuation_available(state):
+        raise ValueError("only a resumable immutable checkpoint can continue")
     checkpoint_id = state.get("checkpoint_id", "")
     if not re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", checkpoint_id):
         raise ValueError("continuation requires a valid immutable checkpoint")
@@ -109,6 +133,7 @@ def main() -> int:
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--motion-capture-frames", type=int, default=0)
     parser.add_argument("--max-continuations", type=int, default=2)
+    parser.add_argument("--resume-job-dir", type=Path)
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -124,14 +149,27 @@ def main() -> int:
 
     workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
     paths = worker_paths(workspace=workspace, artifact_root=args.artifact_root)
-    paths["submissions_root"].mkdir(parents=True, exist_ok=False)
     if paths["inputs_dir"].exists() or paths["output_link"].exists() or paths["output_link"].is_symlink():
         raise RuntimeError("isolated Blender input/output aliases already exist")
 
     inputs = collect_inputs(args.input)
     input_bytes = {name: data for name, (_, data) in inputs.items()}
+    input_hashes = {
+        name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        for name, data in sorted(input_bytes.items())
+    }
+    if args.resume_job_dir:
+        resume_job, checkpoint_id = stage_resume_job(
+            source=args.resume_job_dir, submissions_root=paths["submissions_root"],
+            part=args.work_id, expected_input_hashes=input_hashes,
+        )
+    else:
+        paths["submissions_root"].mkdir(parents=True, exist_ok=False)
+        resume_job, checkpoint_id = "", ""
     order = build_work_order(args.work_id, args.lane, args.instruction, attempt=args.attempt)
     job_id = f"draft-gui-{args.work_id}-a{args.attempt}"
+    if resume_job == job_id:
+        job_id = continuation_job_id(job_id, 1)
     approved_at = datetime.now(timezone.utc)
     provenance = {
         "source_sha": context["source_sha"],
@@ -141,10 +179,7 @@ def main() -> int:
             "lane": args.lane,
             "geometry_and_animation_authoring": "visible Blender GUI only",
             "output_owner": args.work_id,
-            "input_files": {
-                name: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-                for name, data in sorted(input_bytes.items())
-            },
+            "input_files": input_hashes,
         },
         "concept_first_lineage": {
             "kind": "reuse_maintenance_waiver",
@@ -177,11 +212,9 @@ def main() -> int:
     state = {}
     states = []
     current_job_id = job_id
-    resume_job = ""
-    checkpoint_id = ""
     for continuation in range(args.max_continuations + 1):
         state = _run_draft(
-            current_job_id, input_bytes if continuation == 0 else {}, deepcopy(provenance),
+            current_job_id, input_bytes if continuation == 0 and not resume_job else {}, deepcopy(provenance),
             args.work_id, resume_job=resume_job, checkpoint_id=checkpoint_id,
             feedback=args.instruction,
             function_call_id=f"github-actions:{context['run_id']}:{context['run_attempt']}:{context['job_name']}",

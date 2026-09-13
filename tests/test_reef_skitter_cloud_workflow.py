@@ -45,10 +45,20 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
     def test_each_stage_resolves_the_actual_final_continuation_job(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertEqual(text.count("scripts/resolve_github_animation_job_root.py"), 3)
+        self.assertEqual(text.count("scripts/resolve_github_animation_job_root.py"), 5)
         self.assertNotIn('job_root="evidence/rig/jobs/draft-gui-$rig_id-a$GITHUB_RUN_ATTEMPT"', text)
         self.assertNotIn('job_root="evidence/$CLIP/jobs/draft-gui-$clip_id-a$GITHUB_RUN_ATTEMPT"', text)
         self.assertNotIn('job_root="evidence/final/jobs/draft-gui-$integration_id-a$GITHUB_RUN_ATTEMPT"', text)
+
+    def test_rig_can_resume_a_prior_cloud_artifact_without_local_blender(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("rig_seed_run_id:", text)
+        self.assertIn("run-id: ${{ inputs.rig_seed_run_id }}", text)
+        self.assertIn("--resume-job-dir", text)
+        self.assertIn("scripts/resolve_github_animation_resume.py", text)
+        self.assertIn("rig-id: ${{ steps.author.outputs.rig-id }}", text)
+        self.assertIn('rig_id="${{ needs.rig.outputs.rig-id }}"', text)
 
 
 if __name__ == "__main__":

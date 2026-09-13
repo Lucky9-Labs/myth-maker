@@ -10,6 +10,7 @@ from run_github_gui_animation_job import (
     continuation_job_id,
     prepare_continuation,
     reset_gui_client_modules,
+    stage_resume_job,
     trusted_context,
     worker_paths,
 )
@@ -98,6 +99,27 @@ class GitHubGuiAnimationJobTests(unittest.TestCase):
         self.assertNotIn("pyautogui", sys.modules)
         self.assertNotIn("pyautogui._pyautogui_x11", sys.modules)
         self.assertNotIn("mouseinfo", sys.modules)
+
+    def test_stages_a_cross_run_checkpoint_only_when_inputs_match(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "downloaded" / "draft-gui-reef-rig-42-a1-c1"
+            checkpoint = source / "checkpoints" / "cp-0002-abcdef123456"
+            checkpoint.mkdir(parents=True)
+            (source / "status.json").write_text('{"status":"failed","part":"reef-rig-42"}')
+            (source / "checkpoint-latest.json").write_text('{"checkpoint_id":"cp-0002-abcdef123456"}')
+            (checkpoint / "checkpoint.json").write_text('{"schema_version":2,"part":"reef-rig-42","native_name":"reef-rig-42.blend","checkpoint_id":"cp-0002-abcdef123456","files":{"inputs/source_asset.glb":{"sha256":"' + ('a' * 64) + '","bytes":3}}}')
+            destination = root / "evidence" / "rig" / "jobs"
+
+            job_id, checkpoint_id = stage_resume_job(
+                source=source, submissions_root=destination,
+                part="reef-rig-42",
+                expected_input_hashes={"source_asset.glb": {"sha256": "a" * 64, "bytes": 3}},
+            )
+
+            self.assertEqual(job_id, source.name)
+            self.assertEqual(checkpoint_id, "cp-0002-abcdef123456")
+            self.assertTrue((destination / source.name / "status.json").is_file())
 
 
 if __name__ == "__main__":
