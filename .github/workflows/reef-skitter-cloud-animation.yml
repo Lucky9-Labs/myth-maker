@@ -78,7 +78,7 @@ jobs:
           "$pythonLocation/bin/python3" scripts/run_cloud_gui_animation_job.py \
             --environment dev --project-id reef-skitter-animation --run-scope "run-${GITHUB_RUN_ID}" \
             --work-id "$rig_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-rig \
-            --deployment-receipt deployment-receipt/receipts/modal-dev.json \
+            --deployment-receipt deployment-receipt/modal-dev.json \
             --artifact-root evidence/rig --max-continuations 2 "${resume_args[@]}" \
             --instruction "Import the immutable Reef Skitter GLB through the visible Blender GUI. Preserve all 15 provider-authored mesh parts and materials without segmentation. Determine the source-derived locomotor limb count from the visible geometry before finalizing the rigid-part rig. Do not invent missing limbs. The hash-bound source inspection establishes that tripo_part_6 has two welded disconnected regions: a 644-triangle region centered near (-0.113,0.141,0.056) and a 334-triangle region centered near (-0.224,0.189,-0.064). Isolate and classify both regions visibly. If they need different bones, assign them with vertex groups without splitting the provider object. Bind every actual locomotor limb and articulated appendage, pose-test each independently, return to a neutral rest pose, and save through the GUI. A bone moving without its intended mesh is a blocking binding defect: identify the intended provider mesh or disconnected rigid region using the visible geometry, repair the binding before continuing the audit, and retest it in motion. An unreadable reference pane is not a blocker; use the visible creature geometry and existing verified bindings while preserving meshes and materials. Reopen that saved native through File > Open, verify the rig and all bindings survived, and leave the rig and Outliner visible as final evidence. Do not author animation clips. End READY_FOR_REVIEW only after save and reopen succeed." \
             --input "source_asset.glb=$REEF_SOURCE" \
@@ -166,7 +166,7 @@ jobs:
           "$pythonLocation/bin/python3" scripts/run_cloud_gui_animation_job.py \
             --environment dev --project-id reef-skitter-animation --run-scope "run-${GITHUB_RUN_ID}" \
             --work-id "$clip_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-clip \
-            --deployment-receipt deployment-receipt/receipts/modal-dev.json \
+            --deployment-receipt deployment-receipt/modal-dev.json \
             --artifact-root "evidence/$CLIP" --motion-capture-frames 40 --max-continuations 2 \
             --instruction "Open the canonical Reef Skitter rig through Blender's visible GUI. $CLIP_INSTRUCTION Preserve the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Save and reopen through the GUI, inspect the Action at start, middle, and end, then leave the Action playing in the viewport before ending READY_FOR_REVIEW. Do not use Python or scripts." \
             --input "source_scene.blend=$source_scene" \
@@ -262,7 +262,7 @@ jobs:
           "$pythonLocation/bin/python3" scripts/run_cloud_gui_animation_job.py \
             --environment dev --project-id reef-skitter-animation --run-scope "run-${GITHUB_RUN_ID}" \
             --work-id "$integration_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-integration \
-            --deployment-receipt deployment-receipt/receipts/modal-dev.json \
+            --deployment-receipt deployment-receipt/modal-dev.json \
             --artifact-root evidence/final --max-continuations 2 \
             --instruction "Open the immutable canonical rig through Blender's visible GUI. Append only the Action from each of the five immutable dependency blend files. Reject any dependency that changes the rig, mesh bindings, materials, or rest pose. The exact Action set must be idle, walk, run, attack, death. Reopen the saved integrated blend through the GUI, inspect and play representative start/middle/end frames of every Action, then export an animated GLB through File > Export > glTF 2.0 to /output/reef-skitter-animation-integrated.glb. Start a fresh Blender scene, reimport that GLB through File > Import > glTF 2.0, verify the five Actions and all 15 mesh parts remain present, then save the integrated native through the GUI and finish READY_FOR_REVIEW. Do not use Python or scripts." \
             --input "source_scene.blend=$source_scene" "${args[@]}" \
