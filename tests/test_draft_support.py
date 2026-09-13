@@ -177,6 +177,16 @@ class DraftPolicyTests(unittest.TestCase):
             text,
         )
 
+    def test_budget_checkpoint_does_not_force_a_new_save_after_verification(self):
+        text = (MODAL_DIR / "draft_trial.py").read_text()
+
+        self.assertIn(
+            "If this pass only verified an already saved native and made no changes, do not save again.",
+            text,
+        )
+        self.assertIn("End with READY_FOR_REVIEW only if every requested check is verified", text)
+        self.assertNotIn("end with DRAFT_STATUS: PARTIAL plus the handoff", text)
+
     def test_blender_archive_is_verified_before_it_can_cross_a_builder_step(self):
         text = (MODAL_DIR / "install_blender.sh").read_text()
         download = "curl --fail --location --retry 3 --retry-all-errors --silent --show-error"
