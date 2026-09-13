@@ -14,6 +14,8 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("max-parallel: 4", text)
         self.assertEqual(text.count("MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}"), 3)
         self.assertEqual(text.count("deployment-receipt-modal-dev-${{ github.sha }}"), 3)
+        self.assertEqual(text.count("--deployment-receipt deployment-receipt/modal-dev.json"), 3)
+        self.assertNotIn("deployment-receipt/receipts/modal-dev.json", text)
         self.assertNotIn("OPENAI_API_KEY", text)
 
     def test_all_five_actions_have_provider_hashed_motion_capture(self):
