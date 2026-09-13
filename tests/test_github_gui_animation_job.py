@@ -9,6 +9,7 @@ from run_github_gui_animation_job import (
     continuation_available,
     continuation_job_id,
     prepare_continuation,
+    reset_gui_client_modules,
     trusted_context,
     worker_paths,
 )
@@ -80,6 +81,23 @@ class GitHubGuiAnimationJobTests(unittest.TestCase):
             "status": "checkpointed_partial",
             "checkpoint_id": "cp-0024-abcdef123456",
         }))
+        self.assertTrue(continuation_available({
+            "status": "failed",
+            "stop_reason": "runtime_error",
+            "checkpoint_id": "cp-0002-abcdef123456",
+        }))
+
+    def test_continuation_drops_the_stale_x11_gui_client(self):
+        sentinel = object()
+        sys.modules["pyautogui"] = sentinel
+        sys.modules["pyautogui._pyautogui_x11"] = sentinel
+        sys.modules["mouseinfo"] = sentinel
+
+        reset_gui_client_modules()
+
+        self.assertNotIn("pyautogui", sys.modules)
+        self.assertNotIn("pyautogui._pyautogui_x11", sys.modules)
+        self.assertNotIn("mouseinfo", sys.modules)
 
 
 if __name__ == "__main__":

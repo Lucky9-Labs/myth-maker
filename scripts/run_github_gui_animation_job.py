@@ -70,9 +70,16 @@ def continuation_job_id(base_job_id: str, continuation: int) -> str:
 
 def continuation_available(state: dict) -> bool:
     return (
-        state.get("status") == "checkpointed_partial"
-        and bool(re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", state.get("checkpoint_id", "")))
+        state.get("status") in {"checkpointed_partial", "failed"}
+        and bool(re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", state.get("checkpoint_id") or ""))
     )
+
+
+def reset_gui_client_modules() -> None:
+    """Drop X11 clients whose cached connection belonged to the prior Xvfb."""
+    for name in tuple(sys.modules):
+        if name == "mouseinfo" or name == "pyautogui" or name.startswith("pyautogui."):
+            sys.modules.pop(name, None)
 
 
 def prepare_continuation(*, state: dict, previous_job_id: str,
@@ -88,6 +95,7 @@ def prepare_continuation(*, state: dict, previous_job_id: str,
         output_link.unlink()
     elif output_link.exists():
         raise ValueError("continuation output alias is not a symlink")
+    reset_gui_client_modules()
     return previous_job_id, checkpoint_id
 
 
