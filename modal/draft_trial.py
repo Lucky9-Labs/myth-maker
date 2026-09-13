@@ -39,7 +39,7 @@ from component_native_cache import run_component_native_cache, validate_componen
 from pure_component_assembly import run_pure_component_assembly, validate_pure_component_assembly_job
 from component_coordinator import run_component_coordinator, validate_component_coordinator_job
 from agentic_stitch import run_agentic_stitch, validate_agentic_stitch_job
-from cloud_draft_execution import DraftExecution
+from cloud_draft_execution import DraftExecution, reset_process_local_aliases
 
 RUNTIME = runtime()
 app = modal.App(RUNTIME.app_name)
@@ -866,6 +866,7 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
             }
     validate_input_names(inputs, resuming=bool(resume))
     validate_input_aliases(inputs, input_aliases if resume else {})
+    reset_process_local_aliases(execution)
     root = execution.submissions_root / job_id
     root.mkdir(exist_ok=False)
     reference_dir = execution.inputs_dir

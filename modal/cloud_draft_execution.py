@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from copy import deepcopy
 from pathlib import Path
 import re
+import shutil
 from typing import Callable
 from urllib.parse import quote
 
@@ -34,6 +35,25 @@ class DraftExecution:
         if (not isinstance(self.motion_capture_frames, int) or self.motion_capture_frames < 0
                 or not isinstance(self.motion_capture_fps, int) or not 1 <= self.motion_capture_fps <= 30):
             raise ValueError("invalid motion capture configuration")
+
+
+def reset_process_local_aliases(execution: DraftExecution) -> None:
+    """Clear only this worker's disposable /inputs and /output aliases.
+
+    Modal may reuse a container for sequential calls. Durable job data lives
+    under ``submissions_root``; these aliases are process-local conveniences
+    and must never be mistaken for ownership left by another live job.
+    """
+    inputs = execution.inputs_dir
+    if inputs.is_symlink() or (inputs.exists() and not inputs.is_dir()):
+        raise RuntimeError("Blender input alias is not a disposable directory")
+    if inputs.is_dir():
+        shutil.rmtree(inputs)
+    output = execution.output_link
+    if output.is_symlink():
+        output.unlink()
+    elif output.exists():
+        raise RuntimeError("Blender output alias is not a disposable symlink")
 
 
 def github_actions_artifact_receipt(*, repository: str, source_sha: str,
