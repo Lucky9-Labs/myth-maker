@@ -1,6 +1,7 @@
 import ast
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from draft_support import (KEY_ALIASES, blender_launch_args, budget_phase,
                            classify_model_stop, native_name, normalize_keys,
                            normalize_pointer_keys, render_prompt,
                            finalize_terminal_state, pinned_worker_contract, validate_input_names,
-                           validate_typed_text)
+                           validate_typed_text, wall_clock_call)
 
 
 INPUTS = {name: b"reference" for name in (
@@ -19,6 +20,11 @@ INPUTS = {name: b"reference" for name in (
 
 
 class DraftPolicyTests(unittest.TestCase):
+    def test_model_call_has_a_real_wall_clock_deadline(self):
+        self.assertEqual(wall_clock_call(lambda: "done", 0.1), "done")
+        with self.assertRaisesRegex(TimeoutError, "wall-clock timeout"):
+            wall_clock_call(lambda: time.sleep(0.1), 0.01)
+
     def test_terminal_state_keeps_the_original_error_when_receipt_cleanup_fails(self):
         state = {"status": "failed", "stop_reason": "runtime_error", "error": "provider authentication failed"}
 

@@ -20,7 +20,7 @@ import modal
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, "/opt")
-from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need
+from draft_support import blender_launch_args, budget_phase, classify_model_stop, finalize_terminal_state, incremental_evidence_ready, incremental_gain_reached, incremental_score_threshold_reached, incremental_target, incremental_turn_plan, normalize_keys, normalize_pointer_keys, parse_incremental_rating, read_incremental_response, record_incremental_rating, validate_input_aliases, validate_input_names, validate_typed_text, native_name, pinned_worker_contract, render_prompt, validate_cloud_need, wall_clock_call
 from draft_checkpoints import CheckpointStore, load_resume, load_terminal_artifact, modal_volume_receipt, read_stable, sha256, validate_native, write_json_atomic
 from desktop_readiness import configure_isolated_x11, prepare_isolated_x11_runtime, terminal_failure, wait_for_desktop
 from deterministic_encounter import MATERIAL_NAMES, recipe_digest, validate_recipe
@@ -1055,7 +1055,10 @@ def _run_draft(job_id: str, inputs: dict[str, bytes], provenance: dict, part: st
                       "timeout": min(180, max(1, remaining_seconds))}
             if previous:
                 kwargs["previous_response_id"] = previous
-            response = client.responses.create(**kwargs)
+            response = wall_clock_call(
+                lambda: client.responses.create(**kwargs),
+                min(180, max(1, remaining_seconds)),
+            )
             state["turns"] += 1
             state["input_tokens"] += response.usage.input_tokens if response.usage else 0
             state["output_tokens"] += response.usage.output_tokens if response.usage else 0

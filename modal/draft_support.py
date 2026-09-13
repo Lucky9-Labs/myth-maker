@@ -3,6 +3,34 @@ from __future__ import annotations
 
 import re
 import json
+import signal
+import threading
+import time
+
+
+def wall_clock_call(call, timeout_seconds: float):
+    """Enforce an elapsed-time deadline even when a client receives keepalives."""
+    if not callable(call) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
+        raise ValueError("wall-clock call needs a callable and positive timeout")
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("wall-clock call must run on the worker main thread")
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+
+    def expired(_signum, _frame):
+        raise TimeoutError("Model response exceeded its wall-clock timeout")
+
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        return call()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if previous_timer[0] > 0:
+            elapsed = time.monotonic() - started
+            signal.setitimer(signal.ITIMER_REAL, max(0.000001, previous_timer[0] - elapsed), previous_timer[1])
 
 
 def pinned_worker_contract(provenance: dict) -> str:
