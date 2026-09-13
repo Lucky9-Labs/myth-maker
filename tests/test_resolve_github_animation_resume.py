@@ -103,6 +103,35 @@ class ResolveGitHubAnimationResumeTests(unittest.TestCase):
             self.assertEqual(resolved["checkpoint_id"], checkpoint_id)
             self.assertEqual(resolved["job_dir"], "")
 
+    def test_resolves_a_same_clip_modal_checkpoint_and_preserves_its_work_id(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = Path(temporary) / "reef-skitter-clip-idle-91-1"
+            job_id = "draft-gui-reef-idle-77-run-91-a1-c2"
+            checkpoint_id = "cp-0017-abcdef123456"
+            receipt = artifact / "receipts" / "reef-skitter-clip-idle.json"
+            receipt.parent.mkdir(parents=True)
+            receipt.write_text(json.dumps({
+                "work_order": {"work_id": "reef-idle-77"},
+                "worker_state": {
+                    "status": "checkpointed_partial", "part": "reef-idle-77",
+                    "job_id": job_id, "checkpoint_id": checkpoint_id,
+                    "provider_receipt": {
+                        "provider": "modal", "volume_name": "myth-maker-encounter-submissions",
+                        "app_name": "myth-maker-encounter-draft",
+                        "function_name": "run_draft_from_volume_manifest",
+                    },
+                },
+            }))
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(artifact), "91", "--clip", "idle"],
+                check=True, capture_output=True, text=True,
+            )
+            resolved = json.loads(result.stdout)
+
+            self.assertEqual(resolved["work_id"], "reef-idle-77")
+            self.assertEqual(resolved["provider"], "modal")
+
 
 if __name__ == "__main__":
     unittest.main()

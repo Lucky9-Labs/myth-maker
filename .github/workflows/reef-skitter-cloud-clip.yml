@@ -1,0 +1,161 @@
+name: Reef Skitter cloud GUI single clip
+
+on:
+  workflow_dispatch:
+    inputs:
+      modal_deployment_run_id:
+        description: Successful main deployment run containing the hash-matched Modal deployment receipt
+        required: true
+        type: string
+      source_animation_run_id:
+        description: Prior animation run containing the accepted Reef Skitter rig artifact
+        required: true
+        type: string
+      clip:
+        description: One Reef Skitter clip to author or retry
+        required: true
+        type: choice
+        options:
+          - idle
+          - walk
+          - run
+          - attack
+          - death
+      clip_seed_run_id:
+        description: Optional prior run containing a resumable artifact for the selected clip
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  REEF_REFERENCE: assets/reef-skitter/references/swarm-overview.png
+  REEF_REFERENCE_SHA256: 9e056f73266acd2a3abd3923e3cc5df9d8dac9eb8641d8e4fce53b7338d46ed5
+
+jobs:
+  author-clip:
+    runs-on: ubuntu-24.04
+    environment: dev
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install the pinned Modal control-plane client
+        run: python3 -m pip install --disable-pip-version-check 'modal==1.5.5'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.modal_deployment_run_id }}
+          pattern: deployment-receipt-modal-dev-${{ github.sha }}
+          path: deployment-receipt
+          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_animation_run_id }}
+          pattern: reef-skitter-rig-${{ inputs.source_animation_run_id }}-*
+          path: rig-artifacts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: inputs.clip_seed_run_id != ''
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.clip_seed_run_id }}
+          pattern: reef-skitter-clip-${{ inputs.clip }}-${{ inputs.clip_seed_run_id }}-*
+          path: clip-seed-artifacts
+      - uses: ./.github/actions/setup-blender-gui
+      - name: Author, reopen, play, and capture one isolated clip on Modal
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          SOURCE_ANIMATION_RUN_ID: ${{ inputs.source_animation_run_id }}
+          CLIP: ${{ inputs.clip }}
+          CLIP_SEED_RUN_ID: ${{ inputs.clip_seed_run_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_ANIMATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          printf '%s  %s\n' "$REEF_REFERENCE_SHA256" "$REEF_REFERENCE" | sha256sum --check --strict
+          case "$CLIP" in
+            idle) clip_instruction="Author only an in-place looping idle Action named idle. Make breathing, feeler, and subtle leg motion readable." ;;
+            walk) clip_instruction="Author only an in-place looping scuttle Action named walk. Use a stable alternating contact pattern appropriate to the source-derived locomotor limb count and no root translation." ;;
+            run) clip_instruction="Author only an in-place looping fast scuttle Action named run, using the source-derived locomotor limb count. Direct access to the walk Action is unavailable by design, so a direct visual comparison is not required. Use objective acceptance: create a 12-frame loop with faster cadence and stronger body compression than the 24-frame walk specification, and preserve the root transform with no translation." ;;
+            attack) clip_instruction="Author only a non-looping in-place pounce/strike Action named attack, with clear anticipation, contact, and recovery and idle-compatible endpoints." ;;
+            death) clip_instruction="Author only a non-looping in-place death-curl Action named death, ending in a stable terminal curled pose with no recovery." ;;
+            *) echo "Unsupported Reef Skitter clip: $CLIP" >&2; exit 2 ;;
+          esac
+          rig_artifact="$(python3 scripts/resolve_github_animation_artifact.py rig-artifacts "reef-skitter-rig-$SOURCE_ANIMATION_RUN_ID")"
+          rig_receipt="$rig_artifact/receipts/reef-skitter-rig.json"
+          rig_id="$(python3 scripts/resolve_github_animation_work_id.py "$rig_receipt" --prefix reef-rig-)"
+          rig_root="$(python3 scripts/resolve_github_animation_job_root.py "$rig_receipt" "$rig_artifact/evidence/rig")"
+          source_scene="$rig_root/output/$rig_id.blend"
+          test -s "$source_scene"
+          python3 scripts/verify_cloud_gui_animation_artifacts.py \
+            --receipt "$rig_receipt" --artifact-dir "$rig_root" \
+            --output "$rig_id.blend=output/$rig_id.blend" \
+            --output "${rig_id}_preview.png=output/${rig_id}_preview.png" \
+            --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png
+          clip_id="reef-${CLIP}-${GITHUB_RUN_ID}"
+          resume_args=()
+          if [[ -n "$CLIP_SEED_RUN_ID" ]]; then
+            [[ "$CLIP_SEED_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+            seed_artifact="$(python3 scripts/resolve_github_animation_artifact.py clip-seed-artifacts "reef-skitter-clip-$CLIP-$CLIP_SEED_RUN_ID")"
+            clip_id="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$CLIP_SEED_RUN_ID" --clip "$CLIP" --field work-id)"
+            seed_provider="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$CLIP_SEED_RUN_ID" --clip "$CLIP" --field provider)"
+            if [[ "$seed_provider" == modal ]]; then
+              seed_job_id="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$CLIP_SEED_RUN_ID" --clip "$CLIP" --field job-id)"
+              seed_checkpoint_id="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$CLIP_SEED_RUN_ID" --clip "$CLIP" --field checkpoint-id)"
+              resume_args+=(--resume-modal-job-id "$seed_job_id" --resume-modal-checkpoint-id "$seed_checkpoint_id")
+            else
+              seed_job_dir="$(python3 scripts/resolve_github_animation_resume.py "$seed_artifact" "$CLIP_SEED_RUN_ID" --clip "$CLIP" --field job-dir)"
+              resume_args+=(--resume-job-dir "$seed_job_dir")
+            fi
+          fi
+          "$pythonLocation/bin/python3" scripts/run_cloud_gui_animation_job.py \
+            --environment dev --project-id reef-skitter-animation --run-scope "run-${GITHUB_RUN_ID}" \
+            --work-id "$clip_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-clip \
+            --deployment-receipt deployment-receipt/modal-dev.json \
+            --artifact-root "evidence/$CLIP" --motion-capture-frames 40 --max-continuations 2 "${resume_args[@]}" \
+            --instruction "Open the canonical Reef Skitter rig through Blender's visible GUI. Remove every inherited empty or source Action through the visible Blender GUI and leave exactly the selected target Action named $CLIP. $clip_instruction Preserve the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Save and reopen through the GUI, verify that exactly the $CLIP Action remains, inspect it at start, middle, and end, then leave it playing in the viewport before ending READY_FOR_REVIEW. Do not use Python or scripts." \
+            --input "source_scene.blend=$source_scene" \
+            --input "structure_reference.png=$REEF_REFERENCE" \
+            --input "component_reference.png=$REEF_REFERENCE" \
+            --input "primary_artwork.png=$REEF_REFERENCE" \
+            --input "concept_reference.png=$REEF_REFERENCE" \
+            --output "receipts/reef-skitter-clip-$CLIP.json"
+          job_root="$(python3 scripts/resolve_github_animation_job_root.py "receipts/reef-skitter-clip-$CLIP.json" "evidence/$CLIP")"
+          blender --background "$job_root/output/$clip_id.blend" --python scripts/inspect_blender_animation.py -- \
+            --stage clip --expected-clip "$CLIP" --output "$job_root/blender-inspection.json"
+          verify_args=()
+          for raw_index in $(seq 0 39); do
+            index="$(printf '%03d' "$raw_index")"
+            verify_args+=(--frame "motion-$index=motion/frame-$index.png")
+          done
+          python3 scripts/verify_cloud_gui_animation_artifacts.py \
+            --receipt "receipts/reef-skitter-clip-$CLIP.json" --artifact-dir "$job_root" \
+            --output "$clip_id.blend=output/$clip_id.blend" \
+            --output "${clip_id}_preview.png=output/${clip_id}_preview.png" \
+            --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png \
+            "${verify_args[@]}"
+          python3 scripts/verify_animation_motion.py --frame-dir "$job_root/motion" --minimum-frames 40 \
+            --output "$job_root/motion-verification.json"
+          ffmpeg -hide_banner -loglevel error -y -framerate 8 -i "$job_root/motion/frame-%03d.png" -t 5 \
+            -vf "fps=8,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" \
+            "$job_root/$CLIP.gif"
+          test -s "$job_root/$CLIP.gif"
+      - id: upload-evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && hashFiles(format('receipts/reef-skitter-clip-{0}.json', inputs.clip)) != ''
+        with:
+          name: reef-skitter-clip-${{ inputs.clip }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            receipts/reef-skitter-clip-${{ inputs.clip }}.json
+            evidence/${{ inputs.clip }}/
+          if-no-files-found: error
+          retention-days: 30
