@@ -99,7 +99,7 @@ class CloudGuiAnimationJobTests(unittest.TestCase):
             }}
 
             def download(command, check):
-                destination = Path(command[-1])
+                destination = Path(command[-1]) / job_id
                 destination.mkdir(parents=True)
                 (destination / "status.json").write_text(
                     '{"job_id":"' + job_id + '","part":"reef-idle-42"}'
@@ -110,6 +110,7 @@ class CloudGuiAnimationJobTests(unittest.TestCase):
 
             self.assertEqual(destination, (root / "jobs" / job_id).resolve())
             self.assertEqual(run.call_args.args[0][0:5], ["modal", "volume", "get", "--env", "dev"])
+            self.assertEqual(Path(run.call_args.args[0][-1]), (root / "jobs").resolve())
 
     def test_stages_a_legacy_checkpoint_under_a_run_scoped_immutable_alias(self):
         with tempfile.TemporaryDirectory() as temporary:
