@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 
 
@@ -58,6 +59,31 @@ def worker_paths(*, workspace: Path, artifact_root: Path) -> dict[str, Path]:
     }
 
 
+def continuation_job_id(base_job_id: str, continuation: int) -> str:
+    if continuation < 1:
+        raise ValueError("continuation number must be positive")
+    candidate = f"{base_job_id}-c{continuation}"
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", candidate):
+        raise ValueError("continuation job ID is invalid")
+    return candidate
+
+
+def prepare_continuation(*, state: dict, previous_job_id: str,
+                         inputs_dir: Path, output_link: Path) -> tuple[str, str]:
+    if state.get("status") != "checkpointed_partial":
+        raise ValueError("only a checkpointed partial can continue")
+    checkpoint_id = state.get("checkpoint_id", "")
+    if not re.fullmatch(r"cp-[0-9]{4}-[a-f0-9]{12}", checkpoint_id):
+        raise ValueError("continuation requires a valid immutable checkpoint")
+    if inputs_dir.exists():
+        shutil.rmtree(inputs_dir)
+    if output_link.is_symlink():
+        output_link.unlink()
+    elif output_link.exists():
+        raise ValueError("continuation output alias is not a symlink")
+    return previous_job_id, checkpoint_id
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--work-id", required=True)
@@ -67,9 +93,13 @@ def main() -> int:
     parser.add_argument("--artifact-name", required=True)
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--motion-capture-frames", type=int, default=0)
+    parser.add_argument("--max-continuations", type=int, default=2)
     parser.add_argument("--input", action="append", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+
+    if not 0 <= args.max_continuations <= 4:
+        raise ValueError("max continuations must be between zero and four")
 
     context = trusted_context(os.environ)
     if not SAFE_ID.fullmatch(args.work_id) or not SAFE_ID.fullmatch(args.lane):
@@ -127,13 +157,35 @@ def main() -> int:
         motion_capture_frames=args.motion_capture_frames,
     )
 
+    from copy import deepcopy
     from draft_trial import _run_draft
-    state = _run_draft(
-        job_id, input_bytes, provenance, args.work_id, feedback=args.instruction,
-        function_call_id=f"github-actions:{context['run_id']}:{context['run_attempt']}:{context['job_name']}",
-        input_id=job_id, execution=execution,
-    )
-    result = {"work_order": order, "worker_state": state}
+    state = {}
+    states = []
+    current_job_id = job_id
+    resume_job = ""
+    checkpoint_id = ""
+    for continuation in range(args.max_continuations + 1):
+        state = _run_draft(
+            current_job_id, input_bytes if continuation == 0 else {}, deepcopy(provenance),
+            args.work_id, resume_job=resume_job, checkpoint_id=checkpoint_id,
+            feedback=args.instruction,
+            function_call_id=f"github-actions:{context['run_id']}:{context['run_attempt']}:{context['job_name']}",
+            input_id=current_job_id, execution=execution,
+        )
+        states.append({
+            "job_id": current_job_id,
+            "status": state.get("status"),
+            "stop_reason": state.get("stop_reason"),
+            "checkpoint_id": state.get("checkpoint_id"),
+        })
+        if state.get("status") == "ready_for_review" or continuation == args.max_continuations:
+            break
+        resume_job, checkpoint_id = prepare_continuation(
+            state=state, previous_job_id=current_job_id,
+            inputs_dir=execution.inputs_dir, output_link=execution.output_link,
+        )
+        current_job_id = continuation_job_id(job_id, continuation + 1)
+    result = {"work_order": order, "worker_attempts": states, "worker_state": state}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     if state.get("status") != "ready_for_review":
