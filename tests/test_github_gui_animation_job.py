@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from run_github_gui_animation_job import (
     continuation_available,
     continuation_job_id,
+    initial_job_id,
     prepare_continuation,
     reset_gui_client_modules,
     stage_resume_job,
@@ -66,8 +67,12 @@ class GitHubGuiAnimationJobTests(unittest.TestCase):
 
     def test_continuation_job_ids_remain_stable_and_bounded(self):
         self.assertEqual(
-            continuation_job_id("draft-gui-reef-rig-42-a1", 2),
-            "draft-gui-reef-rig-42-a1-c2",
+            initial_job_id("reef-rig-42", attempt=1, run_id="99"),
+            "draft-gui-reef-rig-42-r99-a1",
+        )
+        self.assertEqual(
+            continuation_job_id("draft-gui-reef-rig-42-r99-a1", 2),
+            "draft-gui-reef-rig-42-r99-a1-c2",
         )
         with self.assertRaisesRegex(ValueError, "continuation"):
             continuation_job_id("draft-gui-reef-rig-42-a1", 0)
