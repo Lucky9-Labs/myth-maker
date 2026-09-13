@@ -126,7 +126,7 @@ jobs:
           - clip: walk
             instruction: "Author only an in-place looping scuttle Action named walk. Use a stable alternating contact pattern appropriate to the source-derived locomotor limb count and no root translation."
           - clip: run
-            instruction: "Author only an in-place looping fast scuttle Action named run, using the source-derived locomotor limb count with a faster cadence and stronger body compression than walk."
+            instruction: "Author only an in-place looping fast scuttle Action named run, using the source-derived locomotor limb count. Direct access to the walk Action is unavailable by design, so a direct visual comparison is not required. Use objective acceptance: create a 12-frame loop with faster cadence and stronger body compression than the 24-frame walk specification, and preserve the root transform with no translation."
           - clip: attack
             instruction: "Author only a non-looping in-place pounce/strike Action named attack, with clear anticipation, contact, and recovery and idle-compatible endpoints."
           - clip: death
@@ -173,7 +173,7 @@ jobs:
             --work-id "$clip_id" --attempt "$GITHUB_RUN_ATTEMPT" --lane animation-clip \
             --deployment-receipt deployment-receipt/modal-dev.json \
             --artifact-root "evidence/$CLIP" --motion-capture-frames 40 --max-continuations 2 \
-            --instruction "Open the canonical Reef Skitter rig through Blender's visible GUI. $CLIP_INSTRUCTION Preserve the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Save and reopen through the GUI, inspect the Action at start, middle, and end, then leave the Action playing in the viewport before ending READY_FOR_REVIEW. Do not use Python or scripts." \
+            --instruction "Open the canonical Reef Skitter rig through Blender's visible GUI. Remove every inherited empty or source Action through the visible Blender GUI and leave exactly the selected target Action named $CLIP. $CLIP_INSTRUCTION Preserve the exact armature, rest pose, 15 mesh bindings, materials, and root transform. Save and reopen through the GUI, verify that exactly the $CLIP Action remains, inspect it at start, middle, and end, then leave it playing in the viewport before ending READY_FOR_REVIEW. Do not use Python or scripts." \
             --input "source_scene.blend=$source_scene" \
             --input "structure_reference.png=$REEF_REFERENCE" \
             --input "component_reference.png=$REEF_REFERENCE" \

@@ -8,8 +8,28 @@ on:
         required: true
         type: string
       source_animation_run_id:
-        description: Prior animation run containing the accepted rig and all five accepted clip artifacts
+        description: Prior animation run containing the accepted rig and default clip artifacts
         required: true
+        type: string
+      idle_clip_run_id:
+        description: Optional run containing a replacement accepted idle artifact
+        required: false
+        type: string
+      walk_clip_run_id:
+        description: Optional run containing a replacement accepted walk artifact
+        required: false
+        type: string
+      run_clip_run_id:
+        description: Optional run containing a replacement accepted run artifact
+        required: false
+        type: string
+      attack_clip_run_id:
+        description: Optional run containing a replacement accepted attack artifact
+        required: false
+        type: string
+      death_clip_run_id:
+        description: Optional run containing a replacement accepted death artifact
+        required: false
         type: string
 
 permissions:
@@ -51,15 +71,44 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           github-token: ${{ github.token }}
-          run-id: ${{ inputs.source_animation_run_id }}
-          pattern: reef-skitter-clip-*-${{ inputs.source_animation_run_id }}-*
-          path: clip-artifacts
+          run-id: ${{ inputs.idle_clip_run_id || inputs.source_animation_run_id }}
+          pattern: reef-skitter-clip-idle-${{ inputs.idle_clip_run_id || inputs.source_animation_run_id }}-*
+          path: clip-artifacts/idle
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.walk_clip_run_id || inputs.source_animation_run_id }}
+          pattern: reef-skitter-clip-walk-${{ inputs.walk_clip_run_id || inputs.source_animation_run_id }}-*
+          path: clip-artifacts/walk
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_clip_run_id || inputs.source_animation_run_id }}
+          pattern: reef-skitter-clip-run-${{ inputs.run_clip_run_id || inputs.source_animation_run_id }}-*
+          path: clip-artifacts/run
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.attack_clip_run_id || inputs.source_animation_run_id }}
+          pattern: reef-skitter-clip-attack-${{ inputs.attack_clip_run_id || inputs.source_animation_run_id }}-*
+          path: clip-artifacts/attack
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.death_clip_run_id || inputs.source_animation_run_id }}
+          pattern: reef-skitter-clip-death-${{ inputs.death_clip_run_id || inputs.source_animation_run_id }}-*
+          path: clip-artifacts/death
       - uses: ./.github/actions/setup-blender-gui
       - name: Integrate, reopen, export, and reimport on Modal
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           SOURCE_ANIMATION_RUN_ID: ${{ inputs.source_animation_run_id }}
+          IDLE_CLIP_RUN_ID: ${{ inputs.idle_clip_run_id || inputs.source_animation_run_id }}
+          WALK_CLIP_RUN_ID: ${{ inputs.walk_clip_run_id || inputs.source_animation_run_id }}
+          RUN_CLIP_RUN_ID: ${{ inputs.run_clip_run_id || inputs.source_animation_run_id }}
+          ATTACK_CLIP_RUN_ID: ${{ inputs.attack_clip_run_id || inputs.source_animation_run_id }}
+          DEATH_CLIP_RUN_ID: ${{ inputs.death_clip_run_id || inputs.source_animation_run_id }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/main
@@ -76,12 +125,21 @@ jobs:
             --output "$rig_id.blend=output/$rig_id.blend" \
             --output "${rig_id}_preview.png=output/${rig_id}_preview.png" \
             --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png
+          declare -A clip_run_ids=(
+            [idle]="$IDLE_CLIP_RUN_ID"
+            [walk]="$WALK_CLIP_RUN_ID"
+            [run]="$RUN_CLIP_RUN_ID"
+            [attack]="$ATTACK_CLIP_RUN_ID"
+            [death]="$DEATH_CLIP_RUN_ID"
+          )
           args=()
           for clip in idle walk run attack death; do
-            clip_id="reef-${clip}-${SOURCE_ANIMATION_RUN_ID}"
-            prefix="reef-skitter-clip-${clip}-${SOURCE_ANIMATION_RUN_ID}"
-            artifact="$(python3 scripts/resolve_github_animation_artifact.py clip-artifacts "$prefix")"
+            clip_run_id="${clip_run_ids[$clip]}"
+            [[ "$clip_run_id" =~ ^[1-9][0-9]*$ ]]
+            prefix="reef-skitter-clip-${clip}-${clip_run_id}"
+            artifact="$(python3 scripts/resolve_github_animation_artifact.py "clip-artifacts/$clip" "$prefix")"
             clip_receipt="$artifact/receipts/reef-skitter-clip-$clip.json"
+            clip_id="$(python3 scripts/resolve_github_animation_work_id.py "$clip_receipt" --prefix "reef-${clip}-")"
             clip_root="$(python3 scripts/resolve_github_animation_job_root.py "$clip_receipt" "$artifact/evidence/$clip")"
             native="$clip_root/output/$clip_id.blend"
             test -s "$native"

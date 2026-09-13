@@ -7,10 +7,17 @@ from PIL import Image
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
-from verify_animation_motion import verify_motion
+from verify_animation_motion import _pixel_values, verify_motion
 
 
 class AnimationMotionVerificationTests(unittest.TestCase):
+    def test_pixel_iteration_supports_the_pillow_api_on_github_runners(self):
+        class LegacyImage:
+            def getdata(self):
+                return [1, 2, 3]
+
+        self.assertEqual(list(_pixel_values(LegacyImage())), [1, 2, 3])
+
     def test_requires_provider_hashed_frames_with_visible_pixel_change(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

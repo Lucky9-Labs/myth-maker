@@ -11,6 +11,12 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 
+def _pixel_values(image):
+    """Use Pillow 12's iterator when available and retain runner compatibility."""
+    flattened = getattr(image, "get_flattened_data", None)
+    return flattened() if flattened is not None else image.getdata()
+
+
 def verify_motion(paths: list[Path], *, minimum_frames: int = 24,
                   minimum_changed_fraction: float = 0.005) -> dict:
     if len(paths) < minimum_frames:
@@ -36,7 +42,7 @@ def verify_motion(paths: list[Path], *, minimum_frames: int = 24,
     pixels = (crop[2] - crop[0]) * (crop[3] - crop[1])
     for before, after in zip(images, images[1:]):
         difference = ImageChops.difference(before.crop(crop), after.crop(crop)).convert("L")
-        changed = sum(1 for value in difference.get_flattened_data() if value >= 8)
+        changed = sum(1 for value in _pixel_values(difference) if value >= 8)
         changed_fractions.append(changed / pixels)
     maximum = max(changed_fractions, default=0)
     if len(set(hashes)) < 2 or maximum < minimum_changed_fraction:
