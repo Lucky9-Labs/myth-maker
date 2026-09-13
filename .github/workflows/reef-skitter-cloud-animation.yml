@@ -212,7 +212,7 @@ jobs:
           retention-days: 30
 
   integrate-and-verify:
-    needs: clips
+    needs: [rig, clips]
     runs-on: ubuntu-24.04
     environment: dev
     steps:

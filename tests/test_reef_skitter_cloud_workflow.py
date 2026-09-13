@@ -66,6 +66,11 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("rig-id: ${{ steps.author.outputs.rig-id }}", text)
         self.assertIn('rig_id="${{ needs.rig.outputs.rig-id }}"', text)
 
+    def test_integration_declares_every_job_whose_outputs_it_reads(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("integrate-and-verify:\n    needs: [rig, clips]", text)
+
     def test_rig_instruction_prioritizes_known_binding_failures(self):
         text = WORKFLOW.read_text(encoding="utf-8")
 
