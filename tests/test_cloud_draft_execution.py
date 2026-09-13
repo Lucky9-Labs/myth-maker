@@ -1,14 +1,38 @@
 import hashlib
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "modal"))
-from cloud_draft_execution import github_actions_artifact_receipt, seal_github_actions_artifact_receipt
+from cloud_draft_execution import (DraftExecution, github_actions_artifact_receipt,
+                                   reset_process_local_aliases, seal_github_actions_artifact_receipt)
 
 
 class GitHubActionsArtifactReceiptTests(unittest.TestCase):
+    def test_warm_worker_clears_only_disposable_blender_aliases(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = root / "inputs"
+            inputs.mkdir()
+            (inputs / "stale.glb").write_bytes(b"stale")
+            durable = root / "durable-output"
+            durable.mkdir()
+            output = root / "output"
+            output.symlink_to(durable, target_is_directory=True)
+            execution = DraftExecution(
+                submissions_root=root / "submissions", inputs_dir=inputs, output_link=output,
+                prompt_template=root / "prompt", resume_template=root / "resume",
+                reload=lambda: None, commit=lambda: None, receipt=lambda **_: {},
+            )
+
+            reset_process_local_aliases(execution)
+
+            self.assertFalse(inputs.exists())
+            self.assertFalse(output.exists())
+            self.assertTrue(durable.is_dir())
+
     def test_binds_worker_evidence_to_one_immutable_workflow_artifact(self):
         output = {"reef-rig.blend": {"bytes": 7, "sha256": hashlib.sha256(b"BLENDER").hexdigest()}}
         frames = {"final": ("final-desktop.png", {"bytes": 3, "sha256": hashlib.sha256(b"png").hexdigest()})}

@@ -140,16 +140,30 @@ def validate_resume_job(source: Path, *, part: str,
     return source.name, checkpoint_id
 
 
+def resume_stage_job_id(part: str, run_scope: str, attempt: int) -> str:
+    candidate = f"draft-gui-resume-{part}-{run_scope}-a{attempt}"
+    if (not SAFE_ID.fullmatch(part) or not re.fullmatch(r"run-[0-9]+", run_scope)
+            or not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1
+            or not re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", candidate)):
+        raise ValueError("resume staging identity is invalid")
+    return candidate
+
+
 def stage_resume_job(source: Path, *, part: str, expected_input_hashes: dict[str, dict[str, Any]],
-                     environment: str, already_staged: bool = False) -> tuple[str, str]:
+                     environment: str, staged_job_id: str,
+                     already_staged: bool = False) -> tuple[str, str]:
     resume_job, checkpoint_id = validate_resume_job(
         source, part=part, expected_input_hashes=expected_input_hashes,
     )
     if not already_staged:
+        if not re.fullmatch(r"draft-gui-[a-z0-9-]{1,118}", staged_job_id):
+            raise ValueError("resume staging identity is invalid")
         subprocess.run(
-            ["modal", "volume", "put", "--env", environment, VOLUME_NAME, str(source.resolve()), "/"],
+            ["modal", "volume", "put", "--env", environment, VOLUME_NAME,
+             str(source.resolve()), "/" + staged_job_id],
             check=True,
         )
+        resume_job = staged_job_id
     return resume_job, checkpoint_id
 
 
@@ -255,7 +269,9 @@ def main() -> int:
     if args.resume_job_dir:
         resume_job, checkpoint_id = stage_resume_job(
             args.resume_job_dir, part=args.work_id, expected_input_hashes=input_hashes,
-            environment=args.environment, already_staged=args.resume_already_staged,
+            environment=args.environment,
+            staged_job_id=resume_stage_job_id(args.work_id, args.run_scope, args.attempt),
+            already_staged=args.resume_already_staged,
         )
     else:
         if args.resume_already_staged:

@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "scripts"))
 from run_cloud_gui_animation_job import (build_manifest, build_work_order, collect_inputs,
-                                         continuation_available, fetch_job, validate_deployment_receipt,
-                                         validate_resume_job)
+                                         continuation_available, fetch_job, resume_stage_job_id,
+                                         stage_resume_job, validate_deployment_receipt, validate_resume_job)
 
 
 GLB = b"glTF\x02\x00\x00\x00\x0c\x00\x00\x00"
@@ -110,6 +110,30 @@ class CloudGuiAnimationJobTests(unittest.TestCase):
 
             self.assertEqual(destination, (root / "jobs" / job_id).resolve())
             self.assertEqual(run.call_args.args[0][0:5], ["modal", "volume", "get", "--env", "dev"])
+
+    def test_stages_a_legacy_checkpoint_under_a_run_scoped_immutable_alias(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "draft-gui-reef-rig-42-a1"
+            checkpoint_id = "cp-0004-abcdef123456"
+            package = source / "checkpoints" / checkpoint_id
+            package.mkdir(parents=True)
+            inputs = {"source_asset.glb": {"bytes": len(GLB), "sha256": hashlib.sha256(GLB).hexdigest()}}
+            (source / "status.json").write_text('{"part":"reef-rig-42","status":"failed"}')
+            (source / "checkpoint-latest.json").write_text('{"checkpoint_id":"cp-0004-abcdef123456"}')
+            (package / "checkpoint.json").write_text(__import__("json").dumps({
+                "schema_version": 2, "part": "reef-rig-42", "checkpoint_id": checkpoint_id,
+                "files": {"inputs/source_asset.glb": inputs["source_asset.glb"]},
+            }))
+            staged = resume_stage_job_id("reef-rig-42", "run-99", 2)
+
+            with patch("run_cloud_gui_animation_job.subprocess.run") as run:
+                result = stage_resume_job(
+                    source, part="reef-rig-42", expected_input_hashes=inputs,
+                    environment="dev", staged_job_id=staged,
+                )
+
+            self.assertEqual(result, (staged, checkpoint_id))
+            self.assertEqual(run.call_args.args[0][-1], "/" + staged)
 
     def test_deployment_receipt_binds_source_environment_and_volume_function(self):
         receipt = {
