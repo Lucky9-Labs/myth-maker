@@ -72,6 +72,8 @@ class ReefSkitterCloudWorkflowTests(unittest.TestCase):
         self.assertIn("A bone moving without its intended mesh is a blocking binding defect", text)
         self.assertIn("repair the binding before continuing the audit", text)
         self.assertIn("An unreadable reference pane is not a blocker", text)
+        self.assertIn("do not save again after that verification", text)
+        self.assertIn("otherwise that newer save would require another reopen", text)
 
     def test_rig_and_gaits_follow_source_derived_limb_topology(self):
         text = WORKFLOW.read_text(encoding="utf-8")
