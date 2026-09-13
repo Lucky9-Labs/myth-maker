@@ -1,0 +1,210 @@
+name: Reef Skitter cloud Unity Metal benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      integration_run_id:
+        description: Successful Reef Skitter cloud integration workflow run ID
+        required: true
+        type: string
+      integration_run_attempt:
+        description: Exact successful integration run attempt
+        required: true
+        type: string
+      integration_head_sha:
+        description: Exact 40-character commit SHA used by the integration run
+        required: true
+        type: string
+      integration_artifact_digest:
+        description: GitHub artifact digest in sha256:<64 lowercase hex> form
+        required: true
+        type: string
+      integrated_glb_sha256:
+        description: Expected SHA-256 of reef-skitter-animation-integrated.glb
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: reef-skitter-cloud-unity-metal
+  cancel-in-progress: false
+
+env:
+  UNITY_VERSION: 6000.6.0f1
+  UNITY_CHANGESET: f7f8ed4d1e24
+  UNITY_BIN: /Applications/Unity/Hub/Editor/6000.6.0f1/Unity.app/Contents/MacOS/Unity
+
+jobs:
+  benchmark:
+    # GitHub documents GPU hardware acceleration for its arm64 macOS xlarge runners.
+    # This label must be enabled for the repository before dispatching the workflow.
+    runs-on: macos-15-xlarge
+    if: github.ref == 'refs/heads/main'
+    environment: dev
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+      UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+      UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify exact successful integration run and artifact identity
+        env:
+          INTEGRATION_RUN_ID: ${{ inputs.integration_run_id }}
+          INTEGRATION_RUN_ATTEMPT: ${{ inputs.integration_run_attempt }}
+          INTEGRATION_HEAD_SHA: ${{ inputs.integration_head_sha }}
+          INTEGRATION_ARTIFACT_DIGEST: ${{ inputs.integration_artifact_digest }}
+          INTEGRATED_GLB_SHA256: ${{ inputs.integrated_glb_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$INTEGRATION_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$INTEGRATION_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$INTEGRATION_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$INTEGRATION_ARTIFACT_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$INTEGRATED_GLB_SHA256" =~ ^[a-f0-9]{64}$ ]]
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p evidence/source
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${INTEGRATION_RUN_ID}" > evidence/source/integration-run.json
+          jq -e --arg sha "$INTEGRATION_HEAD_SHA" --argjson attempt "$INTEGRATION_RUN_ATTEMPT" '
+            .status == "completed" and .conclusion == "success" and .event == "workflow_dispatch"
+            and .head_branch == "main" and .head_sha == $sha and .run_attempt == $attempt
+            and .path == ".github/workflows/reef-skitter-cloud-integration.yml"
+          ' evidence/source/integration-run.json >/dev/null
+          artifact_name="reef-skitter-animation-candidate-${INTEGRATION_RUN_ID}-${INTEGRATION_RUN_ATTEMPT}"
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${INTEGRATION_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[]' | jq -s --arg name "$artifact_name" --arg digest "$INTEGRATION_ARTIFACT_DIGEST" '
+              map(select(.name == $name and .expired == false and .digest == $digest))
+              | if length == 1 then .[0] else error("exact non-expired integration artifact/digest not found") end
+            ' > evidence/source/integration-artifact.json
+          test "$(jq -r .workflow_run.id evidence/source/integration-artifact.json)" = "$INTEGRATION_RUN_ID"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.integration_run_id }}
+          name: reef-skitter-animation-candidate-${{ inputs.integration_run_id }}-${{ inputs.integration_run_attempt }}
+          path: integration-artifact
+      - id: integrated-input
+        name: Verify provider receipt, GLB hash, and animated parted-model contract
+        env:
+          INTEGRATED_GLB_SHA256: ${{ inputs.integrated_glb_sha256 }}
+        run: |
+          set -euo pipefail
+          receipt=integration-artifact/receipts/reef-skitter-animation-integrated.json
+          work_id="$(python3 scripts/resolve_github_animation_work_id.py "$receipt" --prefix reef-integrated-)"
+          job_root="$(python3 scripts/resolve_github_animation_job_root.py "$receipt" integration-artifact/evidence/final)"
+          glb="$job_root/output/reef-skitter-animation-integrated.glb"
+          native="$job_root/output/$work_id.blend"
+          python3 scripts/verify_cloud_gui_animation_artifacts.py \
+            --receipt "$receipt" --artifact-dir "$job_root" \
+            --output "$work_id.blend=output/$work_id.blend" \
+            --output reef-skitter-animation-integrated.glb=output/reef-skitter-animation-integrated.glb \
+            --output "${work_id}_preview.png=output/${work_id}_preview.png" \
+            --frame initial=screenshots/000-initial.png --frame latest=latest.png --frame final=final-desktop.png
+          printf '%s  %s\n' "$INTEGRATED_GLB_SHA256" "$glb" | shasum -a 256 --check
+          printf '%s  %s\n' "$INTEGRATED_GLB_SHA256" reef-skitter-animation-integrated.glb > evidence/source/integrated-glb.sha256
+          node scripts/inspect-animated-parted-glb.mjs "$glb" > evidence/source/animation-inspection.json
+          jq -e --arg sha "$INTEGRATED_GLB_SHA256" '
+            .schema_version == "parted-model-animation-inspection.v1"
+            and .source_sha256 == $sha and .parts == 15 and .skinned_parts == 15
+            and .rig_count == 1 and .joint_count > 1
+            and ([.clips[].name] | sort) == ["attack", "death", "idle", "run", "walk"]
+            and ([.clips[] | select(.joint_channel_count > 0 and .animated_joint_count > 0)] | length) == 5
+          ' evidence/source/animation-inspection.json >/dev/null
+          cp "$receipt" evidence/source/integration-receipt.json
+          cp "$job_root/verification.json" evidence/source/provider-artifact-verification.json
+          printf 'glb=%s\n' "$glb" >> "$GITHUB_OUTPUT"
+      - name: Require CI-capable Unity license secrets
+        run: |
+          set -euo pipefail
+          test -n "$UNITY_EMAIL"
+          test -n "$UNITY_PASSWORD"
+          test -n "$UNITY_SERIAL"
+      - name: Install exact Unity editor on the cloud Mac
+        run: |
+          set -euo pipefail
+          brew install --cask unity-hub
+          hub=/Applications/Unity\ Hub.app/Contents/MacOS/Unity\ Hub
+          test -x "$hub"
+          "$hub" -- --headless install --version "$UNITY_VERSION" --changeset "$UNITY_CHANGESET"
+          test -x "$UNITY_BIN"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "/Applications/Unity/Hub/Editor/$UNITY_VERSION/Unity.app/Contents/Info.plist")" = "$UNITY_VERSION"
+      - name: Activate Unity from protected secrets
+        run: |
+          set -euo pipefail
+          "$UNITY_BIN" -quit -batchmode -serial "$UNITY_SERIAL" -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -logFile -
+      - name: Build and run standalone 400-creature benchmark
+        env:
+          REEF_SKITTER_GLB_PATH: ${{ steps.integrated-input.outputs.glb }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/unity
+          spikes/unity-dynamic-load/run-reef-skitter-swarm-benchmark.sh evidence/unity "$REEF_SKITTER_GLB_PATH"
+      - name: Capture process-scoped Metal GPU trace
+        env:
+          REEF_SKITTER_GLB_PATH: ${{ steps.integrated-input.outputs.glb }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/metal
+          spikes/unity-dynamic-load/run-reef-skitter-metal-trace.sh evidence/metal/reef-skitter-metal.trace
+      - name: Fail closed unless all required metrics and 400 visible creatures are proven
+        env:
+          INTEGRATED_GLB_SHA256: ${{ inputs.integrated_glb_sha256 }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/acceptance
+          node scripts/verify-reef-skitter-cloud-benchmark.mjs \
+            --benchmark evidence/unity/reef-skitter-swarm-benchmark.json \
+            --screenshot evidence/unity/reef-skitter-swarm.png \
+            --metal-receipt evidence/metal/reef-skitter-metal-gpu-receipt.json \
+            --metal-intervals evidence/metal/reef-skitter-metal-gpu-intervals.xml \
+            --metal-benchmark evidence/metal/reef-skitter-metal-run/reef-skitter-swarm-benchmark.json \
+            --metal-screenshot evidence/metal/reef-skitter-metal-run/reef-skitter-swarm.png \
+            --integration-run evidence/source/integration-run.json \
+            --integration-artifact evidence/source/integration-artifact.json \
+            --animation-inspection evidence/source/animation-inspection.json \
+            --expected-source-sha256 "$INTEGRATED_GLB_SHA256" \
+            --output evidence/acceptance/reef-skitter-cloud-benchmark-acceptance.json
+      - name: Return Unity license
+        if: always()
+        continue-on-error: true
+        run: |
+          if test -x "$UNITY_BIN" && test -n "$UNITY_EMAIL" && test -n "$UNITY_PASSWORD"; then
+            "$UNITY_BIN" -quit -batchmode -returnlicense -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -logFile -
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && hashFiles('evidence/source/**') != ''
+        with:
+          name: reef-skitter-unity-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/source/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && hashFiles('evidence/unity/**') != ''
+        with:
+          name: reef-skitter-unity-player-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/unity/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && hashFiles('evidence/metal/**') != ''
+        with:
+          name: reef-skitter-unity-metal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/metal/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: success()
+        with:
+          name: reef-skitter-unity-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/acceptance/reef-skitter-cloud-benchmark-acceptance.json
+          if-no-files-found: error
+          retention-days: 30
