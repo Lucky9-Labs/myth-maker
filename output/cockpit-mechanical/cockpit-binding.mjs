@@ -15,7 +15,7 @@ export function createCockpitRig(root,config,onChange=()=>{}) {
    const pivot=new T.Vector3(...(b.p.pivot??[0,0,0]));
    const offset=new T.Vector3(...panelOffset(b.p,amount,config.clearanceEnd));
    const transform=new T.Matrix4().makeTranslation(pivot.x+offset.x,pivot.y+offset.y,pivot.z+offset.z)
-    .multiply(new T.Matrix4().makeRotationX(panelAngle(b.p,amount,config.clearanceEnd)))
+    .multiply(new T.Matrix4().makeRotationAxis(new T.Vector3(...(b.p.axis??[1,0,0])).normalize(),panelAngle(b.p,amount,config.clearanceEnd)))
     .multiply(new T.Matrix4().makeTranslation(-pivot.x,-pivot.y,-pivot.z));
    b.inverse.clone().multiply(transform).multiply(b.parent).multiply(b.neutral)
     .decompose(b.node.position,b.node.quaternion,b.node.scale);

@@ -8,7 +8,7 @@ checks=[]
 for a in [0,.1,.3,.45,.6,.8,1,.65,.2,0]:
  control['open_amount']=a;control.update_tag();bpy.context.view_layer.update()
  for p in cfg['parts']:
-  ranges=p.get('travelRanges',[[.3,1]]*3);delta=[p['clearance'][i]*smooth(a/.3)+p['travel'][i]*smooth((a-ranges[i][0])/(ranges[i][1]-ranges[i][0]))for i in range(3)];rs,re=p.get('rotationRange',[.3,1]);angle=p.get('angle',0)*smooth((a-rs)/(re-rs));pivot=vec(p.get('pivot',[0,0,0]));expected=Matrix.Translation(pivot+vec(delta))@Matrix.Rotation(angle,4,'X')@Matrix.Translation(-pivot)@rest[p['native']];actual=bpy.data.objects[p['native']].matrix_world;error=max(abs(expected[i][j]-actual[i][j])for i in range(4)for j in range(4));checks.append(dict(amount=a,part=p['role'],matrix_error=error))
+  ranges=p.get('travelRanges',[[.3,1]]*3);delta=[p['clearance'][i]*smooth(a/.3)+p['travel'][i]*smooth((a-ranges[i][0])/(ranges[i][1]-ranges[i][0]))for i in range(3)];rs,re=p.get('rotationRange',[.3,1]);angle=p.get('angle',0)*smooth((a-rs)/(re-rs));pivot=vec(p.get('pivot',[0,0,0]));expected=Matrix.Translation(pivot+vec(delta))@Matrix.Rotation(angle,4,vec(p.get('axis',[1,0,0])))@Matrix.Translation(-pivot)@rest[p['native']];actual=bpy.data.objects[p['native']].matrix_world;error=max(abs(expected[i][j]-actual[i][j])for i in range(4)for j in range(4));checks.append(dict(amount=a,part=p['role'],matrix_error=error))
 assert max(c['matrix_error']for c in checks)<2e-6,checks
 assert bpy.data.objects['tripo_part_61.001'].hide_render
 assert max(abs(bpy.data.objects['Cockpit_Glass_Preview'].matrix_world[i][j]-bpy.data.objects['tripo_part_61.001'].matrix_world[i][j])for i in range(4)for j in range(4))<2e-6

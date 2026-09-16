@@ -1,8 +1,8 @@
-# Strokah mechanical cockpit — low forward brim
+# Strokah mechanical cockpit — sliding canopy and hinged cheeks
 
 Saved review candidate on `codex/strokah-cockpit-mechanical`, based on current `main` (`be4cb5ad`) plus only the requested animation skills commit. No merge, publication, Unity integration, damage, limb-loss, melee, shield or ejection work.
 
-The latest direction is applied: the chin keeps its short outward/downward stroke, and the canopy opens into a low, forward-projecting baseball-cap brim at brow height. Its pivot is at the upper edge; total pivot lift is 0.032 export units, down from 0.173 in the previous crown sweep. The canopy is treated as a thin pane. Its retained internal solid mass is excluded from the clearance envelope. Diagnostic colors identify the panels.
+The latest direction is applied: the cheeks make a short seam release, then angle outward about lower attachment pivots with no further outward translation. The central chin has a smaller slide. The canopy follows a backward sliding path over the crown and stops at a low baseball-cap brim angle. The canopy remains a thin outer-surface preview; its original internal solid mass is retained hidden for later cleanup. Diagnostic colors identify the panels.
 
 ## Review
 
@@ -21,10 +21,10 @@ The original closed transforms are retained exactly. The glass preview uses the 
 
 | Role | Authored mesh | Motion at full opening, export units |
 |---|---|---|
-| Canopy | `tripo_part_61.001` | short release, then tilt about the upper edge into a forward brim; 65° rotation; thin-pane clearance |
-| Left cheek | `tripo_part_57.004` | +0.045 sideways, +0.050 forward, −0.021 down |
-| Right cheek | `tripo_part_57.005` | −0.045 sideways, +0.050 forward, −0.021 down |
-| Chin | `tripo_part_new_0.001` | +0.026 forward, −0.021 down |
+| Canopy | `tripo_part_61.001` | short release, then 0.085 backward guide travel with 65° rotation; stops at a low brim |
+| Left cheek | `tripo_part_57.004` | +0.012 sideways/+0.026 forward release, then 20° outward about its lower attachment |
+| Right cheek | `tripo_part_57.005` | −0.012 sideways/+0.026 forward release, then mirrored 20° outward about its lower attachment |
+| Chin | `tripo_part_new_0.001` | +0.021 forward, −0.012 down |
 
 These are already separate rigid meshes; **no destructive source cuts were needed**. Following the thin-glass direction, `build_glass_preview.py` selects 3,358 frontmost exterior triangles from the 7,666-triangle exported canopy into a separate preview copy. In Blender, `Cockpit_Glass_Preview` displays this thin skin, while the complete original canopy remains present but hidden. Its underside bulk can be deleted/cleaned later. This temporary skin has an unpolished boundary; it is not final glass topology. The source has concealed overlapping seat surfaces between canopy, cheeks, chin and the fixed collar/carrier. All original mesh surfaces were preserved. A manufacturing-clean assembly would require trimming those internal mating surfaces; this candidate does not claim zero triangle overlap while the source seams disengage. No pilot interior or visible actuator hardware was invented.
 
@@ -42,9 +42,9 @@ Native equivalent: select `CTRL_Cockpit_Open`, custom property `open_amount`. It
 
 - Four focused Node tests pass, including the actual accepted GLB, 200 bound-model reversal cycles, 1,000 scalar cycles, held pose, ancestor rotation, rigid unit scales, and exact reseating without limb/weapon transform drift.
 - Actual browser buttons were exercised: open, hold, close mid-cycle, reopen, fully close.
-- Reopened native-file parity: maximum matrix error 2.0861626e-7 across sampled forward and reverse states.
+- Reopened native-file parity: maximum matrix error 1.8328429e-6 across sampled forward and reverse states.
 - Native mesh/rest-bone preservation: all 196 original mesh geometries and all 62 rest bones match the accepted source. No ankle proportions, rest lengths, or mesh vertex coordinates changed.
-- Exact exported triangles sampled at 41 amounts. No new collision pairs relative to the inherited closed seams. Canopy clears all meshes throughout the main travel (amount >= 0.30). All four panels have zero surface intersections from 0.85 through full opening. The earlier inherited seam overlaps are recorded honestly in `export-clearance.json`.
+- Exact exported triangles sampled at 41 amounts. No new collision pairs relative to the inherited closed seams. Canopy clears all meshes throughout the main travel (amount >= 0.30). The cheek bases retain their inherited contact/overlap with the fixed collar/chin mating surfaces at full opening, rather than translating away from it. These existing carrier contacts are recorded in `export-clearance.json`; this is not a claim of a manufacturing-clean assembly.
 - The sweep is valid for the requested thin outer canopy and this service pose. The hidden solid canopy volume is intentionally excluded, as directed; it would intersect the torso on this tighter path. It is not an all-possible-weapon-pose clearance guarantee, a physics collision implementation, or player runtime proof.
 
 Run `npm test`. Rebuild the temporary glass export first with `scripts/cockpit/build_glass_preview.py`. From repository root, Blender can rerun `scripts/cockpit/build_native.py` against the read-only source, and `verify_native.py`, `verify_preservation.py`, `verify_service_pose.py`, and `audit_export.py` produce the included receipts. The service-pose matrices and reused runtime files are preserved for reproducibility.

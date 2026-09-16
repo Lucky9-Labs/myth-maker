@@ -20,7 +20,7 @@ rows=[]
 for step in range(41):
  a=step/40;trees=static.copy()
  for name,p in moving.items():
-  d=Vector([p['clearance'][i]*smooth(a/.3)+p['travel'][i]*smooth((a-p.get('travelRanges',[[.3,1]]*3)[i][0])/(p.get('travelRanges',[[.3,1]]*3)[i][1]-p.get('travelRanges',[[.3,1]]*3)[i][0]))for i in range(3)]);v,f=data[name];pivot=Vector(p.get('pivot',[0,0,0]));r=Matrix.Rotation(p.get('angle',0)*smooth((a-p.get('rotationRange',[.3,1])[0])/(p.get('rotationRange',[.3,1])[1]-p.get('rotationRange',[.3,1])[0])),3,'X');trees[name]=BVHTree.FromPolygons([pivot+d+r@(x-pivot) for x in v],f,all_triangles=True)
+  d=Vector([p['clearance'][i]*smooth(a/.3)+p['travel'][i]*smooth((a-p.get('travelRanges',[[.3,1]]*3)[i][0])/(p.get('travelRanges',[[.3,1]]*3)[i][1]-p.get('travelRanges',[[.3,1]]*3)[i][0]))for i in range(3)]);v,f=data[name];pivot=Vector(p.get('pivot',[0,0,0]));r=Matrix.Rotation(p.get('angle',0)*smooth((a-p.get('rotationRange',[.3,1])[0])/(p.get('rotationRange',[.3,1])[1]-p.get('rotationRange',[.3,1])[0])),3,Vector(p.get('axis',[1,0,0])));trees[name]=BVHTree.FromPolygons([pivot+d+r@(x-pivot) for x in v],f,all_triangles=True)
  hits={}
  for name in moving:
   for other in data:

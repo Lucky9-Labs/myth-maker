@@ -54,10 +54,11 @@ for p in cfg['parts']:
   d=control.driver_add('["'+prop+'"]').driver;v=d.variables.new();v.name='u';v.targets[0].id=control;v.targets[0].data_path='["open_amount"]';d.expression=f'{t}**3*({t}*({t}*6-15)+10)'
  o=bpy.data.objects[p['native']];world=o.matrix_world.copy();basis=o.matrix_basis.copy();parent=world@basis.inverted();inv=parent.inverted();pivot=vector(p.get('pivot',[0,0,0]));r=world.translation-pivot
  mover=bpy.data.objects.new('COCKPIT_'+p['role'],None);scene.collection.objects.link(mover);mover.parent=o.parent;mover.parent_type=o.parent_type;mover.parent_bone=o.parent_bone;mover.matrix_parent_inverse=o.matrix_parent_inverse.copy();mover.matrix_basis=basis;mover.rotation_mode='QUATERNION';mover.empty_display_size=.025
- const=inv@(pivot+Vector((r.x,0,0)));co=inv.to_3x3()@Vector((0,r.y,r.z));si=inv.to_3x3()@Vector((0,-r.z,r.y));cl=inv.to_3x3()@vector(p['clearance']);tr=inv.to_3x3()@vector(p['travel']);angle=p.get('angle',0);a=f'({angle:.10g}*rr)'
+ axis=vector(p.get('axis',[1,0,0])).normalized();parallel=axis*r.dot(axis)
+ const=inv@(pivot+parallel);co=inv.to_3x3()@(r-parallel);si=inv.to_3x3()@axis.cross(r);cl=inv.to_3x3()@vector(p['clearance']);tr=inv.to_3x3()@vector(p['travel']);angle=p.get('angle',0);a=f'({angle:.10g}*rr)'
  travel=[inv.to_3x3()@vector([p['travel'][j] if j==k else 0 for j in range(3)]) for k in range(3)]
  for i in range(3):driver(mover,'location',i,f'{const[i]:.10g}+({co[i]:.10g})*cos({a})+({si[i]:.10g})*sin({a})+({cl[i]:.10g})*c'+''.join(f'+({travel[j][i]:.10g})*{var}'for j,var in enumerate(['rx','ry','rz'])))
- q0=parent.to_quaternion().inverted()@world.to_quaternion();q1=parent.to_quaternion().inverted()@Quaternion((0,1,0,0))@world.to_quaternion()
+ q0=parent.to_quaternion().inverted()@world.to_quaternion();q1=parent.to_quaternion().inverted()@Quaternion((0,*axis))@world.to_quaternion()
  for i in range(4):driver(mover,'rotation_quaternion',i,f'({q0[i]:.10g})*cos({a}/2)+({q1[i]:.10g})*sin({a}/2)')
  o.parent=mover;o.parent_type='OBJECT';o.parent_bone='';o.matrix_parent_inverse=Matrix.Identity(4);o.matrix_basis=Matrix.Identity(4)
  if p['role']=='canopy':
