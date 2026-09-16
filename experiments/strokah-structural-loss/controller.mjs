@@ -58,7 +58,7 @@ export class StructuralController {
     this.fired = 0;
     this.recoil = 0;
     this.contacts = {};
-    this.lastEffortPhase=null;this.lastEffortSequence=null;this.lastEffortActor=null;this.effortPlant=null;this.legEffortRelease=null;
+    this.lastEffortPhase=null;this.lastEffortSequence=null;this.lastEffortActor=null;this.effortPlant=null;this.legEffortRelease=null;this.effortReach=null;
     this.root.updateMatrixWorld(true);
     this.initialFeet = Object.fromEntries(
       this.allLegs.map((l) => [l.suffix, pos(l.ball)]),
@@ -230,6 +230,7 @@ export class StructuralController {
           const axial=upper.dot(axis)+fore.dot(axis);
           const radial=upper.addScaledVector(axis,-upper.dot(axis)).length()+fore.addScaledVector(axis,-fore.dot(axis)).length();
           const reach=Math.sqrt(axial*axial+radial*radial)-.002;
+          this.effortReach=reach;
           const dy=this.supportHeights[side]-shoulder.y,dx=rest.x-shoulder.x;
           this.effortPlant=new Vector3(rest.x,this.supportHeights[side],shoulder.z+Math.sqrt(Math.max(0,reach*reach-dy*dy-dx*dx)));
         }
@@ -251,7 +252,7 @@ export class StructuralController {
       // The rifle raises the supporting hand: use the extra horizontal reach
       // available at that height rather than keeping the bare-palm target.
       if(this.effortPlant){
-        const shoulder=pos(this.upper.chains[1].nodes[1]),radius=shoulder.distanceTo(this.effortPlant);
+        const shoulder=pos(this.upper.chains[1].nodes[1]),radius=Math.min(shoulder.distanceTo(this.effortPlant),this.effortReach);
         const dy=target.y-shoulder.y,dx=target.x-shoulder.x;
         const far=shoulder.z+Math.sqrt(Math.max(0,radius*radius-dy*dy-dx*dx));
         target.z+=(far-target.z)*braceWeight;
