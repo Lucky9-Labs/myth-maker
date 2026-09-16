@@ -1,0 +1,81 @@
+<!doctype html><meta charset="utf-8" /><title>Strokah · structural loss</title>
+<style>
+  body {
+    margin: 0;
+    background: #17232b;
+    color: #e9eef2;
+    font: 14px system-ui;
+  }
+  canvas {
+    display: block;
+  }
+  aside {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    width: 240px;
+    padding: 20px;
+    background: #17232be8;
+    border: 1px solid #617783;
+    border-radius: 8px;
+  }
+  h1 {
+    font-size: 20px;
+    margin-top: 0;
+  }
+  button,
+  select {
+    padding: 8px;
+    margin: 3px;
+    background: #304b59;
+    color: white;
+    border: 1px solid #78919b;
+    border-radius: 4px;
+  }
+  pre {
+    white-space: pre-wrap;
+    font: 12px/1.5 monospace;
+  }
+  label {
+    display: block;
+    margin-top: 12px;
+  }
+  .muted {
+    color: #a6bbc7;
+    font-size: 12px;
+  }
+</style>
+<script type="importmap">
+  {
+    "imports": {
+      "cannon-es": "./node_modules/cannon-es/dist/cannon-es.js", "three": "./node_modules/three/build/three.module.js",
+      "three/addons/": "./node_modules/three/examples/jsm/"
+    }
+  }
+</script>
+<aside>
+  <h1>Strokah<br />Structural loss</h1>
+  <select id="limb">
+    <option value="arm.L">Left arm</option>
+    <option value="arm.R">Right weapon arm</option>
+    <option value="leg.L">Left leg</option>
+    <option value="leg.R">Right leg</option></select
+  ><button id="hit">Heavy hit · 30</button
+  ><button id="weak">Weak hit · 10</button><button id="fire">Fire</button
+  ><button id="reset">Reset</button
+  ><label><input type="checkbox" id="move" checked />Crawl forward</label
+  ><label
+    >Aim <input id="aim" type="range" min="-30" max="30" value="0" /></label
+  ><select id="view">
+    <option value="quarter">Front quarter</option>
+    <option value="side">Side</option>
+    <option value="rear">Rear quarter</option>
+    <option value="opposite">Opposite quarter</option></select
+  ><button id="pause">Pause</button>
+  <pre id="status">Loading accepted rig…</pre>
+  <p class="muted">
+    Local motion prototype · armor takes two heavy hits; three more exposed hits
+    sever. Drag to orbit. Shift-click a limb to hit its mesh.
+  </p>
+</aside>
+<script type="module" src="./preview.mjs"></script>

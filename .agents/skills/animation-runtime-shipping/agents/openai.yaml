@@ -1,0 +1,4 @@
+interface:
+  display_name: "Animation Runtime Shipping"
+  short_description: "Bring accepted motion onto the real game actor"
+  default_prompt: "Use $animation-runtime-shipping to integrate this accepted animation set and verify its actual game controls."
