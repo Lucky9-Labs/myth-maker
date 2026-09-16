@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "preview": "node serve.mjs",
+    "pretest": "node hydrate.mjs",
+    "prepreview": "node hydrate.mjs"
+  },
+  "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "0.180.0"
+  }
+}
