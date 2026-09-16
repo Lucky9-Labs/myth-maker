@@ -24,14 +24,14 @@
     "amount": 0.025,
     "intersections": {
       "tripo_part_61001 / tripo_part_81001": 4,
-      "tripo_part_61001 / tripo_part_new_0001": 182,
+      "tripo_part_61001 / tripo_part_new_0001": 231,
       "tripo_part_57004 / tripo_part_70001": 61,
       "tripo_part_57004 / tripo_part_73001": 168,
       "tripo_part_57004 / tripo_part_108001": 291,
       "tripo_part_57004 / tripo_part_new_0001": 282,
       "tripo_part_57005 / tripo_part_54001": 129,
       "tripo_part_57005 / tripo_part_14001": 202,
-      "tripo_part_57005 / tripo_part_61001": 27,
+      "tripo_part_57005 / tripo_part_61001": 29,
       "tripo_part_57005 / tripo_part_69001": 106,
       "tripo_part_57005 / tripo_part_73001": 346,
       "tripo_part_57005 / tripo_part_108001": 212,
@@ -41,14 +41,15 @@
   {
     "amount": 0.05,
     "intersections": {
-      "tripo_part_61001 / tripo_part_81001": 2,
-      "tripo_part_61001 / tripo_part_new_0001": 71,
+      "tripo_part_61001 / tripo_part_81001": 3,
+      "tripo_part_61001 / tripo_part_new_0001": 70,
       "tripo_part_57004 / tripo_part_70001": 4,
       "tripo_part_57004 / tripo_part_73001": 74,
       "tripo_part_57004 / tripo_part_108001": 211,
       "tripo_part_57004 / tripo_part_new_0001": 249,
       "tripo_part_57005 / tripo_part_54001": 122,
       "tripo_part_57005 / tripo_part_14001": 217,
+      "tripo_part_57005 / tripo_part_61001": 7,
       "tripo_part_57005 / tripo_part_69001": 122,
       "tripo_part_57005 / tripo_part_73001": 333,
       "tripo_part_57005 / tripo_part_108001": 185
@@ -57,8 +58,8 @@
   {
     "amount": 0.075,
     "intersections": {
-      "tripo_part_61001 / tripo_part_81001": 1,
-      "tripo_part_61001 / tripo_part_new_0001": 31,
+      "tripo_part_61001 / tripo_part_81001": 2,
+      "tripo_part_61001 / tripo_part_new_0001": 49,
       "tripo_part_57004 / tripo_part_73001": 64,
       "tripo_part_57004 / tripo_part_108001": 207,
       "tripo_part_57004 / tripo_part_new_0001": 249,
@@ -72,6 +73,7 @@
   {
     "amount": 0.1,
     "intersections": {
+      "tripo_part_61001 / tripo_part_new_0001": 26,
       "tripo_part_57004 / tripo_part_73001": 43,
       "tripo_part_57004 / tripo_part_108001": 204,
       "tripo_part_57004 / tripo_part_new_0001": 225,
