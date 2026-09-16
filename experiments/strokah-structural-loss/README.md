@@ -53,3 +53,5 @@ ShowMe evidence lives in `output/structural-loss/weak-final/`: fifteen 5-second 
 The review records candidate quality, not user artistic acceptance. No merge or gameplay release is requested. ShowMe publication, if verified, is only the skill's short-lived visual-proof copy; durable graduation is separate.
 
 Run `python3 experiments/strokah-structural-loss/build-review.py` after encoding to validate captured identity/contact/ownership signals and regenerate the offline gallery and per-case judgments. `slip.gif` shows a late failed attempt; `shove.gif` shows external-only movement without limbs. `checkpoint.mjs` reads back the saved effort GLB.
+
+Desperate reach tuning: free/weapon hand plant is 0.55 m ahead of the body versus a 0.17 m resting position (0.38 m stroke); reach arc rises 0.10 m. Leg draw-in runs from -0.50 m to -0.32 m (0.18 m stroke), keeping the foot flat instead of using a walking toe pitch. Force, friction and long recovery are unchanged: wider intent still earns little travel. Follow-up captures are in `output/structural-loss/desperate/`.

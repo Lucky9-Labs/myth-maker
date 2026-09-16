@@ -179,11 +179,13 @@ export class StructuralController {
       let target=initial.clone().lerp(drag,blend),phase='drag';
       if(e.actor===`leg.${side}`&&e.phase==='recover'&&this.effortPlant)target=this.effortPlant.clone().lerp(drag,smooth(this.effortMotion.clock/.9));
       if(e.actor===`leg.${side}`&&e.phase!=='recover'){
-        if(!this.effortPlant)this.effortPlant=new Vector3(drag.x,.035,this.z-.38);
+        if(!this.effortPlant)this.effortPlant=new Vector3(drag.x,.035,this.z-.32);
         if(e.phase==='reach'){target.lerp(this.effortPlant,smooth(e.progress));target.y+=.025*Math.sin(Math.PI*e.progress);phase='reach';}
         else{target.copy(this.effortPlant);target.z-=.018*e.slip;phase=e.phase;}
       }
-      return {side:l.side,position:target,phase:phase==='reach'?'swing':'stance',progress:e.phase==='reach'?e.progress:0,yaw:0,landings:0,target:{ankle:target,heel:{y:0},toe:{y:0},yaw:0}};
+      // A dragging foot stays flat during the desperate draw-in; a walking toe
+      // pitch would dig its heel into the floor and lift the grounded chassis.
+      return {side:l.side,position:target,dragPose:{pitch:0},phase:phase==='reach'?'swing':'stance',progress:e.phase==='reach'?e.progress:0,yaw:0,landings:0,target:{ankle:target,heel:{y:0},toe:{y:0},yaw:0}};
     });
     const priorLegs=new Map(this.legs.legs.flatMap(l=>[l.thigh,l.shin,l.lower,l.ball,l.heel,l.toe]).map(n=>[n,n.quaternion.clone()]));
     this.footMetrics=this.legs.solve({mode:'drag',lockBody:damaged,feet,gait:{coordinated:true,dt:dt||1/60}},0,()=>0);
@@ -207,8 +209,8 @@ export class StructuralController {
       let target=rest,rotation=this.supportRotations[side],weight=blend;
       if(e.actor===`arm.${side}`&&e.phase==='recover'&&this.effortPlant)target=this.effortPlant.clone().lerp(rest,smooth(this.effortMotion.clock/.9));
       if(selected){
-        if(!this.effortPlant)this.effortPlant=new Vector3(rest.x,this.supportHeights[side],this.z+.37);
-        if(e.phase==='reach'){target=rest.clone().lerp(this.effortPlant,smooth(e.progress));target.y+=.045*Math.sin(Math.PI*e.progress);}
+        if(!this.effortPlant)this.effortPlant=new Vector3(rest.x,this.supportHeights[side],this.z+.55);
+        if(e.phase==='reach'){target=rest.clone().lerp(this.effortPlant,smooth(e.progress));target.y+=.10*Math.sin(Math.PI*e.progress);}
         else target=this.effortPlant.clone().add(new Vector3(0,0,-.02*e.slip));
       }
       if(!damaged)continue;

@@ -75,7 +75,7 @@ function view(name = "quarter") {
   orbit.target.set(0, 0.42, controller.z);
   camera.position
     .copy(orbit.target)
-    .add(new T.Vector3(Math.sin(angle) * 2.5, 0.5, Math.cos(angle) * 2.5));
+    .add(new T.Vector3(Math.sin(angle) * 2.8, 0.5, Math.cos(angle) * 2.8));
   orbit.update();
 }
 function render() {
