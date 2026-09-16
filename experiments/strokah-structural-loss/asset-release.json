@@ -1,0 +1,10 @@
+{
+  "asset_id": "strokah-motion-rig",
+  "release": "strokah-motion-rig-v1",
+  "bucket": "mech-art-library-20260905225047699700000001",
+  "object_key": "models/mechs/strokah-motion-rig/v1/strokah-motion-rig-v1.zip",
+  "version_id": "gSSVrfZFh2wSKZtpoRQ3w7DrHD7qONH5",
+  "archive_sha256": "b8bf49584907d9f9f376f6fef9a856d08d6a0fa894f53d9a8d43110c9ae22b4b",
+  "member": "Assets/StreamingAssets/StrokahMotion/strokah-stable-gait-v10.glb",
+  "sha256": "fae1894b712c42a80385a586802b0931c51ef372348aec450caec33bbfcc23fb"
+}

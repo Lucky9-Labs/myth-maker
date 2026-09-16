@@ -10,9 +10,8 @@ From the repository root:
 
 ```sh
 npm ci --prefix experiments/strokah-structural-loss
-node experiments/strokah-structural-loss/hydrate.mjs /absolute/path/to/strokah-stable-gait-v10.glb
-node --test experiments/strokah-structural-loss/*.test.mjs
-node experiments/strokah-structural-loss/serve.mjs
+npm test --prefix experiments/strokah-structural-loss
+npm run preview --prefix experiments/strokah-structural-loss
 ```
 
 Open the printed URL. The combination selector applies real repeated structural hits to the selected limbs. Individual heavy/weak hit buttons and Shift-click mesh hits also work. Fire, aim, external shove, pause, orbit, deterministic reset and movement intent are available.
@@ -59,3 +58,5 @@ Desperate reach tuning: free/weapon hand plant is 0.55 m ahead of the body versu
 Maximum arm reach now replaces the fixed forward plant distance: the upper-arm/forearm lengths and elbow hinge axial offset define the reachable radius, with 2 mm reserved to avoid a singular straight lock. Ground height determines the farthest forward plant. Rifle bracing recomputes horizontal reach at the weapon-supported hand height. Actual-rig tests require both arm-only cases to plant beyond 98% of total segment length while retaining valid contact and propulsion. New captures: `output/structural-loss/max-reach/`.
 
 Leg-only pushes now scrape from the tucked plant toward 96% of the original three-segment leg radius. The extension is eased over the push and retained into the slow recovery, avoiding a snap back to the plant. Chassis force remains weak; foot travel is mostly a backward scrape. Both leg-only tests require over 90% measured hip-to-foot extension, grounded contact, hinge continuity and positive body travel. Captures: `output/structural-loss/leg-push/`.
+
+The normal npm test/preview entrypoints (and direct server start) restore the exact private registry release in `asset-release.json` when the model is absent. AWS CLI access to that bucket and `unzip` are required for first hydration. Archive and GLB hashes are checked before use; corrupt local assets fail closed. An optional explicit source argument to `hydrate.mjs` supports offline use with the same hash check. This browser experiment consumes the GLB only; Unity metadata remains in the original registry archive.
