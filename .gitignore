@@ -27,3 +27,5 @@ output/reef-skitter/unity-swarm/editmode-results.xml
 output/reef-skitter/unity-swarm/metal-gpu-receipt.json
 output/reef-skitter/unity-swarm/metal-run/
 output/reef-skitter/unity-swarm/reef-skitter-swarm-benchmark.json
+
+.playwright-cli/

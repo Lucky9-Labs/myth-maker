@@ -1,0 +1,18 @@
+{
+  "baseMain": "be4cb5ad",
+  "skillsSourceCommit": "75e87c0202e801e7113812c6c0c0908f648ec6df",
+  "sourceDirectory": "/Users/lucky/.codex/worktrees/ce61/myth-maker/output/blender/strokah-rig-v1/",
+  "sourceExport": "working/strokah-stable-gait-v10.glb",
+  "sourceExportSha256": "fae1894b712c42a80385a586802b0931c51ef372348aec450caec33bbfcc23fb",
+  "sourceNative": "working/strokah-stable-gait-v10.blend",
+  "sourceNativeSha256": "19c1ac385d36e53f6a5f9029868d03625fc0b418125149567506b02b4a955be6",
+  "acceptedCheckpoint": "checkpoints/best-walk-v14/",
+  "vendorFiles": [
+    "mechanical-legs.mjs",
+    "upper-body.mjs",
+    "weapon-grip-rig.mjs",
+    "hinge-lock-check.mjs"
+  ],
+  "vendorChanges": "Only upper-body.mjs changes behavior: skip detached arms during restore/solve and do not reset a dropped weapon control.",
+  "sourcePolicy": "Source and other task checkouts are read-only; all generated files belong to 8a6b. No native mesh edits, scale changes, merges or publication."
+}

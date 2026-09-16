@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "preview": "node serve.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  }
+}
