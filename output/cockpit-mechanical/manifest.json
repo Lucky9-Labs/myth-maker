@@ -1,0 +1,26 @@
+{
+  "source_native": {
+    "path": "/Users/lucky/.codex/worktrees/ce61/myth-maker/output/blender/strokah-rig-v1/working/strokah-stable-gait-v10.blend",
+    "sha256": "19c1ac385d36e53f6a5f9029868d03625fc0b418125149567506b02b4a955be6"
+  },
+  "accepted_export": {
+    "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/working/accepted.glb",
+    "sha256": "fae1894b712c42a80385a586802b0931c51ef372348aec450caec33bbfcc23fb"
+  },
+  "glass_preview": {
+    "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/working/cockpit-glass-preview.glb",
+    "sha256": "cea9b673acdacd31bbd6895255413a7dd1dd75481003b85f48ca44baed1a4c13"
+  },
+  "candidate_native": {
+    "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/working/strokah-cockpit-mechanical-v1.blend",
+    "sha256": "762994596632fb7da005f58f35af2a884c3df16e3c1ff1412bdfb48b7990c188"
+  },
+  "motion_config": {
+    "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/mechanism.json",
+    "sha256": "3fe4c181877a4b43517a125f99d06d4f0dd11b84e036ebd0a0062aeadfc23425"
+  },
+  "proof": {
+    "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/cockpit-glass-four-views.gif",
+    "sha256": "5904af9579105ec1fe9ac053426264badc5bb95b2e1b9a6c879b1bc24c629887"
+  }
+}

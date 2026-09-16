@@ -1,0 +1,349 @@
+[
+  {
+    "amount": 0.0,
+    "intersections": {
+      "tripo_part_61001 / tripo_part_73001": 37,
+      "tripo_part_61001 / tripo_part_81001": 22,
+      "tripo_part_61001 / tripo_part_new_0001": 734,
+      "tripo_part_57004 / tripo_part_14001": 288,
+      "tripo_part_57004 / tripo_part_61001": 55,
+      "tripo_part_57004 / tripo_part_70001": 154,
+      "tripo_part_57004 / tripo_part_73001": 1292,
+      "tripo_part_57004 / tripo_part_108001": 332,
+      "tripo_part_57004 / tripo_part_new_0001": 369,
+      "tripo_part_57005 / tripo_part_54001": 125,
+      "tripo_part_57005 / tripo_part_14001": 195,
+      "tripo_part_57005 / tripo_part_61001": 28,
+      "tripo_part_57005 / tripo_part_69001": 106,
+      "tripo_part_57005 / tripo_part_73001": 326,
+      "tripo_part_57005 / tripo_part_108001": 217,
+      "tripo_part_new_0001 / tripo_part_108001": 1768
+    }
+  },
+  {
+    "amount": 0.025,
+    "intersections": {
+      "tripo_part_61001 / tripo_part_81001": 4,
+      "tripo_part_61001 / tripo_part_new_0001": 74,
+      "tripo_part_57004 / tripo_part_70001": 61,
+      "tripo_part_57004 / tripo_part_73001": 168,
+      "tripo_part_57004 / tripo_part_108001": 291,
+      "tripo_part_57004 / tripo_part_new_0001": 124,
+      "tripo_part_57005 / tripo_part_54001": 129,
+      "tripo_part_57005 / tripo_part_14001": 202,
+      "tripo_part_57005 / tripo_part_61001": 25,
+      "tripo_part_57005 / tripo_part_69001": 106,
+      "tripo_part_57005 / tripo_part_73001": 346,
+      "tripo_part_57005 / tripo_part_108001": 212,
+      "tripo_part_new_0001 / tripo_part_108001": 101
+    }
+  },
+  {
+    "amount": 0.05,
+    "intersections": {
+      "tripo_part_61001 / tripo_part_81001": 2,
+      "tripo_part_61001 / tripo_part_new_0001": 19,
+      "tripo_part_57004 / tripo_part_70001": 4,
+      "tripo_part_57004 / tripo_part_73001": 74,
+      "tripo_part_57004 / tripo_part_108001": 211,
+      "tripo_part_57004 / tripo_part_new_0001": 44,
+      "tripo_part_57005 / tripo_part_54001": 122,
+      "tripo_part_57005 / tripo_part_14001": 217,
+      "tripo_part_57005 / tripo_part_69001": 122,
+      "tripo_part_57005 / tripo_part_73001": 333,
+      "tripo_part_57005 / tripo_part_108001": 185
+    }
+  },
+  {
+    "amount": 0.075,
+    "intersections": {
+      "tripo_part_61001 / tripo_part_81001": 2,
+      "tripo_part_61001 / tripo_part_new_0001": 13,
+      "tripo_part_57004 / tripo_part_73001": 64,
+      "tripo_part_57004 / tripo_part_108001": 207,
+      "tripo_part_57004 / tripo_part_new_0001": 28,
+      "tripo_part_57005 / tripo_part_54001": 39,
+      "tripo_part_57005 / tripo_part_14001": 173,
+      "tripo_part_57005 / tripo_part_69001": 114,
+      "tripo_part_57005 / tripo_part_73001": 63,
+      "tripo_part_57005 / tripo_part_108001": 190
+    }
+  },
+  {
+    "amount": 0.1,
+    "intersections": {
+      "tripo_part_61001 / tripo_part_81001": 2,
+      "tripo_part_57004 / tripo_part_73001": 43,
+      "tripo_part_57004 / tripo_part_108001": 204,
+      "tripo_part_57004 / tripo_part_new_0001": 23,
+      "tripo_part_57005 / tripo_part_54001": 32,
+      "tripo_part_57005 / tripo_part_14001": 85,
+      "tripo_part_57005 / tripo_part_69001": 91,
+      "tripo_part_57005 / tripo_part_108001": 204
+    }
+  },
+  {
+    "amount": 0.125,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_73001": 23,
+      "tripo_part_57004 / tripo_part_108001": 174,
+      "tripo_part_57004 / tripo_part_new_0001": 23,
+      "tripo_part_57005 / tripo_part_54001": 13,
+      "tripo_part_57005 / tripo_part_69001": 58,
+      "tripo_part_57005 / tripo_part_108001": 200
+    }
+  },
+  {
+    "amount": 0.15,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 164,
+      "tripo_part_57004 / tripo_part_new_0001": 23,
+      "tripo_part_57005 / tripo_part_69001": 21,
+      "tripo_part_57005 / tripo_part_108001": 171
+    }
+  },
+  {
+    "amount": 0.175,
+    "intersections": {
+      "tripo_part_61001 / tripo_part_73001": 2,
+      "tripo_part_57004 / tripo_part_108001": 147,
+      "tripo_part_57004 / tripo_part_new_0001": 21,
+      "tripo_part_57005 / tripo_part_108001": 173
+    }
+  },
+  {
+    "amount": 0.2,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 141,
+      "tripo_part_57004 / tripo_part_new_0001": 19,
+      "tripo_part_57005 / tripo_part_108001": 155
+    }
+  },
+  {
+    "amount": 0.225,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 133,
+      "tripo_part_57004 / tripo_part_new_0001": 12,
+      "tripo_part_57005 / tripo_part_108001": 148
+    }
+  },
+  {
+    "amount": 0.25,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 135,
+      "tripo_part_57004 / tripo_part_new_0001": 12,
+      "tripo_part_57005 / tripo_part_108001": 146
+    }
+  },
+  {
+    "amount": 0.275,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 134,
+      "tripo_part_57004 / tripo_part_new_0001": 10,
+      "tripo_part_57005 / tripo_part_108001": 140
+    }
+  },
+  {
+    "amount": 0.3,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 136,
+      "tripo_part_57004 / tripo_part_new_0001": 10,
+      "tripo_part_57005 / tripo_part_108001": 140
+    }
+  },
+  {
+    "amount": 0.325,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 136,
+      "tripo_part_57004 / tripo_part_new_0001": 10,
+      "tripo_part_57005 / tripo_part_108001": 140
+    }
+  },
+  {
+    "amount": 0.35,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 136,
+      "tripo_part_57004 / tripo_part_new_0001": 10,
+      "tripo_part_57005 / tripo_part_108001": 144
+    }
+  },
+  {
+    "amount": 0.375,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 135,
+      "tripo_part_57004 / tripo_part_new_0001": 12,
+      "tripo_part_57005 / tripo_part_108001": 144
+    }
+  },
+  {
+    "amount": 0.4,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 135,
+      "tripo_part_57004 / tripo_part_new_0001": 15,
+      "tripo_part_57005 / tripo_part_108001": 144
+    }
+  },
+  {
+    "amount": 0.425,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 134,
+      "tripo_part_57004 / tripo_part_new_0001": 24,
+      "tripo_part_57005 / tripo_part_108001": 138
+    }
+  },
+  {
+    "amount": 0.45,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 130,
+      "tripo_part_57004 / tripo_part_new_0001": 27,
+      "tripo_part_57005 / tripo_part_108001": 136
+    }
+  },
+  {
+    "amount": 0.475,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 129,
+      "tripo_part_57004 / tripo_part_new_0001": 29,
+      "tripo_part_57005 / tripo_part_108001": 133
+    }
+  },
+  {
+    "amount": 0.5,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 123,
+      "tripo_part_57004 / tripo_part_new_0001": 29,
+      "tripo_part_57005 / tripo_part_108001": 138
+    }
+  },
+  {
+    "amount": 0.525,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 122,
+      "tripo_part_57004 / tripo_part_new_0001": 37,
+      "tripo_part_57005 / tripo_part_108001": 137
+    }
+  },
+  {
+    "amount": 0.55,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 119,
+      "tripo_part_57004 / tripo_part_new_0001": 69,
+      "tripo_part_57005 / tripo_part_108001": 132
+    }
+  },
+  {
+    "amount": 0.575,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 119,
+      "tripo_part_57004 / tripo_part_new_0001": 91,
+      "tripo_part_57005 / tripo_part_108001": 131
+    }
+  },
+  {
+    "amount": 0.6,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 111,
+      "tripo_part_57004 / tripo_part_new_0001": 83,
+      "tripo_part_57005 / tripo_part_108001": 125
+    }
+  },
+  {
+    "amount": 0.625,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 111,
+      "tripo_part_57004 / tripo_part_new_0001": 88,
+      "tripo_part_57005 / tripo_part_108001": 121
+    }
+  },
+  {
+    "amount": 0.65,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 113,
+      "tripo_part_57004 / tripo_part_new_0001": 74,
+      "tripo_part_57005 / tripo_part_108001": 123
+    }
+  },
+  {
+    "amount": 0.675,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 110,
+      "tripo_part_57004 / tripo_part_new_0001": 78,
+      "tripo_part_57005 / tripo_part_108001": 119
+    }
+  },
+  {
+    "amount": 0.7,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 111,
+      "tripo_part_57004 / tripo_part_new_0001": 72,
+      "tripo_part_57005 / tripo_part_108001": 122
+    }
+  },
+  {
+    "amount": 0.725,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 111,
+      "tripo_part_57004 / tripo_part_new_0001": 68,
+      "tripo_part_57005 / tripo_part_108001": 108
+    }
+  },
+  {
+    "amount": 0.75,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 110,
+      "tripo_part_57004 / tripo_part_new_0001": 31,
+      "tripo_part_57005 / tripo_part_108001": 94
+    }
+  },
+  {
+    "amount": 0.775,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 73,
+      "tripo_part_57004 / tripo_part_new_0001": 13,
+      "tripo_part_57005 / tripo_part_108001": 36
+    }
+  },
+  {
+    "amount": 0.8,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 25,
+      "tripo_part_57004 / tripo_part_new_0001": 10,
+      "tripo_part_57005 / tripo_part_108001": 5
+    }
+  },
+  {
+    "amount": 0.825,
+    "intersections": {
+      "tripo_part_57004 / tripo_part_108001": 11,
+      "tripo_part_57004 / tripo_part_new_0001": 10
+    }
+  },
+  {
+    "amount": 0.85,
+    "intersections": {}
+  },
+  {
+    "amount": 0.875,
+    "intersections": {}
+  },
+  {
+    "amount": 0.9,
+    "intersections": {}
+  },
+  {
+    "amount": 0.925,
+    "intersections": {}
+  },
+  {
+    "amount": 0.95,
+    "intersections": {}
+  },
+  {
+    "amount": 0.975,
+    "intersections": {}
+  },
+  {
+    "amount": 1.0,
+    "intersections": {}
+  }
+]
