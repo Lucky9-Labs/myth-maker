@@ -13,6 +13,6 @@
     "weapon-grip-rig.mjs",
     "hinge-lock-check.mjs"
   ],
-  "vendorChanges": "Only upper-body.mjs changes behavior: skip detached arms during restore/solve and do not reset a dropped weapon control.",
-  "sourcePolicy": "Source and other task checkouts are read-only; all generated files belong to 8a6b. No native mesh edits, scale changes, merges or publication."
+  "vendorChanges": "upper-body skips detached solvers and dropped weapon resets; mechanical-legs adds a locked body option and uses its accepted continuous redundant-chain solve for dragging. No mesh/bone scale or weapon-anchor edits.",
+  "sourcePolicy": "Source and other task checkouts are read-only; all generated files belong to 8a6b. No native mesh edits, scale changes, merges or product publication. User-requested ShowMe copies may publish to the configured short-lived proof bucket."
 }

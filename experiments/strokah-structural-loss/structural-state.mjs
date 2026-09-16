@@ -5,7 +5,6 @@ export const DEFAULTS = Object.freeze({
   structuralCapacity: 90,
   minimumHits: 3,
   transitionSeconds: 1.2,
-  crawlSpeed: 0.075,
 });
 // Input is a resolved bone impact, never a stagger signal. Armor breaches do not
 // spill damage into structure on the same hit, matching MechPartDamageState.
@@ -56,7 +55,7 @@ export class StructuralState {
     return { detached: false, reason: "structural damage" };
   }
   get crawling() {
-    return this.parts["leg.L"].lost || this.parts["leg.R"].lost;
+    return this.events.length > 0;
   }
   get armed() {
     return !this.parts["arm.R"].lost;
@@ -66,11 +65,5 @@ export class StructuralState {
       (s) => !this.parts[`arm.${s}`].lost && (s !== "R" || !this.armed),
     );
   }
-  get mobile() {
-    return (
-      !this.crawling ||
-      (this.supportHands.length > 0 &&
-        (!this.parts["leg.L"].lost || !this.parts["leg.R"].lost))
-    );
-  }
+  get mobile() { return Object.values(this.parts).some(p=>!p.lost); }
 }

@@ -28,7 +28,7 @@ test("all sides, minimum hit count, weapon loss, degraded mobility, deterministi
   for (const id of ["leg.L", "arm.L"])
     for (let i = 0; i < 3; i++) s.hit(id, 30);
   assert.equal(s.crawling, true);
-  assert.equal(s.mobile, false);
+  assert.equal(s.mobile, true);
   assert.equal(s.armed, true);
   for (let i = 0; i < 3; i++) s.hit("arm.R", 30);
   assert.equal(s.armed, false);

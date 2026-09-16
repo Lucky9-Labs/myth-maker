@@ -1,8 +1,10 @@
-# Strokah structural-loss candidate
+# Strokah: effort-driven damaged locomotion
 
-Local, actual-model prototype on `codex/strokah-structural-loss`. No Unity edits, merge, release, or publication. The accepted source checkout is read-only. `provenance.json` identifies the original GLB, native Blender file and vendored procedural rig code.
+The actual accepted Strokah rig hauls its grounded chassis through short, weak efforts. Body translation comes from available contact force overcoming friction. Surviving limbs drag between attempts. Severed limbs tumble as independent articulated physics bodies.
 
-## Run
+This is the local Three.js/Cannon preview in this worktree. It does not modify the Unity game or the read-only accepted Blender/source checkout. `provenance.json` records the source hashes; the original proportions, bone lengths, shoulder shells and weapon grip anchors are retained.
+
+## Run and interact
 
 From the repository root:
 
@@ -13,30 +15,41 @@ node --test experiments/strokah-structural-loss/*.test.mjs
 node experiments/strokah-structural-loss/serve.mjs
 ```
 
-Open the printed localhost URL. Choose a limb and use Heavy hit; alternatively Shift-click its actual mesh. Two 30-point hits consume the default armor; three subsequent exposed hits sever. Weak hits do not accumulate structural stress. Aim, fire, pause, orbit and reset are available. The crawl-forward checkbox stops travel and allows active swings to land.
+Open the printed URL. The combination selector applies real repeated structural hits to the selected limbs. Individual heavy/weak hit buttons and Shift-click mesh hits also work. Fire, aim, external shove, pause, orbit, deterministic reset and movement intent are available.
 
-## Behavior and boundaries
+Two default 30-point hits consume armor. Three subsequent sufficiently powerful hits sever a limb once. Weak exposed hits do not build structural stress. Armor breach does not spill into structure on the same hit. `StructuralState` owns these thresholds independently of movement and health/stagger.
 
-- `StructuralState` is separate from health/stagger. `armor`, `minimumImpact`, `structuralCapacity`, `minimumHits`, `transitionSeconds` and `crawlSpeed` are parameters. A single oversized impact cannot bypass the minimum repeated-hit count. The armor-breaching hit does not spill into structure.
-- `LimbOwnership` transfers the original distal `upper_arm` or `thigh` hierarchy. Fingers, heel/toe assemblies and the corrected shoulder shell stay with their limb. Chassis-side mounting sockets stay on the actor. The independently parented rifle control belongs to the right arm and moves with its debris. Lost limbs are removed from motion solving and mesh-hit queries; no hidden duplicate limb remains.
-- The preview uses mesh-triangle raycast hit colliders and a bounding-box ground collision for each coherent debris group. Debris receives initial linear/angular velocity and settles on the flat floor. This is **not a Unity Rigidbody/collider implementation**; game collision layers, inventory/action ownership and terrain integration need a separate port.
-- One-leg loss blends into a low posture over 1.2 seconds. The surviving foot and free left hand alternate world-space plants. The existing weapon control and trigger anchor continue to drive the right arm; its arm never becomes a support hand while holding the rifle. Original segment lengths and scale are unchanged. Accepted local-X leg/elbow hinge solvers and shoulder-shell binding are retained. A separate support-hand orientation is derived from the real finger/palm frame.
-- Losing the weapon arm drops the rifle and rejects firing; the surviving hand remains usable for support. Losing the free hand while crawling stops travel and preserves the gun arm for aiming. Both legs lost or no free support hand selects a stationary degraded posture; no invented weapon transfer or one-handed locomotion is attempted.
-- Reset restores original ownership, exact initial transforms, weapon availability, contacts, transition history, stress, shot count and debris state.
+## Mechanics
 
-The existing Unity `MechPartDamageState` was inspected read-only: armor first, then exposed bone, without same-hit spillover. `MechPart` currently hides destroyed bone renderers and retains repair colliders. That path has **not** been changed or represented as gameplay delivery. Armor/exposure in this preview is authoritative numeric state with UI feedback; the supplied accepted rig has no separate game armor-panel lifecycle. This candidate covers flat-floor forward crawl; terrain-adaptive turning, weapon switching and player integration are outside its evidence.
+`EffortMotion` chooses an available actuator and sequences **reach → plant → pull/push → recover**. Passive limbs drag. It prefers the free hand and surviving legs; the weapon arm becomes a brace when it is the only remaining actuator. Each third attempt loses more purchase and can stall. Recovery lasts 1.5–1.96 seconds, giving intermittent progress and long rests.
 
-## Review artifacts
+The planar body model integrates mass, applied contact force, static/sliding friction, velocity drag, external impulses and the tangential component of gravity. It has no prescribed crawl speed. Force is gated by the previous actual rig solve: reach error and surface clearance must establish purchase. The rendered chassis settles against its actual lower hull bounds. The remaining foot is solved in its original local hinge plane, rate-limited, and allowed to scrape rather than alternate a proper walking gait.
 
-Local files under `output/structural-loss/`:
+Defaults in `EFFORT_DEFAULTS`: 70 kg effective mass, 82 N pull, 70 N push, 45 N static friction, 30 N sliding friction, 90 N·s/m velocity drag. Pass `{effort: {...}, ...structuralThresholds}` to `StructuralController` to tune them. Terrain examples are flat-floor proofs. The slope force input is unit-tested; there is no claim of arbitrary terrain traversal or balance recovery.
 
-- `crawl-left.gif`: 100 sampled renders, 20 fps, five seconds. Repeated hits, loss, transition, crawl and surviving-weapon fire.
-- `crawl-right.gif`: same sequence from the rear quarter for the other leg.
-- `arm-loss-reset.gif`: 80 renders, 20 fps, four seconds. Left arm loss, redundant hits, firing, reset, then right arm and owned rifle loss with firing rejected.
-- `crawl-left-checkpoint.glb`: saved static candidate including detached debris. Reopen independently of the controller to inspect mesh ownership and the pose.
-- `side-final.png`, `quarter-final.png`, `rear-final.png`, `opposite-final.png`: actual-model review angles. `crawl-decoded.png` and `arms-decoded.png` are decoded GIF contact sheets.
-- `tests.txt` and `receipt.json`: focused results and artifact hashes.
+The rifle keeps its common trigger/foregrip frame. During a sole weapon-arm effort it lowers gradually to brace; firing is rejected until it recovers. Otherwise it remains available and dips slightly with exertion. The unarmed hand uses its own captured start pose and a palm support frame, never the dropped gun's moving anchors.
 
-The rendered GIFs were decoded and inspected. Review confirms readable separation, low posture, planted support hand, surviving gun aim and coherent dropped rifle. Artistic acceptance remains with the user; this is not an assertion of shipped gameplay or dynamic stability on arbitrary ground.
+`LimbOwnership` moves the original hierarchy into three physical links per severed limb. The rifle stays with the severed right hand. Cannon hinge constraints retain the separation pivots and bound relative ragdoll articulation to ±0.45 radians from that pose. A mass-weighted physical impulse and angular velocity initiate tumbling. Convex boxes represent rigid visual clusters; original mesh triangles remain precise hit targets. Links within one limb ignore self-collision to prevent overlapping joint shells from fighting the constraints; floor and other-limb collisions remain active. Detached geometry is removed from actor hit queries and animation solving. This preview does not simulate collisions between debris and its former owner's animated hull.
 
-To repeat capture, create `frames-left`, `frames-right`, `frames-arms` under the output directory, load the preview in Playwright CLI, and pass the contents of `capture.playwright.js` to its `run-code` command. It advances the same live controller at 60 Hz and captures every three steps. Encode each sequence with ffmpeg at 20 fps using palettegen/paletteuse. The hook does not substitute a separately authored animation for the actual controller.
+Reset restores exact original transforms/parents, all meshes, weapon ownership, force/contact history and physics bodies/constraints. Original source files are never edited.
+
+## Available-limb policy
+
+| Remaining capability | Motion |
+|---|---|
+| Free arm | Reach, plant, pull the grounded chassis, scrape back, recover |
+| Leg(s) | Brief heel/foot purchase and shallow extension; otherwise trail and scrape |
+| Weapon arm only | Lower the still-gripped rifle to brace, pull, then recover aiming |
+| No limbs | No self-propulsion; inertia, external shove or slope force can move the chassis |
+
+Mask bits identify **lost** limbs: 1 = left arm, 2 = right arm, 4 = left leg, 8 = right leg. The 15 non-empty combinations are all reviewed, with an intact baseline as a control.
+
+## Verification and reproduction
+
+`effort-motion.test.mjs` covers every availability combination, rests, force pulses, loss of purchase, momentum, external impulses and slope force. `actual-rig.test.mjs` covers articulated ownership, colliders, independent tumbling, exact reset, local hinge motion, actual contact-gated propulsion for each single-limb survivor, weapon bracing, and zero-limb immobility. `matrix-audit.mjs` exercises all 15 combinations for eleven simulated seconds and records travel, contact, joint continuity and physical separation tolerances.
+
+ShowMe evidence lives in `output/structural-loss/weak-final/`: fifteen 5-second GIFs, intact baseline, side/opposite keyframes, decoded GIF contact sheets, per-case telemetry, numeric audit, review judgments and receipts. `capture-matrix.playwright.js` operates the real combination selector and samples the same live controller at 60 Hz, capturing every three steps. Run it through Playwright CLI with `?begin=1`, `4`, `7`, `10`, `13` to capture three cases at a time. `encode-matrix.py` encodes, decodes and counts distinct rendered frames.
+
+The review records candidate quality, not user artistic acceptance. No merge or gameplay release is requested. ShowMe publication, if verified, is only the skill's short-lived visual-proof copy; durable graduation is separate.
+
+Run `python3 experiments/strokah-structural-loss/build-review.py` after encoding to validate captured identity/contact/ownership signals and regenerate the offline gallery and per-case judgments. `slip.gif` shows a late failed attempt; `shove.gif` shows external-only movement without limbs. `checkpoint.mjs` reads back the saved effort GLB.

@@ -1,7 +1,8 @@
 import { AnimationMixer, Vector3, Quaternion, Box3 } from "three";
-import { MechanicalLegs, findRigNode } from "./vendor/mechanical-legs.mjs";
+import { MechanicalLegs, findRigNode, meshClearance } from "./vendor/mechanical-legs.mjs";
 import { UpperBody } from "./vendor/upper-body.mjs";
 import { StructuralState } from "./structural-state.mjs";
+import {EffortMotion} from "./effort-motion.mjs";
 import { LimbOwnership } from "./limb-ownership.mjs";
 const smooth = (x) => {
   x = Math.max(0, Math.min(1, x));
@@ -20,8 +21,10 @@ export class StructuralController {
     this.legs = new MechanicalLegs(this.root, rest);
     this.allLegs = [...this.legs.legs];
     this.upper = new UpperBody(this.root);
-    this.state = new StructuralState(config);
+    const {effort,...structural}=config;
+    this.state = new StructuralState(structural);
     this.ownership = new LimbOwnership(this.root, scene, this.upper);
+    this.effortMotion = new EffortMotion(effort);
     this.saved = [];
     this.root.traverse((n) =>
       this.saved.push({
@@ -44,6 +47,8 @@ export class StructuralController {
     this.legs.legs = [...this.allLegs];
     this.legs.resetMotion();
     this.upper.disabledSides = new Set();
+    this.effortMotion.reset();
+    this.contactValid=true;
     this.time = 0;
     this.crawlClock = 0;
     this.lossTime = null;
@@ -53,6 +58,7 @@ export class StructuralController {
     this.fired = 0;
     this.recoil = 0;
     this.contacts = {};
+    this.lastEffortPhase=null;this.lastEffortSequence=null;this.lastEffortActor=null;this.effortPlant=null;
     this.root.updateMatrixWorld(true);
     this.initialFeet = Object.fromEntries(
       this.allLegs.map((l) => [l.suffix, pos(l.ball)]),
@@ -111,7 +117,7 @@ export class StructuralController {
     if (result.detached) {
       this.ownership.detach(
         id,
-        new Vector3(id.endsWith("L") ? -0.55 : 0.55, 0.35, -0.2),
+        new Vector3(Math.sign(pos(this.ownership.records.get(id)[0].node).x-pos(this.upper.waist).x||1)*.8, 0.35, -.3).multiplyScalar(Math.min(3, Math.max(.5,power/30))),
       );
       this.upper.disabledSides = new Set(
         ["L", "R"].filter((s) => this.state.parts[`arm.${s}`].lost),
@@ -119,7 +125,7 @@ export class StructuralController {
       this.legs.legs = this.allLegs.filter(
         (l) => !this.state.parts[`leg.${l.suffix}`].lost,
       );
-      if (id.startsWith("leg") && this.lossTime === null) {
+      if (this.lossTime === null) {
         this.lossTime = this.time;
         this.entryFeet = Object.fromEntries(
           this.allLegs.map((l) => [l.suffix, pos(l.ball)]),
@@ -132,173 +138,110 @@ export class StructuralController {
     return result;
   }
   fire() {
-    if (!this.state.armed) return false;
+    if (!this.state.armed || this.metrics.weaponBracing) return false;
     this.fired++;
     this.recoil = 0.012;
     return true;
   }
-  update(dt, { move = true, aimYaw = 0 } = {}) {
+  update(dt, { move = true, aimYaw = 0, slope = 0, purchase = 1 } = {}) {
     this.time += dt;
-    this.recoil *= Math.exp(-dt * 18);
-    const age = this.lossTime === null ? 0 : this.time - this.lossTime;
-    const blend = this.state.crawling
-      ? smooth(age / this.state.config.transitionSeconds)
-      : 0;
-    const travelling =
-      move && this.state.crawling && this.state.mobile && blend > 0.999;
-    const speed = travelling ? this.state.config.crawlSpeed : 0;
-    this.z += speed * dt;
-    // Lower the center of mass before advancing the support contacts.
-    this.legs.moveBody({ x: 0, z: this.z }, -0.4 * blend);
-    this.legs.body.position.y -=
-      0.012 * blend * Math.sin(Math.max(0, age - 1.2) * Math.PI * 2);
+    this.recoil *= Math.exp(-dt*18);
+    const damaged = this.state.events.length > 0;
+    const age = this.lossTime===null ? 0 : this.time-this.lossTime;
+    const blend = damaged ? smooth(age/this.state.config.transitionSeconds) : 0;
+    const e = this.effortMotion.update(dt,{parts:this.state.parts,enabled:blend>.999,move,slope,purchase:purchase*(this.contactValid?1:0)});
+    this.z = e.z;
+    this.legs.moveBody({x:0,z:this.z},-.44*blend);
+    this.upper.aim(aimYaw,0);
+    if(this.state.armed)this.upper.alignBarrel(new Vector3(Math.sin(aimYaw),0,Math.cos(aimYaw)));
+    this.upper.respond({x:0,z:.15*blend});
+    // Keep the gun frame independent while the chassis rolls forward onto its belly.
+    const pitch=(1.08-.07*e.effort)*blend;
+    if(this.state.armed)this.upper.articulate({torsoPitch:pitch,weapon:{recoil:this.recoil}},0);
+    else {
+      const waist=this.upper.waist;
+      const q=waist.getWorldQuaternion(new Quaternion()).premultiply(new Quaternion().setFromAxisAngle(new Vector3(1,0,0),pitch-.14));
+      waist.quaternion.copy(waist.parent.getWorldQuaternion(new Quaternion()).invert().multiply(q));
+    }
     this.root.updateMatrixWorld(true);
-    if (
-      travelling ||
-      Object.values(this.contacts).some((c) => c.phase === "swing")
-    )
-      this.crawlClock += dt;
-    const cycle = this.crawlClock / 1.65;
-    const plan = (key, initial, end, phaseOffset, lift) => {
-      let c = this.contacts[key];
-      if (!c)
-        c = this.contacts[key] = {
-          plant: end.clone(),
-          start: end.clone(),
-          target: end.clone(),
-          cycle: -1,
-        };
-      let point = initial.clone().lerp(end, blend);
-      let phase = "stance",
-        progress = 0;
-      if (blend > 0.999) {
-        const clock = cycle + phaseOffset,
-          k = Math.floor(clock),
-          p = clock - k;
-        const swing = (travelling || c.phase === "swing") && p > 0.68;
-        if (swing) {
-          if (c.cycle !== k) {
-            c.start.copy(c.plant);
-            c.target.copy(end);
-            c.target.z = this.z + end.z + 0.08;
-            c.cycle = k;
-          }
-          progress = (p - 0.68) / 0.32;
-          point.copy(c.start).lerp(c.target, smooth(progress));
-          point.y += lift * Math.sin(Math.PI * progress);
-          phase = "swing";
-        } else {
-          if (c.cycle === k - 1) c.plant.copy(c.target);
-          point.copy(c.plant);
-        }
+    const hull=new Box3();
+    for(const node of [...this.upper.waist.children,...this.upper.waist.parent.children])if(node.isMesh){node.geometry.computeBoundingBox();hull.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld));}
+    // The torso is the grounded support during recovery and single-limb motion.
+    const lift=(.004+.007*e.effort-hull.min.y)*blend;
+    this.legs.body.position.y+=lift;
+    this.root.updateMatrixWorld(true);
+    if(e.phase==='reach' && (this.lastEffortPhase!=='reach'||this.lastEffortActor!==e.actor))this.effortPlant=null;
+    this.lastEffortPhase=e.phase;this.lastEffortActor=e.actor;
+    const feet=this.legs.legs.map(l=>{
+      const initial=(this.entryFeet??this.initialFeet)[l.suffix];
+      const side=l.suffix;
+      const drag=new Vector3(this.initialFeet[side].x,.035,this.z-.50);
+      let target=initial.clone().lerp(drag,blend),phase='drag';
+      if(e.actor===`leg.${side}`&&e.phase==='recover'&&this.effortPlant)target=this.effortPlant.clone().lerp(drag,smooth(this.effortMotion.clock/.9));
+      if(e.actor===`leg.${side}`&&e.phase!=='recover'){
+        if(!this.effortPlant)this.effortPlant=new Vector3(drag.x,.035,this.z-.38);
+        if(e.phase==='reach'){target.lerp(this.effortPlant,smooth(e.progress));target.y+=.025*Math.sin(Math.PI*e.progress);phase='reach';}
+        else{target.copy(this.effortPlant);target.z-=.018*e.slip;phase=e.phase;}
       }
-      c.phase = phase;
-      return { point, phase, progress };
-    };
-    const feet = this.legs.legs.map((l) => {
-      const initial = (this.entryFeet ?? this.initialFeet)[l.suffix];
-      const target = this.initialFeet[l.suffix].clone();
-      target.z = -0.19;
-      target.y = 0.035;
-      const f = plan(`foot.${l.suffix}`, initial, target, 0.5, 0.05);
-      return {
-        side: l.side,
-        position: f.point,
-        phase: f.phase,
-        progress: f.progress,
-        yaw: 0,
-        landings: 0,
-        target: { ankle: f.point, heel: { y: 0 }, toe: { y: 0 }, yaw: 0 },
-      };
+      return {side:l.side,position:target,phase:phase==='reach'?'swing':'stance',progress:e.phase==='reach'?e.progress:0,yaw:0,landings:0,target:{ankle:target,heel:{y:0},toe:{y:0},yaw:0}};
     });
-    this.footMetrics = this.legs.solve(
-      { mode: "crawl", feet, gait: { coordinated: true, dt: dt || 1 / 60 } },
-      0,
-      () => 0,
-    );
-    this.upper.aim(aimYaw, 0);
-    if (this.state.armed)
-      this.upper.alignBarrel(
-        new Vector3(Math.sin(aimYaw), 0, Math.cos(aimYaw)),
-      );
-    this.upper.respond({ x: 0, z: 0.14 * blend });
-    this.handPhases = {};
-    const overrides = {};
-    if (!this.state.armed)
-      for (const s of this.state.supportHands)
-        overrides[s] = {
-          position: this.initialHands[s]
-            .clone()
-            .add(new Vector3(0, -0.4 * blend, this.z)),
-          rotation: this.handRotations[s],
-          weight: 1,
-        };
-    for (const side of this.state.supportHands) {
-      if (!this.state.crawling) continue;
-      const initial = (this.entryHands ?? this.initialHands)[side];
-      const end = new Vector3(
-        side === "L" ? 0.2 : -0.2,
-        this.supportHeights[side],
-        0.3,
-      );
-      const contact = plan(`hand.${side}`, initial, end, 0, 0.065);
-      this.handPhases[side] = contact.phase;
-      overrides[side] = {
-        position: contact.point,
-        rotation: this.supportRotations[side],
-        weight: blend,
-      };
-    }
-    if (this.state.armed) {
-      this.upper.articulate(
-        {
-          torsoPitch: 0.55 * blend,
-          gripOverrides: overrides,
-          weapon: { recoil: this.recoil },
-        },
-        0,
-      );
-    } else {
-      // Dropped weapon is no longer a transform owner or a target for either arm.
-      const waist = this.upper.waist;
-      waist.rotateX(0.55 * blend);
+    const priorLegs=new Map(this.legs.legs.flatMap(l=>[l.thigh,l.shin,l.lower,l.ball,l.heel,l.toe]).map(n=>[n,n.quaternion.clone()]));
+    this.footMetrics=this.legs.solve({mode:'drag',lockBody:damaged,feet,gait:{coordinated:true,dt:dt||1/60}},0,()=>0);
+    if(damaged&&dt>0){
+      for(const [node,prior]of priorLegs){const angle=prior.clone().normalize().angleTo(node.quaternion.clone().normalize());if(angle>8.4*dt)node.quaternion.copy(prior.slerp(node.quaternion,8.4*dt/angle));}
       this.root.updateMatrixWorld(true);
-      this.upper.solveGrips({ gripOverrides: overrides });
+      let penetration=0;for(const leg of this.legs.legs)for(const n of [leg.ball,leg.heel,leg.toe])penetration=Math.max(penetration,.002-meshClearance(n,()=>0));
+      if(penetration>0)this.legs.body.position.y+=penetration;
+      this.root.updateMatrixWorld(true);
+      for(const f of this.footMetrics){const leg=this.legs.legs.find(l=>l.side===f.side),target=new Vector3().fromArray(f.target);f.error=pos(leg.ball).distanceTo(target);f.clearance=Math.min(...[leg.ball,leg.heel,leg.toe].map(n=>meshClearance(n,()=>0)));}
     }
-    this.ownership.update(dt);
     this.root.updateMatrixWorld(true);
-    this.metrics = {
-      blend,
-      z: this.z,
-      armed: this.state.armed,
-      mobile: this.state.mobile,
-      mode: this.state.crawling
-        ? this.state.mobile
-          ? "hand-assisted crawl"
-          : "braced / insufficient support"
-        : "standing",
-      debris: this.ownership.debris.length,
-      gripErrors: this.upper.armErrors,
-      feet: this.footMetrics.map((f) => ({
-        side: f.side,
-        error: f.error,
-        clearance: f.clearance,
-      })),
-      hands: Object.fromEntries(
-        this.state.supportHands.map((s) => {
-          const n = this.upper.chains[s === "L" ? 0 : 1].nodes[3];
-          const box = new Box3().setFromObject(n);
-          return [
-            s,
-            {
-              phase: this.handPhases[s] ?? "free",
-              position: pos(n).toArray(),
-              clearance: box.min.y,
-            },
-          ];
-        }),
-      ),
-    };
+    const overrides={};this.handPhases={};
+    for(const side of ['L','R']){
+      if(this.state.parts[`arm.${side}`].lost)continue;
+      const selected=e.actor===`arm.${side}`&&e.phase!=='recover';
+      const free=side==='L'||!this.state.armed;
+      if(!free&&!selected)continue;
+      const shoulder=pos(this.upper.chains[side==='L'?0:1].nodes[1]);
+      const rest=new Vector3(side==='L'?.23:-.23,this.supportHeights[side],this.z+.17);
+      let target=rest,rotation=this.supportRotations[side],weight=blend;
+      if(e.actor===`arm.${side}`&&e.phase==='recover'&&this.effortPlant)target=this.effortPlant.clone().lerp(rest,smooth(this.effortMotion.clock/.9));
+      if(selected){
+        if(!this.effortPlant)this.effortPlant=new Vector3(rest.x,this.supportHeights[side],this.z+.37);
+        if(e.phase==='reach'){target=rest.clone().lerp(this.effortPlant,smooth(e.progress));target.y+=.045*Math.sin(Math.PI*e.progress);}
+        else target=this.effortPlant.clone().add(new Vector3(0,0,-.02*e.slip));
+      }
+      if(!damaged)continue;
+      this.handPhases[side]=selected?e.phase:'drag';
+      overrides[side]={position:(this.entryHands??this.initialHands)[side].clone().lerp(target,blend),rotation:this.handRotations[side].clone().slerp(rotation,blend),weight:1};
+    }
+    const braceWeight=e.actor==='arm.R'?(e.phase==='reach'?smooth(e.progress):e.phase==='recover'?1-smooth(this.effortMotion.clock/.9):1):0;
+    if(this.state.armed && braceWeight===0)this.upper.gripRig.rotateAround(this.upper.gripRig.targets()[1].position,new Quaternion().setFromAxisAngle(new Vector3(1,0,0),.045*e.effort));
+    if(braceWeight>0&&this.state.armed){
+      // Brace with the hand still attached to its trigger frame: translate and
+      // lower the common gun control; never pull the hand away from the rifle.
+      const target=(overrides.R?.position??this.effortPlant??new Vector3(-.23,this.supportHeights.R,this.z+.17)).clone(),grip=this.upper.gripRig.targets()[1];
+      this.upper.gripRig.rotateAround(grip.position,new Quaternion().setFromAxisAngle(new Vector3(1,0,0),.3*braceWeight));
+      const weaponFloor=new Box3().setFromObject(this.upper.weapon).min.y;target.y=Math.max(target.y,grip.position.y-weaponFloor+.006);
+      this.upper.gripRig.translateWorld(target.clone().sub(grip.position).multiplyScalar(braceWeight));
+      delete overrides.R;
+    }
+    this.upper.solveGrips({gripOverrides:overrides});
+    this.ownership.update(dt);this.root.updateMatrixWorld(true);
+    this.contactValid=true;
+    if(e.actor && ['plant','pull','push'].includes(e.phase)){
+      if(e.actor.startsWith('leg')){
+        const leg=this.legs.legs.find(l=>e.actor===`leg.${l.suffix}`),f=this.footMetrics.find(f=>f.side===leg?.side);
+        this.contactValid=!!f && f.error<.012 && f.clearance>-.004 && f.clearance<.014;
+      }else {
+        const side=e.actor.endsWith('L')?'L':'R',hand=this.upper.chains[side==='L'?0:1].nodes[3];
+        const floor=new Box3().setFromObject(side==='R'?this.upper.weapon:hand).min.y;
+        const target=this.upper.gripTargets[side==='L'?0:1].position;
+        this.contactValid=floor>-.005 && floor<.014 && pos(hand).distanceTo(target)<.012;
+      }
+    }
+    const torsoBox=new Box3();for(const node of this.upper.waist.children)if(node.isMesh)torsoBox.union(node.geometry.boundingBox.clone().applyMatrix4(node.matrixWorld));
+    this.metrics={blend,z:this.z,velocity:e.velocity,force:e.force,contactValid:this.contactValid,phase:e.phase,actor:e.actor,effort:e.effort,weaponBracing:braceWeight>.05,armed:this.state.armed,mobile:this.state.mobile,mode:damaged?`${e.phase} · ${e.actor??'grounded'}`:'standing',debris:this.ownership.debris.length,gripErrors:this.upper.armErrors,torsoClearance:torsoBox.min.y,feet:this.footMetrics.map(f=>({side:f.side,error:f.error,clearance:f.clearance})),hands:Object.fromEntries(['L','R'].filter(s=>!this.state.parts[`arm.${s}`].lost).map(s=>{const n=this.upper.chains[s==='L'?0:1].nodes[3];return [s,{phase:this.handPhases[s]??'aim',position:pos(n).toArray(),clearance:new Box3().setFromObject(n).min.y}];}))};
     return this.metrics;
   }
 }

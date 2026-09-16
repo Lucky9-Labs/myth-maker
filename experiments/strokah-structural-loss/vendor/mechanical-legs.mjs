@@ -151,7 +151,7 @@ export class MechanicalLegs {
     }
     const bodyY = this.body.position.y;
     const maxDrop=this.maxPelvisDrop+Math.max(snapshot.mode==='dash'?.10:snapshot.mode==='sprint'?.04:0,.10*(this.exitBlend??0)/.22);
-    if (snapshot.gait?.coordinated) {
+    if (snapshot.gait?.coordinated && !snapshot.lockBody) {
       // Hold the comfortable standing height through the stride. Anticipate
       // the landing target using all three segments, letting the ankle and
       // knee share extension instead of dropping the torso for a fixed ankle.
@@ -302,7 +302,7 @@ export class MechanicalLegs {
       let knee = hip.clone().addScaledVector(along, x)
         .addScaledVector(bend, Math.sqrt(Math.max(0, a * a - x * x)));
       let solvedHock = hip.clone().addScaledVector(along, d);
-      if(snapshot.mode==='sprint'){
+      if(snapshot.mode==='sprint'||snapshot.mode==='drag'){
         const angleOf=v=>Math.atan2(v.dot(planeForward),v.dot(planeDown));
         const difference=(a,b)=>Math.atan2(Math.sin(a-b),Math.cos(a-b));
         const preferred=[angleOf(knee.clone().sub(hip)),angleOf(solvedHock.clone().sub(knee)),angleOf(lowerDirection)];

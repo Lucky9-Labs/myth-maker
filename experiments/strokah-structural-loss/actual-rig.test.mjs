@@ -1,154 +1,16 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import { Scene } from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { StructuralController } from "./controller.mjs";
-import {
-  captureHingeFrames,
-  assertHingeLocks,
-} from "./vendor/hinge-lock-check.mjs";
-async function load() {
-  const b = await fs.readFile(
-    new URL("../../output/structural-loss/model.glb", import.meta.url),
-  );
-  const g = await new GLTFLoader().parseAsync(
-    b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength),
-    "",
-  );
-  const hinges = captureHingeFrames(g.scene);
-  const c = new StructuralController(g, new Scene());
-  for (const chain of c.upper.chains)
-    hinges.push({
-      node: chain.nodes[2],
-      bind: chain.nodes[2].quaternion.clone(),
-    });
-  return { c, hinges };
-}
-for (const id of ["arm.L", "arm.R", "leg.L", "leg.R"])
-  test(`actual rig: ${id} ownership, contacts, local hinges, weapon, reset`, async () => {
-    const { c, hinges } = await load();
-    const original = c.saved.map((r) => [
-      r.n,
-      r.n.parent,
-      r.n.position.clone(),
-      r.n.scale.clone(),
-      r.n.quaternion.clone(),
-    ]);
-    const meshes = [];
-    c.root.traverse((n) => {
-      if (n.isMesh) meshes.push(n);
-    });
-    const count = meshes.length;
-    for (let i = 0; i < 5; i++) c.hit(id, 30);
-    const debris = c.ownership.debris[0];
-    const detachedNodes = [];
-    debris.group.traverse((n) => detachedNodes.push(n));
-    assert.ok(detachedNodes.some((n) => n.isMesh));
-    const attached = [];
-    c.root.traverse((n) => {
-      if (n.isMesh) attached.push(n);
-    });
-    assert.equal(attached.length + debris.colliders.length, count);
-    assert.ok(!attached.some((n) => detachedNodes.includes(n)));
-    for (let i = 0; i < 10; i++) c.hit(id, 100);
-    assert.equal(c.ownership.debris.length, 1);
-    assert.equal(c.fire(), id !== "arm.R");
-    const ownedRoot = debris.group.children[0];
-    const detachedLocal = ownedRoot.quaternion.clone();
-    let maxHand = 0,
-      maxGrip = 0,
-      maxJointStep = 0;
-    const previous = new Map();
-    for (let frame = 0; frame < 360; frame++) {
-      c.update(1 / 60);
-      assertHingeLocks(
-        hinges.filter((h) => !detachedNodes.includes(h.node)),
-        `${id} ${frame}`,
-      );
-      assert.ok(
-        ownedRoot.quaternion
-          .toArray()
-          .every((v, i) => Math.abs(v - detachedLocal.toArray()[i]) < 1e-9),
-        "solver changed detached limb",
-      );
-      for (const { n } of c.saved) {
-        if (detachedNodes.includes(n)) continue;
-        if (previous.has(n))
-          maxJointStep = Math.max(
-            maxJointStep,
-            n.quaternion.angleTo(previous.get(n)),
-          );
-        previous.set(n, n.quaternion.clone());
-      }
-      if (id.startsWith("leg") && frame > 90) {
-        maxGrip = Math.max(maxGrip, c.upper.armErrors[1] ?? 0);
-        const contact = c.contacts["hand.L"];
-        if (contact && c.metrics.hands.L?.phase === "stance") {
-          maxHand = Math.max(maxHand, Math.abs(c.metrics.hands.L.clearance));
-          assert.ok(
-            c.metrics.hands.L.clearance >= -0.001 &&
-              c.metrics.hands.L.clearance < 0.01,
-            `hand contact ${c.metrics.hands.L.clearance}`,
-          );
-        }
-        for (const f of c.metrics.feet)
-          assert.ok(f.clearance >= -0.001, `sole penetrates ${f.clearance}`);
-      }
-    }
-    assert.ok(maxJointStep < 0.35, `joint step ${maxJointStep}`);
-    assert.ok(maxGrip < 0.002, `weapon grip ${maxGrip}`);
-    assert.ok(debris.settled);
-    c.reset();
-    assert.equal(c.ownership.debris.length, 0);
-    assert.equal(c.state.armed, true);
-    assert.equal(c.state.crawling, false);
-    for (const [n, parent, position, scale, rotation] of original) {
-      assert.equal(n.parent, parent);
-      assert.ok(n.position.distanceTo(position) < 1e-8, "reset position");
-      assert.ok(
-        n.quaternion.clone().normalize().angleTo(rotation.clone().normalize()) <
-          1e-6,
-        "reset rotation",
-      );
-      assert.ok(n.scale.distanceTo(scale) < 1e-8);
-    }
-    assert.equal(c.root.getObjectByName("DEBRIS_" + id), undefined);
-    console.log(JSON.stringify({ id, maxJointStep, maxGrip, maxHand }));
-  });
-
-test("combined loss, interrupted crawl, aiming and dropped weapon stay coherent", async () => {
-  const { c } = await load();
-  for (let i = 0; i < 5; i++) c.hit("leg.R", 30);
-  for (let frame = 0; frame < 210; frame++)
-    c.update(1 / 60, { move: frame < 145 });
-  assert.ok(
-    Object.values(c.contacts).every((contact) => contact.phase === "stance"),
-    "finish swings after stopping",
-  );
-  const stopped = c.z;
-  for (let i = 0; i < 60; i++) c.update(1 / 60, { move: false });
-  assert.equal(c.z, stopped);
-  for (let i = 0; i < 90; i++)
-    c.update(1 / 60, { aimYaw: 0.1 * Math.sin(i / 60) });
-  assert.ok(c.fire());
-  for (let i = 0; i < 5; i++) c.hit("arm.R", 30);
-  const weapon = c.upper.gripRig.control;
-  const before = weapon.position.clone();
-  for (let i = 0; i < 120; i++) c.update(1 / 60);
-  assert.ok(!c.fire());
-  assert.ok(
-    weapon.position.distanceTo(before) < 1e-10,
-    "no dropped weapon pose reset",
-  );
-  assert.ok(c.state.mobile);
-  assert.ok(c.metrics.hands.L.clearance > -0.002);
-  for (let i = 0; i < 5; i++) c.hit("arm.L", 30);
-  const z = c.z;
-  for (let i = 0; i < 60; i++) c.update(1 / 60);
-  assert.equal(c.z, z);
-  assert.ok(!c.state.mobile);
-  c.reset();
-  assert.equal(c.state.events.length, 0);
-  assert.equal(c.fired, 0);
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import {Scene,Vector3} from 'three';import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';import {StructuralController} from './controller.mjs';import {captureHingeFrames,assertHingeLocks} from './vendor/hinge-lock-check.mjs';
+async function load(){const bytes=await fs.readFile(new URL('../../output/structural-loss/model.glb',import.meta.url));const gltf=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');const hinges=captureHingeFrames(gltf.scene);const c=new StructuralController(gltf,new Scene());for(const chain of c.upper.chains)hinges.push({node:chain.nodes[2],bind:chain.base[2].clone()});return {c,hinges};}
+const lose=(c,mask)=>['arm.L','arm.R','leg.L','leg.R'].forEach((id,i)=>{if(mask&(1<<i))for(let n=0;n<5;n++)c.hit(id,30);});
+test('articulated debris owns original meshes, weapon, and physics colliders; reset restores exact pose',async()=>{
+ const {c}=await load();const original=c.saved.map(({n})=>({n,parent:n.parent,p:n.position.clone(),q:n.quaternion.clone(),s:n.scale.clone()}));let meshCount=0;c.root.traverse(n=>{if(n.isMesh)meshCount++;});lose(c,15);assert.equal(c.ownership.debris.length,4);let remaining=0;c.root.traverse(n=>{if(n.isMesh)remaining++;});assert.equal(remaining+c.ownership.debris.reduce((s,d)=>s+d.colliders.length,0),meshCount);
+ for(const d of c.ownership.debris){assert.equal(d.links.length,3);assert.equal(d.constraints.length,2);assert.ok(d.links.every(l=>l.body.shapes.length>0));assert.equal(c.ownership.detach(d.id),false);}
+ const gun=c.upper.gripRig.control;assert.ok(!c.root.getObjectById(gun.id));assert.equal(c.fire(),false);const first=c.ownership.debris[0].links[0],before=first.visual.quaternion.clone();for(let i=0;i<180;i++)c.update(1/60);assert.ok(first.visual.quaternion.angleTo(before)>.05,'severed limb must tumble');assert.equal(c.ownership.world.bodies.length,13);
+ c.reset();assert.equal(c.ownership.world.bodies.length,1);assert.equal(c.ownership.world.constraints.length,0);assert.equal(c.state.events.length,0);assert.equal(c.z,0);assert.ok(c.fire());for(const r of original){assert.equal(r.n.parent,r.parent);assert.ok(r.n.position.distanceTo(r.p)<1e-8);assert.ok(r.n.scale.distanceTo(r.s)<1e-8);assert.ok(r.n.quaternion.clone().normalize().angleTo(r.q.clone().normalize())<1e-6);}
+});
+for(const [mask,label]of [[7,'right leg only'],[11,'left leg only'],[13,'weapon arm only'],[14,'free arm only'],[15,'no limbs']])test(`actual contacts propel ${label} without a hidden gait`,async()=>{
+ const {c,hinges}=await load();lose(c,mask);let moving=0,resting=0,braced=0,force=0,maxStep=0;const previous=new Map();for(let frame=0;frame<400;frame++){
+  const m=c.update(1/60);assertHingeLocks(hinges.filter(h=>c.root.getObjectById(h.node.id)),`${label}:${frame}`);if(m.velocity>.001)moving++;if(frame>90&&m.phase==='recover'&&m.velocity===0)resting++;if(m.force>0){force++;assert.ok(m.contactValid,'force without purchase');}if(m.weaponBracing){braced++;assert.equal(c.fire(),false);}
+  if(frame>90)assert.ok(m.torsoClearance>=-.001&&m.torsoClearance<.02,'belly must settle onto the floor');c.root.traverse(n=>{if(previous.has(n.id))maxStep=Math.max(maxStep,n.quaternion.clone().normalize().angleTo(previous.get(n.id)));previous.set(n.id,n.quaternion.clone().normalize());});
+ }
+ assert.ok(maxStep<.35,`joint snap ${maxStep}`);assert.ok(resting>60);if(mask===15){assert.equal(moving,0);assert.equal(force,0);assert.equal(c.z,0);c.effortMotion.impulse(14);for(let f=0;f<60;f++)c.update(1/60);assert.ok(c.z>0);}else{assert.ok(c.z>.01,`${label} did not move`);assert.ok(moving>0&&force>0);}if(mask===13)assert.ok(braced>0);
 });

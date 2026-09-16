@@ -79,6 +79,7 @@ function view(name = "quarter") {
   orbit.update();
 }
 function render() {
+  if($("proof"))$("proof").textContent="Lost: "+Object.entries(controller.state.parts).filter(([id,p])=>p.lost).map(([id])=>id).join(" + ")+" · "+controller.metrics.mode+" · "+((controller.metrics.velocity??0)*100).toFixed(1)+" cm/s";
   renderer.render(scene, camera);
   $("status").textContent =
     Object.entries(controller.state.parts)
@@ -87,7 +88,7 @@ function render() {
           `${id}: ${p.lost ? "DETACHED" : p.armor > 0 ? `armor ${p.armor}` : `exposed · ${p.hits}/3 hits`}`,
       )
       .join("\n") +
-    `\n\n${controller.metrics.mode}\nWeapon ${controller.state.armed ? "online" : "lost"} · shots ${controller.fired}\nDebris ${controller.ownership.debris.length}`;
+    `\n\n${controller.metrics.mode}\nWeapon ${controller.state.armed ? "online" : "lost"} · shots ${controller.fired}\nDebris ${controller.ownership.debris.length}\nForce ${(controller.metrics.force??0).toFixed(0)} N · speed ${((controller.metrics.velocity??0)*100).toFixed(1)} cm/s`;
 }
 $("hit").onclick = () => {
   controller.hit($("limb").value, 30);
@@ -113,6 +114,8 @@ $("pause").onclick = () => {
 };
 window.review = {
   controller,
+  identity:{feature:"strokah-effort-drag",worktree:"8a6b",runtime:"three-0.180.0/cannon-es-0.20.0"},
+  mask:(mask)=>{if($("combination"))$("combination").value=mask;controller.reset();["arm.L","arm.R","leg.L","leg.R"].forEach((id,i)=>{if(mask&(1<<i))for(let n=0;n<5;n++)controller.hit(id,30);});render();},
   view,
   render,
   pause: () => {
@@ -170,3 +173,8 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
 });
 
 orbit.addEventListener("change", () => renderer.render(scene, camera));
+
+const combination=document.createElement("select");combination.id="combination";for(let mask=0;mask<16;mask++){const option=document.createElement("option");option.value=mask;option.textContent=mask?"Lost: "+["arm.L","arm.R","leg.L","leg.R"].filter((id,i)=>mask&(1<<i)).join(" + "):"All limbs intact";combination.append(option);}document.querySelector("aside").insertBefore(combination,$("limb"));combination.onchange=()=>review.mask(Number(combination.value));
+const shove=document.createElement("button");shove.textContent="External shove";shove.onclick=()=>controller.effortMotion.impulse(14);document.querySelector("aside").append(shove);
+
+const proof=document.createElement("div");proof.id="proof";proof.style.cssText="position:absolute;left:320px;top:108px;padding:10px;background:#18252de0;color:#e7eff5;font:14px system-ui;pointer-events:none";document.body.append(proof);
