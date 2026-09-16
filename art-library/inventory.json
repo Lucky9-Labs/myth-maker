@@ -1,0 +1,24 @@
+{
+  "schema_version": "art-inventory/v1",
+  "bucket_environment": "MECH_GAME_ART_BUCKET",
+  "assets": [
+    {
+      "id": "strokah-cockpit-mechanical",
+      "category": "mech",
+      "title": "Strokah mechanical cockpit source and review",
+      "revisions": [
+        {
+          "version": 1,
+          "state": "uploaded",
+          "review_status": "selected",
+          "object_key": "models/mechs/strokah-cockpit-mechanical/v1/strokah-cockpit-mechanical-v1.zip",
+          "sha256": "9c5c0218d412060f7b208b4f455d71dd4ec676d62c9af91c2e0796abf8d42d6a",
+          "staged_path": "references/concepts/strokah-cockpit-mechanical-v1/strokah-cockpit-mechanical-v1.zip",
+          "content_type": "application/zip",
+          "brief": "User-accepted cockpit authoring and thin-glass preview; preserved source rig, reversible canopy slide, hinged cheeks and chin. No Unity runtime integration.",
+          "s3_version_id": "ltRi1tNzRx2tIpb2jxSR7iwwOwkyXn4X"
+        }
+      ]
+    }
+  ]
+}

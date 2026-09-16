@@ -1,6 +1,6 @@
 # Strokah mechanical cockpit — sliding canopy and hinged cheeks
 
-Saved review candidate on `codex/strokah-cockpit-mechanical`, based on current `main` (`be4cb5ad`) plus only the requested animation skills commit. No merge, publication, Unity integration, damage, limb-loss, melee, shield or ejection work.
+Saved review candidate on `codex/strokah-cockpit-mechanical`, based on current `main` (`be4cb5ad`) plus only the requested animation skills commit. This release covers authoring and preview work; no Unity integration, damage, limb-loss, melee, shield or ejection work.
 
 The latest direction is applied: the cheeks make a short seam release, then angle outward about lower attachment pivots with no further outward translation. The central chin has a smaller slide. The canopy uses a continuous 0.155-unit backward guide stroke over the crown and stops at a low baseball-cap brim angle. Guide translation and tilt begin together immediately after release and share one progression through full opening; there is no hinge-first phase. The canopy release is now 0.012 upward and 0.030 forward (40% and 25% smaller), with a revised guide pivot that brings the final brim 0.024 units lower and keeps it closer to the crown. The canopy remains a thin outer-surface preview; its original internal solid mass is retained hidden for later cleanup. Diagnostic colors identify the panels.
 
@@ -9,13 +9,13 @@ The latest direction is applied: the cheeks make a short seam release, then angl
 - Native: `working/strokah-cockpit-mechanical-v1.blend` (saved local artifact; large source/model files are intentionally not committed).
 - Proof: `cockpit-glass-four-views.gif`, 90 actual browser-rendered frames at 20 fps, 4.5 seconds. Front, side, three-quarter close-up and full mech views. The encoded GIF was decoded and its keyframes inspected.
 - `decoded-side-keyframes.png` is the decoded side-view contact sheet.
-- Run `npm ci && npm start` from this directory, then open `http://127.0.0.1:4179`. Open / Hold / Close and the normalized slider all operate the same controller. Camera buttons retain the complete rig and rifle.
+- First run `python3 art-library/scripts/restore_cockpit.py` from the repository root with boto3 and art-bucket read credentials. Then run `npm ci && npm start` from this directory, then open `http://127.0.0.1:4179`. Open / Hold / Close and the normalized slider all operate the same controller. Camera buttons retain the complete rig and rifle.
 
 ## Source and geometry
 
 Accepted source, read-only throughout:
 `/Users/lucky/.codex/worktrees/ce61/myth-maker/output/blender/strokah-rig-v1/working/strokah-stable-gait-v10.blend` and matching `.glb`.
-`manifest.json` records SHA-256 identities. The accepted export is copied locally as `working/accepted.glb`; restore that copy from the recorded source before running in another checkout.
+`manifest.json` records SHA-256 identities. The accepted export is copied locally as `working/accepted.glb`; the pinned release restorer supplies that copy and the native source for other checkouts. The immutable release contract is `art-library/releases/strokah-cockpit-mechanical-v1.json`.
 
 The original closed transforms are retained exactly. The glass preview uses the authored outer surface, with no replacement helmet or deformed shell:
 

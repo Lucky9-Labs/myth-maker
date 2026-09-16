@@ -1,0 +1,25 @@
+{
+  "release": "strokah-cockpit-mechanical-v1",
+  "bucket": "mech-art-library-20260905225047699700000001",
+  "asset_id": "strokah-cockpit-mechanical",
+  "artifact": {
+    "version": 1,
+    "state": "uploaded",
+    "review_status": "selected",
+    "object_key": "models/mechs/strokah-cockpit-mechanical/v1/strokah-cockpit-mechanical-v1.zip",
+    "sha256": "9c5c0218d412060f7b208b4f455d71dd4ec676d62c9af91c2e0796abf8d42d6a",
+    "staged_path": "references/concepts/strokah-cockpit-mechanical-v1/strokah-cockpit-mechanical-v1.zip",
+    "content_type": "application/zip",
+    "brief": "User-accepted cockpit authoring and thin-glass preview; preserved source rig, reversible canopy slide, hinged cheeks and chin. No Unity runtime integration.",
+    "s3_version_id": "ltRi1tNzRx2tIpb2jxSR7iwwOwkyXn4X"
+  },
+  "files": {
+    "working/accepted.glb": "fae1894b712c42a80385a586802b0931c51ef372348aec450caec33bbfcc23fb",
+    "working/cockpit-glass-preview.glb": "cea9b673acdacd31bbd6895255413a7dd1dd75481003b85f48ca44baed1a4c13",
+    "working/glass-surface.json": "17d4368515016b2815620488f4745d228f592e2f83abeb9289434bf85eb88e89",
+    "working/strokah-cockpit-mechanical-v1.blend": "cfa9d24960f1560f352ba3ddcbcd32e77b5e30f34e7700bd4d551da09efac5b5",
+    "working/strokah-stable-gait-v10.blend": "19c1ac385d36e53f6a5f9029868d03625fc0b418125149567506b02b4a955be6",
+    "cockpit-glass-four-views.gif": "897018c5a56d21fceaa396770572c09cfb9f963db7dca39d0211b2c7b642f49c",
+    "decoded-side-keyframes.png": "7703737286798c3f5a4086ff8f8a02e1e398df76602945b5b4c467a51fa70fc7"
+  }
+}
