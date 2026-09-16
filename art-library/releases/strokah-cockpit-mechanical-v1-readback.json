@@ -1,0 +1,7 @@
+{
+  "release": "strokah-cockpit-mechanical-v1",
+  "sha256": "9c5c0218d412060f7b208b4f455d71dd4ec676d62c9af91c2e0796abf8d42d6a",
+  "verified_files": 7,
+  "method": "Independent S3 version-pinned GET; archive and all members hashed; restored into empty temporary directory",
+  "temporary_directory_removed": true
+}
