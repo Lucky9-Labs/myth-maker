@@ -209,7 +209,18 @@ export class StructuralController {
       let target=rest,rotation=this.supportRotations[side],weight=blend;
       if(e.actor===`arm.${side}`&&e.phase==='recover'&&this.effortPlant)target=this.effortPlant.clone().lerp(rest,smooth(this.effortMotion.clock/.9));
       if(selected){
-        if(!this.effortPlant)this.effortPlant=new Vector3(rest.x,this.supportHeights[side],this.z+.55);
+        if(!this.effortPlant){
+          const nodes=this.upper.chains[side==='L'?0:1].nodes;
+          const elbow=pos(nodes[2]),hand=pos(nodes[3]);
+          const axis=new Vector3(1,0,0).applyQuaternion(nodes[2].getWorldQuaternion(new Quaternion()));
+          const upper=elbow.clone().sub(shoulder),fore=hand.clone().sub(elbow);
+          // Maximum radius allowed by the elbow hinge, including its axial offset.
+          const axial=upper.dot(axis)+fore.dot(axis);
+          const radial=upper.addScaledVector(axis,-upper.dot(axis)).length()+fore.addScaledVector(axis,-fore.dot(axis)).length();
+          const reach=Math.sqrt(axial*axial+radial*radial)-.002;
+          const dy=this.supportHeights[side]-shoulder.y,dx=rest.x-shoulder.x;
+          this.effortPlant=new Vector3(rest.x,this.supportHeights[side],shoulder.z+Math.sqrt(Math.max(0,reach*reach-dy*dy-dx*dx)));
+        }
         if(e.phase==='reach'){target=rest.clone().lerp(this.effortPlant,smooth(e.progress));target.y+=.10*Math.sin(Math.PI*e.progress);}
         else target=this.effortPlant.clone().add(new Vector3(0,0,-.02*e.slip));
       }
@@ -225,6 +236,14 @@ export class StructuralController {
       const target=(overrides.R?.position??this.effortPlant??new Vector3(-.23,this.supportHeights.R,this.z+.17)).clone(),grip=this.upper.gripRig.targets()[1];
       this.upper.gripRig.rotateAround(grip.position,new Quaternion().setFromAxisAngle(new Vector3(1,0,0),.3*braceWeight));
       const weaponFloor=new Box3().setFromObject(this.upper.weapon).min.y;target.y=Math.max(target.y,grip.position.y-weaponFloor+.006);
+      // The rifle raises the supporting hand: use the extra horizontal reach
+      // available at that height rather than keeping the bare-palm target.
+      if(this.effortPlant){
+        const shoulder=pos(this.upper.chains[1].nodes[1]),radius=shoulder.distanceTo(this.effortPlant);
+        const dy=target.y-shoulder.y,dx=target.x-shoulder.x;
+        const far=shoulder.z+Math.sqrt(Math.max(0,radius*radius-dy*dy-dx*dx));
+        target.z+=(far-target.z)*braceWeight;
+      }
       this.upper.gripRig.translateWorld(target.clone().sub(grip.position).multiplyScalar(braceWeight));
       delete overrides.R;
     }
