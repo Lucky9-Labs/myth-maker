@@ -23,7 +23,7 @@
     {
       "amount": 0.1,
       "part": "canopy",
-      "matrix_error": 1.4901161193847656e-08
+      "matrix_error": 5.21540641784668e-08
     },
     {
       "amount": 0.1,
@@ -43,7 +43,7 @@
     {
       "amount": 0.3,
       "part": "canopy",
-      "matrix_error": 3.725290298461914e-08
+      "matrix_error": 2.2351741790771484e-08
     },
     {
       "amount": 0.3,
@@ -83,7 +83,7 @@
     {
       "amount": 0.6,
       "part": "canopy",
-      "matrix_error": 5.960464477539063e-08
+      "matrix_error": 2.086162567138672e-07
     },
     {
       "amount": 0.6,
@@ -143,7 +143,7 @@
     {
       "amount": 0.65,
       "part": "canopy",
-      "matrix_error": 1.7881393432617188e-07
+      "matrix_error": 1.4901161193847656e-07
     },
     {
       "amount": 0.65,
@@ -163,7 +163,7 @@
     {
       "amount": 0.2,
       "part": "canopy",
-      "matrix_error": 5.21540641784668e-08
+      "matrix_error": 3.725290298461914e-08
     },
     {
       "amount": 0.2,

@@ -2,7 +2,7 @@
 
 Saved review candidate on `codex/strokah-cockpit-mechanical`, based on current `main` (`be4cb5ad`) plus only the requested animation skills commit. No merge, publication, Unity integration, damage, limb-loss, melee, shield or ejection work.
 
-The latest direction is applied: the cheeks make a short seam release, then angle outward about lower attachment pivots with no further outward translation. The central chin has a smaller slide. The canopy follows a backward sliding path over the crown and stops at a low baseball-cap brim angle. The canopy remains a thin outer-surface preview; its original internal solid mass is retained hidden for later cleanup. Diagnostic colors identify the panels.
+The latest direction is applied: the cheeks make a short seam release, then angle outward about lower attachment pivots with no further outward translation. The central chin has a smaller slide. The canopy uses a continuous 0.165-unit backward guide stroke over the crown and stops at a low baseball-cap brim angle. Guide translation and tilt begin together immediately after release and share one progression through full opening; there is no hinge-first phase. The canopy remains a thin outer-surface preview; its original internal solid mass is retained hidden for later cleanup. Diagnostic colors identify the panels.
 
 ## Review
 
@@ -21,7 +21,7 @@ The original closed transforms are retained exactly. The glass preview uses the 
 
 | Role | Authored mesh | Motion at full opening, export units |
 |---|---|---|
-| Canopy | `tripo_part_61.001` | short release, then 0.085 backward guide travel with 65° rotation; stops at a low brim |
+| Canopy | `tripo_part_61.001` | short release, then 0.165 backward guide travel with 65° rotation; stops at a low brim |
 | Left cheek | `tripo_part_57.004` | +0.012 sideways/+0.026 forward release, then 20° outward about its lower attachment |
 | Right cheek | `tripo_part_57.005` | −0.012 sideways/+0.026 forward release, then mirrored 20° outward about its lower attachment |
 | Chin | `tripo_part_new_0.001` | +0.021 forward, −0.012 down |
@@ -40,7 +40,7 @@ Native equivalent: select `CTRL_Cockpit_Open`, custom property `open_amount`. It
 
 ## Validation and limits
 
-- Four focused Node tests pass, including the actual accepted GLB, 200 bound-model reversal cycles, 1,000 scalar cycles, held pose, ancestor rotation, rigid unit scales, and exact reseating without limb/weapon transform drift.
+- Five focused Node tests pass, including the actual accepted GLB, 200 bound-model reversal cycles, 1,000 scalar cycles, held pose, ancestor rotation, rigid unit scales, exact reseating without limb/weapon transform drift, and continuous slide-driven canopy tilt.
 - Actual browser buttons were exercised: open, hold, close mid-cycle, reopen, fully close.
 - Reopened native-file parity: maximum matrix error 1.8328429e-6 across sampled forward and reverse states.
 - Native mesh/rest-bone preservation: all 196 original mesh geometries and all 62 rest bones match the accepted source. No ankle proportions, rest lengths, or mesh vertex coordinates changed.
