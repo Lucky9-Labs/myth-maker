@@ -1,0 +1,4 @@
+interface:
+  display_name: "Myth Maker Animation"
+  short_description: "Direct animation from brief to accepted motion"
+  default_prompt: "Use $mythmaker-animation to plan and iterate this animation set while preserving accepted checkpoints."

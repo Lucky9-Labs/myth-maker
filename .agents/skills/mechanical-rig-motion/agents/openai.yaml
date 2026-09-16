@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mechanical Rig and Motion"
+  short_description: "Rig mech joints, grips and grounded locomotion"
+  default_prompt: "Use $mechanical-rig-motion to diagnose and refine this mech rig while preserving accepted motion."
