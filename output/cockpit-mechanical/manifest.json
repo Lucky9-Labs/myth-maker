@@ -13,14 +13,14 @@
   },
   "candidate_native": {
     "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/working/strokah-cockpit-mechanical-v1.blend",
-    "sha256": "762994596632fb7da005f58f35af2a884c3df16e3c1ff1412bdfb48b7990c188"
+    "sha256": "b379b7cacfd2f09a2e1f17dc018ab4f7d7b0fd3819f9cfe53a174c5af31e1450"
   },
   "motion_config": {
     "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/mechanism.json",
-    "sha256": "3fe4c181877a4b43517a125f99d06d4f0dd11b84e036ebd0a0062aeadfc23425"
+    "sha256": "cdbd3f06372e398a36e0144156062b8885d507ecff44a7b764d93b1286b2c5cd"
   },
   "proof": {
     "path": "/Users/lucky/.codex/worktrees/9ae6/myth-maker/output/cockpit-mechanical/cockpit-glass-four-views.gif",
-    "sha256": "5904af9579105ec1fe9ac053426264badc5bb95b2e1b9a6c879b1bc24c629887"
+    "sha256": "14752bb767dadd061e7a8189accc9bb7e3f87bc1038e5dd4121164ad2b978940"
   }
 }

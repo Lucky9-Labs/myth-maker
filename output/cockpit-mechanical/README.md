@@ -1,8 +1,8 @@
-# Strokah mechanical cockpit — lean crown sweep
+# Strokah mechanical cockpit — low forward brim
 
 Saved review candidate on `codex/strokah-cockpit-mechanical`, based on current `main` (`be4cb5ad`) plus only the requested animation skills commit. No merge, publication, Unity integration, damage, limb-loss, melee, shield or ejection work.
 
-Both user corrections are applied: the chin has a short outward/downward stroke, and the canopy sweeps backward over the crown instead of lifting vertically into a tall open position. The canopy is treated as a thin pane. Its retained internal solid mass is excluded from the clearance envelope. Diagnostic colors identify the panels.
+The latest direction is applied: the chin keeps its short outward/downward stroke, and the canopy opens into a low, forward-projecting baseball-cap brim at brow height. Its pivot is at the upper edge; total pivot lift is 0.032 export units, down from 0.173 in the previous crown sweep. The canopy is treated as a thin pane. Its retained internal solid mass is excluded from the clearance envelope. Diagnostic colors identify the panels.
 
 ## Review
 
@@ -21,7 +21,7 @@ The original closed transforms are retained exactly. The glass preview uses the 
 
 | Role | Authored mesh | Motion at full opening, export units |
 |---|---|---|
-| Canopy | `tripo_part_61.001` | forward release, lift/tilt, then back over crown; 90° cam rotation; thin-pane clearance |
+| Canopy | `tripo_part_61.001` | short release, then tilt about the upper edge into a forward brim; 65° rotation; thin-pane clearance |
 | Left cheek | `tripo_part_57.004` | +0.045 sideways, +0.050 forward, −0.021 down |
 | Right cheek | `tripo_part_57.005` | −0.045 sideways, +0.050 forward, −0.021 down |
 | Chin | `tripo_part_new_0.001` | +0.026 forward, −0.021 down |
@@ -42,7 +42,7 @@ Native equivalent: select `CTRL_Cockpit_Open`, custom property `open_amount`. It
 
 - Four focused Node tests pass, including the actual accepted GLB, 200 bound-model reversal cycles, 1,000 scalar cycles, held pose, ancestor rotation, rigid unit scales, and exact reseating without limb/weapon transform drift.
 - Actual browser buttons were exercised: open, hold, close mid-cycle, reopen, fully close.
-- Reopened native-file parity: maximum matrix error 1.4901162e-7 across sampled forward and reverse states.
+- Reopened native-file parity: maximum matrix error 2.0861626e-7 across sampled forward and reverse states.
 - Native mesh/rest-bone preservation: all 196 original mesh geometries and all 62 rest bones match the accepted source. No ankle proportions, rest lengths, or mesh vertex coordinates changed.
 - Exact exported triangles sampled at 41 amounts. No new collision pairs relative to the inherited closed seams. Canopy clears all meshes throughout the main travel (amount >= 0.30). All four panels have zero surface intersections from 0.85 through full opening. The earlier inherited seam overlaps are recorded honestly in `export-clearance.json`.
 - The sweep is valid for the requested thin outer canopy and this service pose. The hidden solid canopy volume is intentionally excluded, as directed; it would intersect the torso on this tighter path. It is not an all-possible-weapon-pose clearance guarantee, a physics collision implementation, or player runtime proof.
