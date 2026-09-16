@@ -1,0 +1,117 @@
+{
+  "closed_matrix_error": {
+    "tripo_part_61.001": 0.0,
+    "tripo_part_57.004": 3.317524033263908e-11,
+    "tripo_part_57.005": 3.317524033263908e-11,
+    "tripo_part_new_0.001": 0.0
+  },
+  "panels": [
+    {
+      "role": "canopy",
+      "native": "tripo_part_61.001",
+      "node": "tripo_part_61001",
+      "clearance": [
+        0,
+        0.012,
+        0.03
+      ],
+      "travel": [
+        0,
+        0.071,
+        -0.155
+      ],
+      "pivot": [
+        0,
+        1.055,
+        0.045
+      ],
+      "angle": -1.1344640137963142,
+      "travelRanges": [
+        [
+          0.3,
+          1
+        ],
+        [
+          0.3,
+          0.58
+        ],
+        [
+          0.3,
+          1
+        ]
+      ],
+      "rotationRange": [
+        0.3,
+        1
+      ]
+    },
+    {
+      "role": "cheek.L",
+      "native": "tripo_part_57.004",
+      "node": "tripo_part_57004",
+      "clearance": [
+        0.012,
+        0,
+        0.026
+      ],
+      "travel": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0.063,
+        0.835,
+        0.01
+      ],
+      "axis": [
+        0,
+        0,
+        1
+      ],
+      "angle": -0.3490658503988659
+    },
+    {
+      "role": "cheek.R",
+      "native": "tripo_part_57.005",
+      "node": "tripo_part_57005",
+      "clearance": [
+        -0.012,
+        0,
+        0.026
+      ],
+      "travel": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        -0.063,
+        0.835,
+        0.01
+      ],
+      "axis": [
+        0,
+        0,
+        1
+      ],
+      "angle": 0.3490658503988659
+    },
+    {
+      "role": "chin",
+      "native": "tripo_part_new_0.001",
+      "node": "tripo_part_new_0001",
+      "clearance": [
+        0,
+        0,
+        0.021
+      ],
+      "travel": [
+        0,
+        -0.012,
+        0
+      ]
+    }
+  ],
+  "controller": "CTRL_Cockpit_Open[open_amount]"
+}

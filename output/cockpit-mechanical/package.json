@@ -1,0 +1,12 @@
+{
+  "name": "strokah-cockpit-review",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs",
+    "test": "node --test cockpit-*.test.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  }
+}

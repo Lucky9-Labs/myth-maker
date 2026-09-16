@@ -1,0 +1,7 @@
+node_modules/
+working/
+*.log
+geometry.json
+
+cockpit-glass-four-views.gif
+decoded-side-keyframes.png

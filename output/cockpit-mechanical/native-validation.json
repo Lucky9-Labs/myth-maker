@@ -1,0 +1,205 @@
+{
+  "checks": [
+    {
+      "amount": 0,
+      "part": "canopy",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0,
+      "part": "cheek.L",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0,
+      "part": "cheek.R",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0,
+      "part": "chin",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0.1,
+      "part": "canopy",
+      "matrix_error": 1.4901161193847656e-08
+    },
+    {
+      "amount": 0.1,
+      "part": "cheek.L",
+      "matrix_error": 9.313225746154785e-10
+    },
+    {
+      "amount": 0.1,
+      "part": "cheek.R",
+      "matrix_error": 9.313225746154785e-10
+    },
+    {
+      "amount": 0.1,
+      "part": "chin",
+      "matrix_error": 4.656612873077393e-10
+    },
+    {
+      "amount": 0.3,
+      "part": "canopy",
+      "matrix_error": 3.725290298461914e-08
+    },
+    {
+      "amount": 0.3,
+      "part": "cheek.L",
+      "matrix_error": 5.587935447692871e-09
+    },
+    {
+      "amount": 0.3,
+      "part": "cheek.R",
+      "matrix_error": 5.587935447692871e-09
+    },
+    {
+      "amount": 0.3,
+      "part": "chin",
+      "matrix_error": 1.862645149230957e-09
+    },
+    {
+      "amount": 0.45,
+      "part": "canopy",
+      "matrix_error": 8.940696716308594e-08
+    },
+    {
+      "amount": 0.45,
+      "part": "cheek.L",
+      "matrix_error": 1.8328428268432617e-06
+    },
+    {
+      "amount": 0.45,
+      "part": "cheek.R",
+      "matrix_error": 1.8328428268432617e-06
+    },
+    {
+      "amount": 0.45,
+      "part": "chin",
+      "matrix_error": 7.450580596923828e-09
+    },
+    {
+      "amount": 0.6,
+      "part": "canopy",
+      "matrix_error": 2.086162567138672e-07
+    },
+    {
+      "amount": 0.6,
+      "part": "cheek.L",
+      "matrix_error": 1.043081283569336e-07
+    },
+    {
+      "amount": 0.6,
+      "part": "cheek.R",
+      "matrix_error": 1.043081283569336e-07
+    },
+    {
+      "amount": 0.6,
+      "part": "chin",
+      "matrix_error": 7.450580596923828e-09
+    },
+    {
+      "amount": 0.8,
+      "part": "canopy",
+      "matrix_error": 1.7881393432617188e-07
+    },
+    {
+      "amount": 0.8,
+      "part": "cheek.L",
+      "matrix_error": 1.1920928955078125e-07
+    },
+    {
+      "amount": 0.8,
+      "part": "cheek.R",
+      "matrix_error": 1.1920928955078125e-07
+    },
+    {
+      "amount": 0.8,
+      "part": "chin",
+      "matrix_error": 7.450580596923828e-09
+    },
+    {
+      "amount": 1,
+      "part": "canopy",
+      "matrix_error": 1.1920928955078125e-07
+    },
+    {
+      "amount": 1,
+      "part": "cheek.L",
+      "matrix_error": 1.4901161193847656e-07
+    },
+    {
+      "amount": 1,
+      "part": "cheek.R",
+      "matrix_error": 1.4901161193847656e-07
+    },
+    {
+      "amount": 1,
+      "part": "chin",
+      "matrix_error": 7.450580596923828e-09
+    },
+    {
+      "amount": 0.65,
+      "part": "canopy",
+      "matrix_error": 1.4901161193847656e-07
+    },
+    {
+      "amount": 0.65,
+      "part": "cheek.L",
+      "matrix_error": 5.960464477539063e-08
+    },
+    {
+      "amount": 0.65,
+      "part": "cheek.R",
+      "matrix_error": 5.960464477539063e-08
+    },
+    {
+      "amount": 0.65,
+      "part": "chin",
+      "matrix_error": 7.450580596923828e-09
+    },
+    {
+      "amount": 0.2,
+      "part": "canopy",
+      "matrix_error": 5.21540641784668e-08
+    },
+    {
+      "amount": 0.2,
+      "part": "cheek.L",
+      "matrix_error": 3.725290298461914e-09
+    },
+    {
+      "amount": 0.2,
+      "part": "cheek.R",
+      "matrix_error": 3.725290298461914e-09
+    },
+    {
+      "amount": 0.2,
+      "part": "chin",
+      "matrix_error": 1.862645149230957e-09
+    },
+    {
+      "amount": 0,
+      "part": "canopy",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0,
+      "part": "cheek.L",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0,
+      "part": "cheek.R",
+      "matrix_error": 0.0
+    },
+    {
+      "amount": 0,
+      "part": "chin",
+      "matrix_error": 0.0
+    }
+  ],
+  "max_error": 1.8328428268432617e-06
+}

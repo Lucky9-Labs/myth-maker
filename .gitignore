@@ -28,4 +28,5 @@ output/reef-skitter/unity-swarm/metal-gpu-receipt.json
 output/reef-skitter/unity-swarm/metal-run/
 output/reef-skitter/unity-swarm/reef-skitter-swarm-benchmark.json
 
+references/concepts/
 .playwright-cli/

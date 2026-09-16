@@ -1,0 +1,26 @@
+{
+  "source_native": {
+    "path": "working/strokah-stable-gait-v10.blend",
+    "sha256": "19c1ac385d36e53f6a5f9029868d03625fc0b418125149567506b02b4a955be6"
+  },
+  "accepted_export": {
+    "path": "working/accepted.glb",
+    "sha256": "fae1894b712c42a80385a586802b0931c51ef372348aec450caec33bbfcc23fb"
+  },
+  "glass_preview": {
+    "path": "working/cockpit-glass-preview.glb",
+    "sha256": "cea9b673acdacd31bbd6895255413a7dd1dd75481003b85f48ca44baed1a4c13"
+  },
+  "candidate_native": {
+    "path": "working/strokah-cockpit-mechanical-v1.blend",
+    "sha256": "cfa9d24960f1560f352ba3ddcbcd32e77b5e30f34e7700bd4d551da09efac5b5"
+  },
+  "motion_config": {
+    "path": "mechanism.json",
+    "sha256": "e8d69831a314e387888b3bbbb7d88b722d18e232b3e88f73a156c3e5b668aa80"
+  },
+  "proof": {
+    "path": "cockpit-glass-four-views.gif",
+    "sha256": "897018c5a56d21fceaa396770572c09cfb9f963db7dca39d0211b2c7b642f49c"
+  }
+}
