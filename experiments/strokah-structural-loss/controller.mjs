@@ -58,7 +58,7 @@ export class StructuralController {
     this.fired = 0;
     this.recoil = 0;
     this.contacts = {};
-    this.lastEffortPhase=null;this.lastEffortSequence=null;this.lastEffortActor=null;this.effortPlant=null;
+    this.lastEffortPhase=null;this.lastEffortSequence=null;this.lastEffortActor=null;this.effortPlant=null;this.legEffortRelease=null;
     this.root.updateMatrixWorld(true);
     this.initialFeet = Object.fromEntries(
       this.allLegs.map((l) => [l.suffix, pos(l.ball)]),
@@ -170,18 +170,30 @@ export class StructuralController {
     const lift=(.004+.007*e.effort-hull.min.y)*blend;
     this.legs.body.position.y+=lift;
     this.root.updateMatrixWorld(true);
-    if(e.phase==='reach' && (this.lastEffortPhase!=='reach'||this.lastEffortActor!==e.actor))this.effortPlant=null;
+    if(e.phase==='reach' && (this.lastEffortPhase!=='reach'||this.lastEffortActor!==e.actor)){this.effortPlant=null;this.legEffortRelease=null;}
     this.lastEffortPhase=e.phase;this.lastEffortActor=e.actor;
     const feet=this.legs.legs.map(l=>{
       const initial=(this.entryFeet??this.initialFeet)[l.suffix];
       const side=l.suffix;
       const drag=new Vector3(this.initialFeet[side].x,.035,this.z-.50);
       let target=initial.clone().lerp(drag,blend),phase='drag';
-      if(e.actor===`leg.${side}`&&e.phase==='recover'&&this.effortPlant)target=this.effortPlant.clone().lerp(drag,smooth(this.effortMotion.clock/.9));
+      if(e.actor===`leg.${side}`&&e.phase==='recover'&&this.effortPlant)target=(this.legEffortRelease??this.effortPlant).clone().lerp(drag,smooth(this.effortMotion.clock/.9));
       if(e.actor===`leg.${side}`&&e.phase!=='recover'){
         if(!this.effortPlant)this.effortPlant=new Vector3(drag.x,.035,this.z-.32);
         if(e.phase==='reach'){target.lerp(this.effortPlant,smooth(e.progress));target.y+=.025*Math.sin(Math.PI*e.progress);phase='reach';}
-        else{target.copy(this.effortPlant);target.z-=.018*e.slip;phase=e.phase;}
+        else{
+          target.copy(this.effortPlant);
+          if(e.phase==='push'){
+            const hip=pos(l.thigh),radius=l.lengths.reduce((sum,v)=>sum+v,0)*.96;
+            const dy=target.y-hip.y,dx=target.x-hip.x;
+            const extension=hip.z-Math.sqrt(Math.max(0,radius*radius-dy*dy-dx*dx));
+            // The weak foot scrapes backward through its extension: most of the
+            // effort is lost to slip, rather than lifting or launching the hull.
+            target.z+=(Math.min(this.effortPlant.z,extension)-target.z)*smooth(e.progress);
+            this.legEffortRelease=target.clone();
+          }
+          target.z-=.018*e.slip;phase=e.phase;
+        }
       }
       // A dragging foot stays flat during the desperate draw-in; a walking toe
       // pitch would dig its heel into the floor and lift the grounded chassis.
