@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test pistol-rig.test.mjs",
+    "preview": "node serve.mjs",
+    "bootstrap": "python3 ../../art-library/scripts/restore_pistol.py && npm ci --prefix ../strokah-structural-loss && node ../strokah-structural-loss/hydrate.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0",
+    "cannon-es": "0.20.0"
+  }
+}

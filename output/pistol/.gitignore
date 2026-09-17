@@ -1,0 +1,8 @@
+*
+!.gitignore
+!STATUS.md
+!provenance.json
+!checkpoints/
+checkpoints/*
+!checkpoints/right-hand-approved/
+!checkpoints/right-hand-approved/*.mjs
