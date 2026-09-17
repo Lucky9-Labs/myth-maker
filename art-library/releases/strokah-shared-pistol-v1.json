@@ -1,0 +1,27 @@
+{
+  "release": "strokah-shared-pistol-v1",
+  "bucket": "mech-art-library-20260905225047699700000001",
+  "asset_id": "strokah-shared-pistol",
+  "artifact": {
+    "version": 1,
+    "state": "uploaded",
+    "review_status": "selected",
+    "object_key": "models/weapons/strokah-shared-pistol/v1/strokah-shared-pistol-v1.zip",
+    "sha256": "5e5eb35940ad58a0b587de684a420c93b279383a07791e0f7293a286c9d365c6",
+    "staged_path": "references/concepts/strokah-shared-pistol-v1/strokah-shared-pistol-v1.zip",
+    "content_type": "application/zip",
+    "brief": "User-selected Tripo pistol 9bf49e1c, shared mirrored single-hand and dual pose source/export and reviewed media. Engine integration separately owned.",
+    "s3_version_id": "MdKSZQ3QB2ibQuki6NlMEWYb1kbDwzlu"
+  },
+  "files": {
+    "tripo-9bf49e1c.fbx": "ef31b30b18c56e7c132422cae1e67ee0adcf69285d0cb24ba371b5b6b1a97b50",
+    "tripo-geometry.json": "d9c1b35b7ac9caa3e839ca0736d3a5c1040b2ba5253435c9285208b8de0539ed",
+    "provenance.json": "32d463f2955405b23b480028e58a7ab46255d8bb2395f89dc0408e08a7dc80bc",
+    "review/strokah-pistol-review.glb": "971e4cb0b572e656e086f67da5c616a8609cd8af118d24aa32cd3fe73dd5c94a",
+    "review/right.gif": "68fde2cb5b268e41c2a96065b11d5c1607305be9fb40d01249c2e15362cf1382",
+    "review/left.gif": "2e9c3275dfc855d594e0290d4c233ce62caa714055f7718a96c85e93da5bbca8",
+    "review/dual.gif": "1f355bcae9a87eb6396b9a76f1225f70d6745131774aec16bf3179abc245342c",
+    "review/fire-reload-comparison.jpg": "269cf2a54d6e537de344a3f2e03a8d98e55c2592db3f6e70bce20811a5b5f521",
+    "review/state-matrix.jpg": "dc348bb43a826e62364ae6dac5d1e14a17fdbba085e1a4b9aa90d5f729362ad9"
+  }
+}

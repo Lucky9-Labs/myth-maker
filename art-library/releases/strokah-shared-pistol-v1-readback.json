@@ -1,0 +1,6 @@
+{
+  "release": "strokah-shared-pistol-v1",
+  "sha256": "5e5eb35940ad58a0b587de684a420c93b279383a07791e0f7293a286c9d365c6",
+  "verified_files": 9,
+  "method": "Independent version-pinned S3 GET restored into empty directory, archive and every member hash verified"
+}

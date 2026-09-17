@@ -1,0 +1,8 @@
+{
+  "source_url": "https://studio.tripo3d.ai/3d-model/9bf49e1c-3a5b-4991-a0c2-607c51608b08",
+  "source_fbx_sha256": "ef31b30b18c56e7c132422cae1e67ee0adcf69285d0cb24ba371b5b6b1a97b50",
+  "rig_sha256": "fae1894b712c42a80385a586802b0931c51ef372348aec450caec33bbfcc23fb",
+  "base_head": "5ccd4ad19bdf41b854527a4c617d42024a4b2297",
+  "right_checkpoint": "checkpoints/right-hand-approved",
+  "checkpoint_note": "Immutable source snapshot of the right-hand implementation accepted in conversation; not a standalone app."
+}

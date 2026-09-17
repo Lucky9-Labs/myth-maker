@@ -19,6 +19,24 @@
           "s3_version_id": "ltRi1tNzRx2tIpb2jxSR7iwwOwkyXn4X"
         }
       ]
+    },
+    {
+      "id": "strokah-shared-pistol",
+      "category": "weapon",
+      "title": "Strokah shared pistol model and animation review",
+      "revisions": [
+        {
+          "version": 1,
+          "state": "uploaded",
+          "review_status": "selected",
+          "object_key": "models/weapons/strokah-shared-pistol/v1/strokah-shared-pistol-v1.zip",
+          "sha256": "5e5eb35940ad58a0b587de684a420c93b279383a07791e0f7293a286c9d365c6",
+          "staged_path": "references/concepts/strokah-shared-pistol-v1/strokah-shared-pistol-v1.zip",
+          "content_type": "application/zip",
+          "brief": "User-selected Tripo pistol 9bf49e1c, shared mirrored single-hand and dual pose source/export and reviewed media. Engine integration separately owned.",
+          "s3_version_id": "MdKSZQ3QB2ibQuki6NlMEWYb1kbDwzlu"
+        }
+      ]
     }
   ]
 }
