@@ -1,0 +1,6 @@
+{
+  "release": "nautiloid-turret-pet-authoring-v1",
+  "sha256": "2773fe318fd698c977eaaaa210bae19ccca8881705a580c456a23fc3b2bf25cf",
+  "verified_files": 6,
+  "method": "Independent version-pinned S3 GET restored into an empty directory; archive and every member hash verified; restored LOD0 passed the shared 93-part, 19,997-triangle, 2-material, vertical-eye validator."
+}

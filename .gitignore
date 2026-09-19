@@ -30,3 +30,7 @@ output/reef-skitter/unity-swarm/reef-skitter-swarm-benchmark.json
 
 references/concepts/
 .playwright-cli/
+
+# Restored from the immutable Nautiloid turret-pet authoring release.
+/assets/turret-pet/source/*.glb
+/assets/turret-pet/lod0/*.glb

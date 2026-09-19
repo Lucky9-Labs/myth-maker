@@ -1,0 +1,24 @@
+{
+  "release": "nautiloid-turret-pet-authoring-v1",
+  "bucket": "mech-art-library-20260905225047699700000001",
+  "asset_id": "nautiloid-turret-pet",
+  "artifact": {
+    "version": 1,
+    "state": "uploaded",
+    "review_status": "selected",
+    "object_key": "models/equipment/nautiloid-turret-pet/v1/nautiloid-turret-pet-authoring-v1.zip",
+    "sha256": "2773fe318fd698c977eaaaa210bae19ccca8881705a580c456a23fc3b2bf25cf",
+    "staged_path": "references/concepts/nautiloid-turret-pet-authoring-v1/nautiloid-turret-pet-authoring-v1.zip",
+    "content_type": "application/zip",
+    "brief": "User-approved Tripo HD turret-pet source, exact 19,997-triangle LOD0, reproducible Blender builder, structural inspection, and four-view proof for rigging.",
+    "s3_version_id": "yu_xxnxCnRwcEKqiv8Ks2kFDBrychfb_"
+  },
+  "files": {
+    "assets/turret-pet/source/turret_pet_tripo_hd.glb": "1acc60d3eaea97a68547eb87e177fda4c8e220889362b21ac9296736f24e8671",
+    "assets/turret-pet/lod0/turret_pet_lod0.glb": "6ef1ed5ca6121106815f124acf342807dbf34d4164328453de7c9d8c294377d8",
+    "assets/turret-pet/manifests/lod0.json": "42ce6afde344998dc0a3a3259bfc67ac405baad4f67496efdacd2a49e85e503b",
+    "assets/turret-pet/manifests/lod0-inspection.json": "c381ed86ba01ecd1ba4547455d7d805aa0242fb5d9b9fa52c8f4f7209604e8ae",
+    "scripts/build_turret_pet_lod0.py": "b06186789d875d485deed153589df3b68508dbb10b2c49c09af4ba20c7da3d20",
+    "output/turret-pet/lod0/turret_pet_lod0_4panel.png": "8e4e4f0742c10b75342af61f33e57c1a31965b8b768a448465457e5e2a44b536"
+  }
+}
