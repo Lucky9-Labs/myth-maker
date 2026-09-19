@@ -2,8 +2,8 @@
   "schema_version": "2",
   "module_id": "strokah-cockpit-released-v1",
   "display_name": "Released Strokah concave cockpit filling",
-  "status": "tripo-shape-candidate",
-  "claim_boundary": "A Tripo multiview candidate exists and visibly reads as concave. No local mesh export, source-fit validation, topology pass, Unity import, runtime swap, or publication is claimed.",
+  "status": "local-runtime-verified-unpublished",
+  "claim_boundary": "The pinned Tripo candidate is locally exported, image-conditioned textured, segmented, fitted to the production Unity canopy slot, rendered through InkLit/outline, and verified in a standalone runtime sweep. The GLB and generated prefab remain local ignored assets; no art-library publication, clean-checkout asset restoration, final retopology, LOD, or collision release is claimed.",
   "source": {
     "release": "strokah-cockpit-mechanical-v1",
     "native_path": "../cockpit-mechanical/working/strokah-stable-gait-v10.blend",
@@ -92,18 +92,74 @@
     "vertices": 1149,
     "credits_spent": 15,
     "visual_review": "Front and rotated profile retain a recessed bowl/socket with the rim forward of the core.",
-    "local_export": null,
-    "fit_tested": false,
-    "runtime_tested": false
+    "local_export": {
+      "path": "working/released_strokah_concave_canopy_segmented_textured_v5.glb",
+      "sha256": "26e5728b22eb4628104eddac8f8332a863ab3b6bbc8f5fa8e71a2154233525ac",
+      "bytes": 1397520,
+      "vertices": 3974,
+      "triangles": 2327,
+      "parts": 72
+    },
+    "fit_tested": true,
+    "runtime_tested": true
+  },
+  "tripo_texture_pass": {
+    "source": "the same four front/left/right/back multiview images used to generate the candidate",
+    "resolution": "4K",
+    "credits_spent": 20,
+    "local_export": {
+      "path": "working/released_strokah_concave_canopy_textured_v4.glb",
+      "sha256": "622769b9eb37b95980a6467faeac6a26d9aaf68d401ad8f26c74146b2265f2c1",
+      "bytes": 3346640,
+      "vertices": 2100,
+      "triangles": 2329,
+      "embedded_texture": "JPEG 4096x4096"
+    }
+  },
+  "tripo_segmentation": {
+    "mode": "Balanced",
+    "credits_spent": 40,
+    "parts": 72,
+    "eye": {
+      "node": "tripo_part_11",
+      "vertices": 60,
+      "triangles": 26,
+      "runtime_boundary": "separate recentered pivot with independent yaw/pitch animation"
+    }
+  },
+  "unity_runtime": {
+    "repository": "Lucky9-Labs/hullscape",
+    "branch": "codex/strokah-concave-canopy-344",
+    "commit": "86d7e19b864a13b6655cf64a90e1f5efdfbbcab1",
+    "importer": "Assets/Editor/ReleasedStrokahCanopyImporter.cs",
+    "module": "Assets/Scripts/Presentation/ReleasedStrokahCanopyModule.cs",
+    "proof_scene": "Assets/Scenes/ReleasedStrokahCanopyProof.unity",
+    "shader": "MechGame/InkLit",
+    "material_policy": "all 72 Tripo segments retain double-sided rendering and use the screen-outline rendering layer",
+    "replacement_policy": "only the original canopy panels are hidden; chassis visibility, materials, and rendering layers remain unchanged",
+    "runtime_report": {
+      "front_to_back_depth_ratio": 0.8896879,
+      "replacement_renderers": 72,
+      "ink_materials": 72,
+      "outlined_renderers": 72,
+      "other_chassis_renderers_changed": 0,
+      "eye_renderers": 1,
+      "eye_motion_degrees": 10.7957,
+      "frames": 54
+    },
+    "showme": {
+      "status": "SHOWME_VERIFIED",
+      "session": "sm-released-strokah-concave-canopy-1789837925-7183",
+      "local_gif": "tmp/showme/sm-released-strokah-concave-canopy-1789837925-7183/released-strokah-concave-canopy.gif",
+      "cloud_uri": "s3://mech-game-proof-media-7350-20260911/showme/released-strokah-concave-canopy/86d7e19b864a13b6655cf64a90e1f5efdfbbcab1/runtime-proof",
+      "cloud_version_id": "urbfbyMbIKepHjp3h_mXfbOvDo_qb.Lb",
+      "gif_sha256": "4213e30d381f50b199b21bed608e2e02739fa7f81d19b69969a0c8bf6462552b",
+      "gif_bytes": 11793061
+    }
   },
   "production_gates": [
-    "export the candidate mesh from Tripo",
-    "fit and scale it against the exact source bounds",
-    "preserve the deep concavity after cleanup and retopology",
-    "author UVs and final game materials",
-    "create LOD and collision policy appropriate to the cockpit slot",
-    "import a standalone replacement part into Unity",
-    "prove the original blue canopy is absent on Released enemies only",
-    "capture literal player-visible front and side runtime views"
+    "publish the hash-pinned segmented GLB and generated runtime prefab through the private art inventory and Unity asset contract after explicit authorization",
+    "verify a fresh checkout can bootstrap the published source and generated prefab",
+    "complete final artist-approved retopology, LOD, and collision policy for release"
   ]
 }

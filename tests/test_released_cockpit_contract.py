@@ -52,13 +52,37 @@ class ReleasedCockpitContractTests(unittest.TestCase):
             self.contract["tripo_candidate"]["asset_id"],
         )
 
-    def test_claim_boundary_remains_honest(self):
+    def test_local_tripo_export_is_hash_pinned_and_keeps_the_eye_separate(self):
         candidate = self.contract["tripo_candidate"]
-        self.assertIsNone(candidate["local_export"])
-        self.assertFalse(candidate["fit_tested"])
-        self.assertFalse(candidate["runtime_tested"])
+        self.assertEqual(
+            "26e5728b22eb4628104eddac8f8332a863ab3b6bbc8f5fa8e71a2154233525ac",
+            candidate["local_export"]["sha256"],
+        )
+        self.assertEqual(72, candidate["local_export"]["parts"])
+        self.assertTrue(candidate["fit_tested"])
+        self.assertTrue(candidate["runtime_tested"])
+        eye = self.contract["tripo_segmentation"]["eye"]
+        self.assertEqual("tripo_part_11", eye["node"])
+        self.assertEqual(60, eye["vertices"])
+        self.assertIn("independent", eye["runtime_boundary"])
+
+    def test_runtime_uses_the_new_rendering_pipeline_without_mutating_the_chassis(self):
+        runtime = self.contract["unity_runtime"]
+        self.assertEqual("MechGame/InkLit", runtime["shader"])
+        report = runtime["runtime_report"]
+        self.assertEqual(72, report["replacement_renderers"])
+        self.assertEqual(72, report["ink_materials"])
+        self.assertEqual(72, report["outlined_renderers"])
+        self.assertEqual(0, report["other_chassis_renderers_changed"])
+        self.assertEqual(1, report["eye_renderers"])
+        self.assertGreater(report["eye_motion_degrees"], 5)
+        self.assertEqual("SHOWME_VERIFIED", runtime["showme"]["status"])
+
+    def test_claim_boundary_remains_honest_about_unpublished_assets(self):
+        self.assertEqual("local-runtime-verified-unpublished", self.contract["status"])
+        self.assertIn("remain local ignored assets", self.contract["claim_boundary"])
         self.assertIn(
-            "fit and scale it against the exact source bounds",
+            "publish the hash-pinned segmented GLB and generated runtime prefab through the private art inventory and Unity asset contract after explicit authorization",
             self.contract["production_gates"],
         )
 
