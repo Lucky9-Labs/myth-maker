@@ -142,12 +142,12 @@
   "unity_runtime": {
     "repository": "Lucky9-Labs/hullscape",
     "branch": "codex/strokah-concave-canopy-344",
-    "commit": "1ac9802557d90aabb8e138dae323cbf55baf371c",
+    "commit": "d190fe5ce0c4cb904da0f2cf3d999079ebe737b3",
     "importer": "Assets/Editor/ReleasedStrokahCanopyImporter.cs",
     "module": "Assets/Scripts/Presentation/ReleasedStrokahCanopyModule.cs",
     "proof_scene": "Assets/Scenes/ReleasedStrokahCanopyProof.unity",
     "shader": "MechGame/InkLit",
-    "material_policy": "the shell and extracted eye share the original Tripo 4096x4096 texture, retain double-sided rendering, use MechGame/InkLit, and use the screen-outline rendering layer; glTF V coordinates are inverted for Unity texture space",
+    "material_policy": "the shell and extracted eye share the original Tripo 4096x4096 texture, retain double-sided rendering, use MechGame/InkLit, and use the screen-outline rendering layer; glTF V coordinates are inverted for Unity texture space; the eye alone reaches 9.0 HDR emission with an 18-pixel 0.42-intensity texture-space spread plus one eye-bound camera-facing additive optical halo, while shell emission remains 0.0",
     "replacement_policy": "only the original canopy panels are hidden; chassis visibility, materials, and rendering layers remain unchanged",
     "runtime_report": {
       "front_to_back_depth_ratio": 0.8909872,
@@ -158,17 +158,22 @@
       "base_texture_size": 4096,
       "other_chassis_renderers_changed": 0,
       "eye_renderers": 1,
+      "eye_emission_peak": 9.0,
+      "shell_emission_peak": 0.0,
+      "eye_emission_blur_radius": 18.0,
+      "eye_emission_blur_intensity": 0.42,
+      "lens_halo_renderers": 1,
       "eye_motion_degrees": 10.7957,
       "frames": 54
     },
     "showme": {
       "status": "SHOWME_VERIFIED",
-      "session": "sm-released-strokah-concave-canopy-1789839988-25706",
-      "local_gif": "tmp/showme/sm-released-strokah-concave-canopy-1789839988-25706/released-strokah-concave-canopy.gif",
-      "cloud_uri": "s3://mech-game-proof-media-7350-20260911/showme/released-strokah-concave-canopy/1ac9802557d90aabb8e138dae323cbf55baf371c/runtime-proof.gif",
-      "cloud_version_id": "UNKjAH0JzUUpX.haheSVmYaYFtxwVnf5",
-      "gif_sha256": "0761fce894fd85436d9d94d0f457b017fd109f08b9e003f45fa82a0421b7d649",
-      "gif_bytes": 13291198
+      "session": "sm-released-strokah-eye-emission-1789842009-41277",
+      "local_gif": "tmp/showme/sm-released-strokah-eye-emission-1789842009-41277/released-strokah-eye-emission.gif",
+      "cloud_uri": "s3://mech-game-proof-media-7350-20260911/showme/released-strokah-eye-emission/d190fe5ce0c4cb904da0f2cf3d999079ebe737b3/runtime-proof.gif",
+      "cloud_version_id": "fYkjPP5LkqCYDLuoWPI.OqzG_8kmNcMi",
+      "gif_sha256": "9f4ae53078dbe8cc1b3324bc587e93a54bdc6182bb78ebdd2604f0780b8ba2aa",
+      "gif_bytes": 13355543
     }
   },
   "production_gates": [

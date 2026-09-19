@@ -75,6 +75,8 @@ class ReleasedCockpitContractTests(unittest.TestCase):
         runtime = self.contract["unity_runtime"]
         self.assertEqual("MechGame/InkLit", runtime["shader"])
         self.assertIn("glTF V coordinates are inverted", runtime["material_policy"])
+        self.assertIn("9.0 HDR", runtime["material_policy"])
+        self.assertIn("camera-facing additive optical halo", runtime["material_policy"])
         report = runtime["runtime_report"]
         self.assertEqual(2, report["replacement_renderers"])
         self.assertEqual(2, report["ink_materials"])
@@ -83,6 +85,11 @@ class ReleasedCockpitContractTests(unittest.TestCase):
         self.assertEqual(4096, report["base_texture_size"])
         self.assertEqual(0, report["other_chassis_renderers_changed"])
         self.assertEqual(1, report["eye_renderers"])
+        self.assertEqual(9.0, report["eye_emission_peak"])
+        self.assertEqual(0.0, report["shell_emission_peak"])
+        self.assertEqual(18.0, report["eye_emission_blur_radius"])
+        self.assertEqual(0.42, report["eye_emission_blur_intensity"])
+        self.assertEqual(1, report["lens_halo_renderers"])
         self.assertGreater(report["eye_motion_degrees"], 5)
         self.assertEqual("SHOWME_VERIFIED", runtime["showme"]["status"])
 
