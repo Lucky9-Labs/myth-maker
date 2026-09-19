@@ -73,6 +73,10 @@ class ReleasedCockpitContractTests(unittest.TestCase):
 
     def test_runtime_uses_the_new_rendering_pipeline_without_mutating_the_chassis(self):
         runtime = self.contract["unity_runtime"]
+        self.assertEqual(
+            {"tag": "Samsara", "canopy": "ReleasedStrokah"},
+            runtime["race_default"],
+        )
         self.assertEqual("MechGame/InkLit", runtime["shader"])
         self.assertIn("glTF V coordinates are inverted", runtime["material_policy"])
         self.assertIn("9.0 HDR", runtime["material_policy"])
@@ -92,14 +96,27 @@ class ReleasedCockpitContractTests(unittest.TestCase):
         self.assertEqual(1, report["lens_halo_renderers"])
         self.assertGreater(report["eye_motion_degrees"], 5)
         self.assertEqual("SHOWME_VERIFIED", runtime["showme"]["status"])
+        self.assertEqual("Samsara", runtime["showme"]["enemy_race"])
+        self.assertEqual("ReleasedStrokah", runtime["showme"]["default_canopy"])
 
-    def test_claim_boundary_remains_honest_about_unpublished_assets(self):
-        self.assertEqual("local-runtime-verified-unpublished", self.contract["status"])
-        self.assertIn("remain local ignored assets", self.contract["claim_boundary"])
-        self.assertIn(
-            "publish the hash-pinned 4K textured GLB, segmentation guide, and generated runtime prefab through the private art inventory and Unity asset contract after explicit authorization",
-            self.contract["production_gates"],
+    def test_race_taxonomy_and_published_asset_are_release_pinned(self):
+        self.assertEqual(
+            {"Abyssal", "Samsara", "Entropic"},
+            set(self.contract["race_taxonomy"]),
         )
+        self.assertEqual("Samsara", self.contract["identity"]["faction"])
+        self.assertEqual("runtime-released-asset-published", self.contract["status"])
+        published = self.contract["published_asset"]
+        self.assertEqual("samsara-released-strokah-canopy", published["asset_id"])
+        self.assertEqual(1, published["revision"])
+        self.assertTrue(published["head_object_verified"])
+        self.assertTrue(published["fresh_hydration_verified"])
+        self.assertEqual(
+            "1245cb03690dae2bf4a6910a60894440eae5b32f5667d2b8843fff440252ea8d",
+            published["sha256"],
+        )
+        self.assertNotIn("publish the hash-pinned", " ".join(self.contract["production_gates"]))
+        self.assertIn("Final artist-approved retopology", self.contract["claim_boundary"])
 
 
 if __name__ == "__main__":

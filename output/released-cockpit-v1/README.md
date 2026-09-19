@@ -1,8 +1,10 @@
-# Released Strokah cockpit filling — locally verified runtime candidate
+# Samsara / Released Strokah concave canopy — runtime released
 
 This work replaces only the removable Strokah canopy object, `tripo_part_61.001`. It does not add an overlay to the existing glass and does not replace the torso, jaw cradle, shoulders, or any other part of the mech.
 
-The Released identity is an open cranial void: the upper head is absent, the attachment rim is thin, and the visible machine anatomy recedes into a deep concave socket behind it. Orange braided conduits cling to the inner walls around a small, pupil-less seven-aperture core. The existing lower cockpit cradle supplies the jaw language. The part must never resolve into a convex dome, helmet, face, or second canopy silhouette.
+The faction is now named **Samsara**; “Released” remains the legacy canopy/candidate label. Samsara enemies use `ReleasedStrokah` by default. **Abyssal** names the purple cephalopod faction and keeps its existing canopy. **Entropic** names the melding faction and temporarily uses `Standard` until its dedicated canopy is released.
+
+The Samsara identity is an open cranial void: the upper head is absent, the attachment rim is thin, and the visible machine anatomy recedes into a deep concave socket behind it. Orange braided conduits cling to the inner walls around a small, pupil-less seven-aperture core. The existing lower cockpit cradle supplies the jaw language. The part must never resolve into a convex dome, helmet, face, or second canopy silhouette.
 
 ## Authored multiview input
 
@@ -26,13 +28,13 @@ Tripo textured the candidate at 4K from the same four directional source images,
 
 ## Unity runtime implementation
 
-Hullscape commit `d190fe5ce0c4cb904da0f2cf3d999079ebe737b3` imports the hash-pinned coherent 4K GLB, uses the segmented export to extract only the eye, converts glTF's V coordinate into Unity texture space, and creates two double-sided `MechGame/InkLit` renderers sharing the same source texture. Both renderers use the screen-outline layer and mount through the existing canopy slot. It hides only the source canopy panels; the proof snapshots confirm zero changes to the rest of the chassis' visibility, materials, or rendering layers.
+Runtime PR [mech-game#200](https://github.com/luckybucky9/mech-game/pull/200), merged as `5a35370289ddcd6c6f995875c68716e069a4cdd8`, imports the hash-pinned coherent 4K GLB, uses the segmented export to extract only the eye, converts glTF's V coordinate into Unity texture space, and creates two double-sided `MechGame/InkLit` renderers sharing the same source texture. Both renderers use the screen-outline layer and mount through the existing canopy slot. It hides only the source canopy panels; the proof snapshots confirm zero changes to the rest of the chassis' visibility, materials, or rendering layers. An `EnemyMechRaceTag` now resolves Samsara enemies to this canopy automatically.
 
 The seven-aperture eye is now the dominant emitter: its eye-only material reaches a 9.0 HDR peak with an 18-pixel, 0.42-intensity texture-space emission spread, while the shell remains at 0.0 emission. A separate eye-bound, camera-facing additive halo supplies the soft optical lens response during normal gameplay, and high-quality bloom reinforces it in the proof scene without turning the detailed orange conduits into a uniform glow.
 
-The standalone ShowMe sweep rendered 54 frames and visibly resolved the dark cavity structure, metal clamps, black hoses, orange braided conduits, and bright seven-light eye from front through side profile. The extracted eye and its attached halo animated through 10.80 degrees without a detached quad artifact. The final proof is `SHOWME_VERIFIED`; its commit-addressed GIF was read back from the private proof bucket with SHA-256 `9f4ae53078dbe8cc1b3324bc587e93a54bdc6182bb78ebdd2604f0780b8ba2aa`.
+The exact-head standalone ShowMe sweep rendered 54 frames and visibly resolved the Samsara race-default label, dark cavity structure, metal clamps, black hoses, orange braided conduits, and bright seven-light eye from front through side profile. The extracted eye and its attached halo animated through 10.80 degrees without a detached quad artifact. The final proof is `SHOWME_VERIFIED`; its commit-addressed GIF was read back from the private proof bucket with SHA-256 `dcb03f08e150bd2cf8295b6be6813c2db969ddbcc516051ef40c9502eb01d665`.
 
-This is not yet a shippable clean-checkout asset. Both GLBs and the generated Unity prefab remain intentionally ignored/local. Publishing them into the private art inventory and Unity asset contract requires explicit asset-upload authorization; final retopology, LOD, and collision policy also remain production gates.
+The complete runtime closure is published as private art-inventory asset `samsara-released-strokah-canopy` revision 1 at `models/enemies/samsara-released-strokah-canopy/v1/samsara-released-strokah-canopy-v1.zip`, SHA-256 `1245cb03690dae2bf4a6910a60894440eae5b32f5667d2b8843fff440252ea8d`, version `UeWt3VwRglxJ2sfzEGzPcTu4dmd6rMCB`. Its S3 metadata and byte count were read back, and a fresh temporary restore verified all required runtime files and metadata through the Unity worktree asset contract. Final artist-approved retopology, LOD, and collision policy remain production gates.
 
 ## Source-shape reference
 
@@ -44,4 +46,4 @@ The exact source canopy can be isolated from the pinned Strokah blend with:
   --python scripts/released_cockpit/render_source_canopy.py
 ```
 
-That produces four local reference renders under `working/source-canopy/`. The current runtime implementation fits the coherent 4K export through the production canopy slot, uses the segmented export only to locate the animatable eye, and has literal front-to-side Unity swap proof. Durable promotion still requires private asset publication plus final retopology, LOD, and collision policy.
+That produces four local reference renders under `working/source-canopy/`. The released runtime implementation fits the coherent 4K export through the production canopy slot, uses the segmented export only to locate the animatable eye, and has literal front-to-side Unity swap proof. The remaining art-production work is final retopology, LOD, and collision policy.

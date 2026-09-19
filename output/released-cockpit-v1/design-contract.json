@@ -2,8 +2,13 @@
   "schema_version": "2",
   "module_id": "strokah-cockpit-released-v1",
   "display_name": "Released Strokah concave cockpit filling",
-  "status": "local-runtime-verified-unpublished",
-  "claim_boundary": "The pinned Tripo candidate is locally exported, image-conditioned textured, fitted to the production Unity canopy slot, rendered through InkLit/outline with corrected glTF texture coordinates, and verified in a standalone runtime sweep. The segmented export is retained only as the eye-selection guide. Both GLBs and the generated prefab remain local ignored assets; no art-library publication, clean-checkout asset restoration, final retopology, LOD, or collision release is claimed.",
+  "status": "runtime-released-asset-published",
+  "claim_boundary": "The pinned Tripo candidate is image-conditioned textured, fitted to the production Unity canopy slot, rendered through InkLit/outline with corrected glTF texture coordinates, and verified in a standalone runtime sweep. The segmented export is retained only as the eye-selection guide. The complete runtime closure is published in the private art inventory and restored by the Unity worktree asset contract. Final artist-approved retopology, LOD, and collision release are not claimed.",
+  "race_taxonomy": {
+    "Abyssal": "purple cephalopod faction; uses the existing Abyssal canopy by default",
+    "Samsara": "Released Strokah faction; uses ReleasedStrokah by default",
+    "Entropic": "melding faction; uses Standard until its dedicated canopy is released"
+  },
   "source": {
     "release": "strokah-cockpit-mechanical-v1",
     "native_path": "../cockpit-mechanical/working/strokah-stable-gait-v10.blend",
@@ -30,7 +35,8 @@
     "rule": "Replace the source canopy mesh; never place this candidate over or inside a still-visible copy of the blue canopy."
   },
   "identity": {
-    "faction": "Released",
+    "faction": "Samsara",
+    "legacy_label": "Released",
     "geometric_principle": "A skull with the cranium above the jaw missing: a thin attachment perimeter around a deep, explicitly concave machine cavity.",
     "depth_order_front_to_back": [
       "thin broken cranial rim",
@@ -139,10 +145,30 @@
       "runtime_boundary": "the corresponding textured-v4 mesh region is extracted to a separate recentered pivot with independent yaw/pitch animation"
     }
   },
+  "published_asset": {
+    "asset_id": "samsara-released-strokah-canopy",
+    "revision": 1,
+    "bucket": "mech-art-library-20260905225047699700000001",
+    "key": "models/enemies/samsara-released-strokah-canopy/v1/samsara-released-strokah-canopy-v1.zip",
+    "version_id": "UeWt3VwRglxJ2sfzEGzPcTu4dmd6rMCB",
+    "sha256": "1245cb03690dae2bf4a6910a60894440eae5b32f5667d2b8843fff440252ea8d",
+    "bytes": 40731601,
+    "content_type": "application/zip",
+    "server_side_encryption": "AES256",
+    "head_object_verified": true,
+    "fresh_hydration_verified": true,
+    "unity_asset_contract": "config/unity-worktree-assets.json"
+  },
   "unity_runtime": {
-    "repository": "Lucky9-Labs/hullscape",
+    "repository": "luckybucky9/mech-game",
     "branch": "codex/strokah-concave-canopy-344",
-    "commit": "d190fe5ce0c4cb904da0f2cf3d999079ebe737b3",
+    "feature_commit": "7286e172a663a3b8721a3d65d19a0462b999ce0b",
+    "main_merge_commit": "5a35370289ddcd6c6f995875c68716e069a4cdd8",
+    "pull_request": "https://github.com/luckybucky9/mech-game/pull/200",
+    "race_default": {
+      "tag": "Samsara",
+      "canopy": "ReleasedStrokah"
+    },
     "importer": "Assets/Editor/ReleasedStrokahCanopyImporter.cs",
     "module": "Assets/Scripts/Presentation/ReleasedStrokahCanopyModule.cs",
     "proof_scene": "Assets/Scenes/ReleasedStrokahCanopyProof.unity",
@@ -168,17 +194,17 @@
     },
     "showme": {
       "status": "SHOWME_VERIFIED",
-      "session": "sm-released-strokah-eye-emission-1789842009-41277",
-      "local_gif": "tmp/showme/sm-released-strokah-eye-emission-1789842009-41277/released-strokah-eye-emission.gif",
-      "cloud_uri": "s3://mech-game-proof-media-7350-20260911/showme/released-strokah-eye-emission/d190fe5ce0c4cb904da0f2cf3d999079ebe737b3/runtime-proof.gif",
-      "cloud_version_id": "fYkjPP5LkqCYDLuoWPI.OqzG_8kmNcMi",
-      "gif_sha256": "9f4ae53078dbe8cc1b3324bc587e93a54bdc6182bb78ebdd2604f0780b8ba2aa",
-      "gif_bytes": 13355543
+      "session": "sm-samsara-race-default-canopy-1789844565-66799",
+      "local_gif": "tmp/showme/sm-samsara-race-default-canopy-1789844565-66799/samsara-race-default-canopy.gif",
+      "cloud_uri": "s3://mech-game-proof-media-7350-20260911/showme/samsara-race-default-canopy/7286e172a663a3b8721a3d65d19a0462b999ce0b/runtime-proof.gif",
+      "cloud_version_id": "U5fIE59ahovUOeqKs8LvbrwGkc6SYTNE",
+      "gif_sha256": "dcb03f08e150bd2cf8295b6be6813c2db969ddbcc516051ef40c9502eb01d665",
+      "gif_bytes": 13542360,
+      "enemy_race": "Samsara",
+      "default_canopy": "ReleasedStrokah"
     }
   },
   "production_gates": [
-    "publish the hash-pinned 4K textured GLB, segmentation guide, and generated runtime prefab through the private art inventory and Unity asset contract after explicit authorization",
-    "verify a fresh checkout can bootstrap the published source and generated prefab",
     "complete final artist-approved retopology, LOD, and collision policy for release"
   ]
 }
