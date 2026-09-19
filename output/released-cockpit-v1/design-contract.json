@@ -1,0 +1,109 @@
+{
+  "schema_version": "2",
+  "module_id": "strokah-cockpit-released-v1",
+  "display_name": "Released Strokah concave cockpit filling",
+  "status": "tripo-shape-candidate",
+  "claim_boundary": "A Tripo multiview candidate exists and visibly reads as concave. No local mesh export, source-fit validation, topology pass, Unity import, runtime swap, or publication is claimed.",
+  "source": {
+    "release": "strokah-cockpit-mechanical-v1",
+    "native_path": "../cockpit-mechanical/working/strokah-stable-gait-v10.blend",
+    "native_sha256": "19c1ac385d36e53f6a5f9029868d03625fc0b418125149567506b02b4a955be6",
+    "replace_node": "tripo_part_61.001",
+    "coordinate_frame": "Blender world; +Z up, front is -Y",
+    "bounds_m": {
+      "min": [-0.0884156823, -0.1547005475, 0.8286018968],
+      "max": [0.0892513171, 0.0038333314, 1.0603709221],
+      "size": [0.1776669919, 0.1585338861, 0.2317690253]
+    }
+  },
+  "replacement_scope": {
+    "slot": "cockpit_identity",
+    "replaces_source_nodes": [
+      "tripo_part_61.001"
+    ],
+    "preserves": [
+      "existing lower cockpit cradle and jaw",
+      "torso",
+      "shoulders",
+      "all limbs"
+    ],
+    "rule": "Replace the source canopy mesh; never place this candidate over or inside a still-visible copy of the blue canopy."
+  },
+  "identity": {
+    "faction": "Released",
+    "geometric_principle": "A skull with the cranium above the jaw missing: a thin attachment perimeter around a deep, explicitly concave machine cavity.",
+    "depth_order_front_to_back": [
+      "thin broken cranial rim",
+      "open negative space",
+      "wall-hugging braided conduits",
+      "small recessed multi-aperture core",
+      "dark rear cavity"
+    ],
+    "required_features": [
+      "deep concave socket silhouette in side view",
+      "missing upper cranium rather than a canopy shell",
+      "thin attachment perimeter matching the source canopy footprint",
+      "orange braided conduits following the inner cavity walls",
+      "small pupil-less seven-aperture core recessed behind the rim",
+      "lower edge compatible with the existing jaw cradle"
+    ],
+    "forbidden_features": [
+      "convex canopy or dome",
+      "helmet silhouette",
+      "opaque cap across the upper opening",
+      "human seat or pilot-shaped void",
+      "human face or single organic eyeball",
+      "visible blue glass",
+      "full mech body in the generated part"
+    ]
+  },
+  "multiview_input": {
+    "mode": "Tripo Multiview",
+    "sheet": {
+      "path": "working/tripo-input/released-canopy-concave-multiview-v3.png",
+      "sha256": "e4430b28c750076b17392760ccbc40cf392fb9923e33587132f9086f3f83a660"
+    },
+    "views": {
+      "front": {
+        "path": "working/tripo-input/released-canopy-concave-front-v3.png",
+        "sha256": "9ad82266280d328e87288cd8e6bb6a1da4403add448eecd1b2050b912e341f69"
+      },
+      "left": {
+        "path": "working/tripo-input/released-canopy-concave-left-v3.png",
+        "sha256": "5d5ddff9a9ed028d7483c7916e0e33bf1896a2928fd4076c4a2a5b6437e7e8a2"
+      },
+      "right": {
+        "path": "working/tripo-input/released-canopy-concave-right-v3.png",
+        "sha256": "96a53807f6914573d0aba6084f12448afdbb92a70b3b6988eb12226d7a30e749"
+      },
+      "back": {
+        "path": "working/tripo-input/released-canopy-concave-back-v3.png",
+        "sha256": "45d928664b0bab389ab49a1865dea6e3516b279a85d83531026a0f4d73f44782"
+      }
+    }
+  },
+  "tripo_candidate": {
+    "asset_id": "ca172c62-35b7-4740-a2fa-5147a00baae6",
+    "url": "https://studio.tripo3d.ai/workspace/generate/ca172c62-35b7-4740-a2fa-5147a00baae6",
+    "model": "Tripo v3.1",
+    "quality": "Best Quality",
+    "topology": "triangle",
+    "faces": 2329,
+    "vertices": 1149,
+    "credits_spent": 15,
+    "visual_review": "Front and rotated profile retain a recessed bowl/socket with the rim forward of the core.",
+    "local_export": null,
+    "fit_tested": false,
+    "runtime_tested": false
+  },
+  "production_gates": [
+    "export the candidate mesh from Tripo",
+    "fit and scale it against the exact source bounds",
+    "preserve the deep concavity after cleanup and retopology",
+    "author UVs and final game materials",
+    "create LOD and collision policy appropriate to the cockpit slot",
+    "import a standalone replacement part into Unity",
+    "prove the original blue canopy is absent on Released enemies only",
+    "capture literal player-visible front and side runtime views"
+  ]
+}
