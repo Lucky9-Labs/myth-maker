@@ -37,6 +37,24 @@
           "s3_version_id": "MdKSZQ3QB2ibQuki6NlMEWYb1kbDwzlu"
         }
       ]
+    },
+    {
+      "id": "nautiloid-turret-pet",
+      "category": "equipment",
+      "title": "Nautiloid turret pet authoring source and LOD0",
+      "revisions": [
+        {
+          "version": 1,
+          "state": "uploaded",
+          "review_status": "selected",
+          "object_key": "models/equipment/nautiloid-turret-pet/v1/nautiloid-turret-pet-authoring-v1.zip",
+          "sha256": "2773fe318fd698c977eaaaa210bae19ccca8881705a580c456a23fc3b2bf25cf",
+          "staged_path": "references/concepts/nautiloid-turret-pet-authoring-v1/nautiloid-turret-pet-authoring-v1.zip",
+          "content_type": "application/zip",
+          "brief": "User-approved Tripo HD turret-pet source, 19,997-triangle LOD0 with 93 authored parts and a single vertical cyan eye, reproducible Blender builder, structural inspection, and four-view review proof for rigging.",
+          "s3_version_id": "yu_xxnxCnRwcEKqiv8Ks2kFDBrychfb_"
+        }
+      ]
     }
   ]
 }
