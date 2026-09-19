@@ -22,13 +22,13 @@ The four directional views were submitted through Tripo's **Multiview** mode, no
 
 https://studio.tripo3d.ai/workspace/generate/ca172c62-35b7-4740-a2fa-5147a00baae6
 
-Tripo textured the candidate at 4K from the same four directional source images, then segmented the textured result in Balanced mode. The final local export is hash-pinned as `working/released_strokah_concave_canopy_segmented_textured_v5.glb`; it contains 72 parts, 3,974 vertices, and 2,327 triangles. The central core is `tripo_part_11` (60 vertices / 26 triangles) and remains a separate, recentered animation pivot. The texture pass spent 20 credits and segmentation spent 40 credits.
+Tripo textured the candidate at 4K from the same four directional source images, then segmented the textured result in Balanced mode. Unity uses the hash-pinned `working/released_strokah_concave_canopy_textured_v4.glb` as the render source: 2,100 vertices, 2,329 triangles, and one embedded 4096×4096 texture. The 72-part `working/released_strokah_concave_canopy_segmented_textured_v5.glb` is retained only as an eye-selection guide. Its `tripo_part_11` bounds select a 34-vertex / 29-triangle region from the coherent 4K mesh, which becomes the separate recentered animation pivot. The texture pass spent 20 credits and segmentation spent 40 credits.
 
 ## Unity runtime implementation
 
-Hullscape commit `86d7e19b864a13b6655cf64a90e1f5efdfbbcab1` imports the hash-pinned segmented GLB, preserves Tripo's double-sided cavity materials, converts all 72 parts to `MechGame/InkLit`, registers the screen-outline layer, and mounts the result through the existing canopy slot. It hides only the source canopy panels; the proof snapshots confirm zero changes to the rest of the chassis' visibility, materials, or rendering layers.
+Hullscape commit `1ac9802557d90aabb8e138dae323cbf55baf371c` imports the hash-pinned coherent 4K GLB, uses the segmented export to extract only the eye, converts glTF's V coordinate into Unity texture space, and creates two double-sided `MechGame/InkLit` renderers sharing the same source texture. Both renderers use the screen-outline layer and mount through the existing canopy slot. It hides only the source canopy panels; the proof snapshots confirm zero changes to the rest of the chassis' visibility, materials, or rendering layers.
 
-The standalone ShowMe sweep rendered 54 frames, visually retained the open concave cavity from front through side profile, and animated `tripo_part_11` through 10.80 degrees. The final proof is `SHOWME_VERIFIED`; its commit-addressed GIF was read back from the private proof bucket with SHA-256 `4213e30d381f50b199b21bed608e2e02739fa7f81d19b69969a0c8bf6462552b`.
+The standalone ShowMe sweep rendered 54 frames and visibly resolved the dark cavity structure, metal clamps, black hoses, orange braided conduits, and seven-light eye from front through side profile. The extracted eye animated through 10.80 degrees. The final proof is `SHOWME_VERIFIED`; its commit-addressed GIF was read back from the private proof bucket with SHA-256 `0761fce894fd85436d9d94d0f457b017fd109f08b9e003f45fa82a0421b7d649`.
 
 This is not yet a shippable clean-checkout asset. Both GLBs and the generated Unity prefab remain intentionally ignored/local. Publishing them into the private art inventory and Unity asset contract requires explicit asset-upload authorization; final retopology, LOD, and collision policy also remain production gates.
 
@@ -42,4 +42,4 @@ The exact source canopy can be isolated from the pinned Strokah blend with:
   --python scripts/released_cockpit/render_source_canopy.py
 ```
 
-That produces four local reference renders under `working/source-canopy/`. The current runtime implementation fits the segmented export through the production canopy slot and has literal front-to-side Unity swap proof. Durable promotion still requires private asset publication plus final retopology, LOD, and collision policy.
+That produces four local reference renders under `working/source-canopy/`. The current runtime implementation fits the coherent 4K export through the production canopy slot, uses the segmented export only to locate the animatable eye, and has literal front-to-side Unity swap proof. Durable promotion still requires private asset publication plus final retopology, LOD, and collision policy.

@@ -55,24 +55,32 @@ class ReleasedCockpitContractTests(unittest.TestCase):
     def test_local_tripo_export_is_hash_pinned_and_keeps_the_eye_separate(self):
         candidate = self.contract["tripo_candidate"]
         self.assertEqual(
-            "26e5728b22eb4628104eddac8f8332a863ab3b6bbc8f5fa8e71a2154233525ac",
+            "622769b9eb37b95980a6467faeac6a26d9aaf68d401ad8f26c74146b2265f2c1",
             candidate["local_export"]["sha256"],
         )
-        self.assertEqual(72, candidate["local_export"]["parts"])
+        self.assertEqual(1, candidate["local_export"]["parts"])
+        self.assertEqual("JPEG 4096x4096", candidate["local_export"]["embedded_texture"])
         self.assertTrue(candidate["fit_tested"])
         self.assertTrue(candidate["runtime_tested"])
+        segmentation = self.contract["tripo_segmentation"]
+        self.assertEqual(72, segmentation["local_export"]["parts"])
+        self.assertIn("guide only", segmentation["use"])
         eye = self.contract["tripo_segmentation"]["eye"]
         self.assertEqual("tripo_part_11", eye["node"])
-        self.assertEqual(60, eye["vertices"])
+        self.assertEqual(34, eye["runtime_vertices"])
+        self.assertEqual(29, eye["runtime_triangles"])
         self.assertIn("independent", eye["runtime_boundary"])
 
     def test_runtime_uses_the_new_rendering_pipeline_without_mutating_the_chassis(self):
         runtime = self.contract["unity_runtime"]
         self.assertEqual("MechGame/InkLit", runtime["shader"])
+        self.assertIn("glTF V coordinates are inverted", runtime["material_policy"])
         report = runtime["runtime_report"]
-        self.assertEqual(72, report["replacement_renderers"])
-        self.assertEqual(72, report["ink_materials"])
-        self.assertEqual(72, report["outlined_renderers"])
+        self.assertEqual(2, report["replacement_renderers"])
+        self.assertEqual(2, report["ink_materials"])
+        self.assertEqual(2, report["outlined_renderers"])
+        self.assertEqual(1, report["shared_base_textures"])
+        self.assertEqual(4096, report["base_texture_size"])
         self.assertEqual(0, report["other_chassis_renderers_changed"])
         self.assertEqual(1, report["eye_renderers"])
         self.assertGreater(report["eye_motion_degrees"], 5)
@@ -82,7 +90,7 @@ class ReleasedCockpitContractTests(unittest.TestCase):
         self.assertEqual("local-runtime-verified-unpublished", self.contract["status"])
         self.assertIn("remain local ignored assets", self.contract["claim_boundary"])
         self.assertIn(
-            "publish the hash-pinned segmented GLB and generated runtime prefab through the private art inventory and Unity asset contract after explicit authorization",
+            "publish the hash-pinned 4K textured GLB, segmentation guide, and generated runtime prefab through the private art inventory and Unity asset contract after explicit authorization",
             self.contract["production_gates"],
         )
 
